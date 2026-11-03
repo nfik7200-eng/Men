@@ -21,7 +21,7 @@ _Last updated: 2026-11-03 (Stage 1)_
 | Block, transaction, log, instruction, transfer, deployment contracts | `bip/contracts/*.py` | Implemented and tested as data shapes. No adapter produces them yet |
 | Finding / claim / evidence / attribution contracts | `bip/contracts/findings.py` | Implemented and tested as data shapes. No detector or agent produces them yet |
 | Pre-commit config (ruff, gitleaks, large-file guard) | `.pre-commit-config.yaml` | Implemented but not fully tested: the hook set has not been run end to end. Gitleaks itself was run locally and is clean |
-| CI workflow (lint, format, pyright, pytest, gitleaks) | `.github/workflows/ci.yml` | Implemented. `checks` passed on GitHub for `663e949`. `secret-scan` failed there on a test-fixture false positive, fixed in the follow-up commit; re-confirmation is pending CI |
+| CI workflow (lint, format, pyright, pytest, gitleaks) | `.github/workflows/ci.yml` | Implemented and tested. Both jobs green on GitHub for `3342f86`. An earlier test-fixture false positive in the secret scan was fixed in that commit |
 
 Test evidence: see `IMPLEMENTATION_LOG.md` (2026-11-03, Stage 1).
 

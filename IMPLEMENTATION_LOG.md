@@ -38,6 +38,7 @@ Entries are newest first. Each entry records what was done, how it was verified,
 **CI on GitHub (commit 663e949)**
 - `checks` (ruff, pyright, pytest on Python 3.12) passed.
 - `secret-scan` failed on a false positive: the synthetic `X-API-KEY` fixture in `tests/unit/test_secrets.py`. Reproduced locally with gitleaks 8.24.3. Fixed with a `.gitleaksignore` fingerprint for that historical commit, and the fixture is now assembled at runtime. The local scans `gitleaks git` (PR range), `gitleaks dir .` and `gitleaks git --staged` each report "no leaks found".
+- CI re-run on `3342f86`: `checks` and `secret-scan` both succeeded (push and pull_request runs).
 
 **Verification (actual commands and output)**
 ```
