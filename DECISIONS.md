@@ -1,14 +1,14 @@
 # Architecture Decision Records
 
 Status values: **Proposed** (recommended, awaiting owner approval), **Accepted**, **Superseded**, **Rejected**.
-All ADRs below were written on 2026-11-03 and are **Proposed**. None has been approved by the owner yet.
+All ADRs below were written on 2026-11-03 and are **Proposed**. None has been approved by the owner yet. "Implemented provisionally" means code follows the proposal, but it can still be changed if the owner decides otherwise.
 
 | ADR | Decision | Status |
 |---|---|---|
 | 001 | Scope-based acquisition, not a full-chain replica | Proposed |
 | 002 | Lakehouse: Parquet+zstd lake (Bronze/Silver/Gold) + PostgreSQL for operational/high-value data | Proposed |
 | 003 | DuckDB + Polars for processing; defer ClickHouse | Proposed |
-| 004 | Python 3.12, uv, httpx/asyncio, pydantic; ruff, pyright, pytest | Proposed |
+| 004 | Python 3.12, uv, httpx/asyncio, pydantic; ruff, pyright, pytest | Proposed; implemented provisionally in Stage 1 (httpx not yet added) |
 | 005 | All external access via the Provider Intelligence Router; registry-driven capabilities | Proposed |
 | 006 | Postgres as job/lease queue (`SKIP LOCKED`) and event outbox; Redis only for rate-limit buckets and cache from Stage 3b | Proposed |
 | 007 | Baseline provider set (see PROVIDER_REGISTRY §5) | Proposed |
@@ -18,6 +18,7 @@ All ADRs below were written on 2026-11-03 and are **Proposed**. None has been ap
 | 011 | Relocatable storage root with disk guard; separate storage required before scale | Proposed |
 | 012 | No self-hosted ETH/SOL nodes in Phase 1 | Proposed |
 | 013 | Docker Compose with resource limits for deployment; no Kubernetes | Proposed |
+| 014 | Stage 1 package layout and configuration conventions | Proposed; implemented provisionally in Stage 1 |
 
 ---
 
@@ -64,3 +65,15 @@ All ADRs below were written on 2026-11-03 and are **Proposed**. None has been ap
 
 ## ADR-013 Deployment
 **Decision.** Docker Compose with explicit CPU and memory limits so existing VPS workloads are protected. Kubernetes is not used.
+
+## ADR-014 Stage 1 package layout and configuration conventions
+**Context.** Build Prompt 02 suggested `bip/{config,core,contracts,security,storage}`. The roadmap's Stage 1 row listed `router`, `chains`, `ingest`, `quality`, `process` and `intel` packages as well.
+**Decision.**
+- Create only packages that contain working code: `config`, `core`, `contracts`, `security` and `storage`. Later packages are added with their stage, never as empty placeholders.
+- Settings come only from `BIP_*` environment variables (nested with `__`). `.env` is never read implicitly; local use is `uv run --env-file .env`.
+- Contracts are immutable pydantic models with `extra="forbid"` and strict integer types (no bool or string coercion).
+- EVM and Solana each get their own record models, sharing only chain-agnostic references: `TxRef`, `ChainPosition`, `AddressRef`, `Provenance`.
+- New chains are added as one entry in `KNOWN_CHAINS`.
+**Consequences.**
+- Unknown `BIP_*` variables are ignored, because provider secret references will share the prefix. This should be revisited in Stage 2.
+- Adapters must convert RPC hex and string values to Python ints themselves, since contracts never coerce.

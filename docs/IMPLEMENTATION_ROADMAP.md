@@ -4,10 +4,20 @@ Version 0.1 (2026-11-03). Status: **Draft, awaiting approval.**
 
 Each stage is small, independently testable, and ends with green checks recorded in `IMPLEMENTATION_LOG.md`. "Live" means touching real providers. Stages 1–3 need **no network and no accounts**.
 
+## Progress
+
+| Stage | Status | Evidence |
+|---|---|---|
+| 0 Blueprint | Done; ADRs still awaiting owner approval | Commit `c3d5251`, PR #2 |
+| 1 Repository skeleton & core contracts | Done (tested foundation, no integrations) | 207 unit tests passing; ruff and pyright (strict) clean on Python 3.12 and 3.13. See `IMPLEMENTATION_LOG.md`, 2026-11-03 Stage 1 |
+| 2 onward | Not started | — |
+
+## Stages
+
 | # | Stage | Delivers | Depends on | Network? | Acceptance tests |
 |---|---|---|---|---|---|
-| 0 | **Blueprint** (this task) | Docs, ADRs, roadmap | — | research only | Docs consistent; owner review |
-| 1 | **Repository skeleton & core contracts** | `pyproject` (uv), ruff/pyright/pytest config, package layout `bip/{core,config,router,chains,storage,ingest,quality,process,intel}`, typed settings with `SecretStr`, provenance envelope and natural-key models, URL/SSRF guard, logging with redaction, disk-guard utility, `.env.example`, pre-commit (ruff, gitleaks) | 0 | No | Unit tests: settings load/redaction, SSRF guard rejects private/metadata IPs and odd schemes, envelope validation, disk guard thresholds |
+| 0 | **Blueprint** | Docs, ADRs, roadmap | — | research only | Docs consistent; owner review |
+| 1 | **Repository skeleton & core contracts** | `pyproject` (uv), ruff/pyright/pytest config, package layout `bip/{config,core,security,contracts,storage}` (later-stage packages are created with their stage), typed settings with `SecretStr`, provenance envelope and natural-key models, URL/SSRF guard, logging with redaction, disk-guard utility, `.env.example`, pre-commit (ruff, gitleaks) | 0 | No | Unit tests: settings load/redaction, SSRF guard rejects private/metadata IPs and odd schemes, envelope validation, disk guard thresholds |
 | 2 | **Provider registry** | YAML schema + loader + validator; initial entries for the providers in `PROVIDER_REGISTRY.md` with `verified_at: null`; capability model and request-capability derivation | 1 | No | Invalid YAML rejected; capability gates computed correctly for `eth_getLogs` (range, pre-Merge), Solana `getTransaction` (version) |
 | 3 | **Router core (offline)** | Token buckets (multi-window), cost accounting, circuit breaker, cooldown, scoring and selection, retry/backoff with jitter, validation hooks, verification policy, cache interface; fake-provider test harness | 2 | No | Deterministic simulations: failover only to capable providers; quota reserve honoured; breaker transitions; 429 cooldown; no request when no eligible provider |
 | 3b | **Shared state** | Postgres schema (`registry`, `ingest`) via Alembic; optional Redis bucket backend | 3 | Local DB only (**owner approval to run Postgres/Redis**) | Multi-process bucket correctness test |

@@ -10,7 +10,7 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 ## Status
 
-**Phase: Foundation / blueprint.** No application code yet. See [`CURRENT_STATE.md`](CURRENT_STATE.md).
+**Stage 1: engineering foundation.** Typed configuration, secret redaction, URL validation, storage safety and canonical data contracts exist, all with offline unit tests. Nothing connects to a blockchain, provider, database or AI model yet. BIP is **not operational**. See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
 ## Documentation map
 
@@ -27,6 +27,7 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 | [docs/SECURITY_ARCHITECTURE.md](docs/SECURITY_ARCHITECTURE.md) | Security requirements |
 | [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | Staged build plan (I) |
 | [docs/RISK_REGISTER.md](docs/RISK_REGISTER.md) | Risks and mitigations |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer setup, commands, configuration, security rules |
 
 ## Proposed stack (awaiting approval — see DECISIONS.md)
 
@@ -36,10 +37,19 @@ Explicitly **not** used at the start: Kafka, Kubernetes, Elasticsearch, Neo4j, C
 
 ## Setup
 
-There is nothing to install yet. Setup instructions will be added in roadmap Stage 1 (repository skeleton). When added, they will:
-- never require paid services;
-- read secrets only from environment variables or a git-ignored `.env`;
-- store all data under a configurable `BIP_DATA_ROOT` so it can live on separate storage.
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). No database, Docker, API keys or network access is needed for the checks.
+
+```bash
+uv sync --locked
+```
+
+```bash
+make check
+```
+
+`make check` runs ruff (lint and format), pyright (strict) and pytest. The individual commands, the package structure, every configuration variable and the security rules for later stages are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
+Configuration comes from `BIP_*` environment variables. To use a local file, copy `.env.example` to `.env` (git-ignored) and run commands with `uv run --env-file .env …`. Settings never read `.env` implicitly.
 
 ## Operating constraints
 

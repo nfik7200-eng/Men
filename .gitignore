@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Local configuration and secrets - never commit
+.env
+.env.*
+!.env.example
+*.secret
+secrets/
+
+# Local data - BIP data must never be committed
+var/
+data/
+*.parquet
+*.car
