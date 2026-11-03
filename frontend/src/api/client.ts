@@ -1,6 +1,11 @@
 import type {
   ChainStatus,
   DashboardSummary,
+  HealthCheck,
+  IngestionJob,
+  NetworkObservation,
+  ObservationPage,
+  ProviderDetail,
   FindingSummary,
   Health,
   Investigation,
@@ -79,7 +84,25 @@ export const api = {
   health: () => request<Health>("/health"),
   chains: () => request<ChainStatus[]>("/chains"),
   summary: () => request<DashboardSummary>("/dashboard/summary"),
-  providers: () => request<Provider[]>("/providers/status"),
+  providers: () => request<Provider[]>("/providers"),
+  provider: (id: string) => request<ProviderDetail>(`/providers/${enc(id)}`),
+  healthCheck: (id: string) => request<HealthCheck>(`/providers/${enc(id)}/health-check`, { method: "POST" }),
+  setProviderEnabled: (id: string, enabled: boolean) =>
+    request<Provider>(`/providers/${enc(id)}`, { method: "PATCH", ...json({ enabled }) }),
+  network: (chain: string) => request<NetworkObservation>(`/chains/${enc(chain)}/network`),
+  fetchLatestBlock: (chain: string) =>
+    request<NetworkObservation>(`/chains/${enc(chain)}/latest-block`, { method: "POST" }),
+  ingestWallet: (chain: string, address: string, limit: number) =>
+    request<IngestionJob>(`/ingestion/wallet/${enc(chain)}/${enc(address)}?limit=${limit}`, { method: "POST" }),
+  job: (id: number) => request<IngestionJob>(`/ingestion/jobs/${id}`),
+  jobs: (chain: string, address: string) =>
+    request<IngestionJob[]>(`/ingestion/jobs?limit=5&chain=${enc(chain)}&address=${enc(address)}`),
+  walletTransactions: (chain: string, address: string) =>
+    request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/transactions?limit=50`),
+  walletTransfers: (chain: string, address: string) =>
+    request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/transfers?limit=50`),
+  walletBalanceChanges: (chain: string, address: string) =>
+    request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/balance-changes?limit=50`),
   settings: () => request<PublicSettings>("/settings"),
   wallets: (limit = 50, offset = 0) => request<WalletList>(`/wallets?limit=${limit}&offset=${offset}`),
   wallet: (chain: string, address: string) =>

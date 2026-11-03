@@ -67,7 +67,7 @@ def test_repeated_startup_is_safe(settings: Settings) -> None:
     second = create_db_engine(settings)
     assert migrate(second) == schema.SCHEMA_VERSION
     with second.connect() as conn:
-        assert conn.execute(select(schema.schema_migrations.c.version)).scalars().all() == [1]
+        assert conn.execute(select(schema.schema_migrations.c.version)).scalars().all() == [1, 2]
     assert [w.name for w in Repository(second).list_watchlists()] == ["Kept"]
     second.dispose()
 

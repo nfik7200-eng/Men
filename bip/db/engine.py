@@ -31,11 +31,64 @@ class Migration:
     apply: Callable[[Connection], None]
 
 
+_SQL_DIR = Path(__file__).with_name("sql")
+
+
+def _run_sql_file(conn: Connection, name: str) -> None:
+    body = (_SQL_DIR / name).read_text(encoding="utf-8")
+    lines = [ln for ln in body.splitlines() if not ln.lstrip().startswith("--")]
+    for statement in "\n".join(lines).split(";"):
+        if statement.strip():
+            conn.exec_driver_sql(statement)
+
+
 def _initial_schema(conn: Connection) -> None:
-    schema.metadata.create_all(conn)
+    """v1: frozen DDL from BIP 0.1 (never edited)."""
+    _run_sql_file(conn, "v1.sql")
 
 
-MIGRATIONS: tuple[Migration, ...] = (Migration(1, "initial operational schema", _initial_schema),)
+_V2_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("transactions", "network VARCHAR(32)"),
+    ("transactions", "block_hash VARCHAR(100)"),
+    ("transactions", "finality VARCHAR(16)"),
+    ("transactions", "parse_status VARCHAR(16) NOT NULL DEFAULT 'complete'"),
+    ("transactions", "value_raw VARCHAR(80)"),
+    ("transactions", "fee_raw VARCHAR(80)"),
+    ("transactions", "gas_used VARCHAR(80)"),
+    ("transactions", "instruction_count INTEGER"),
+    ("transactions", "unknown_instruction_count INTEGER"),
+    ("transactions", "program_ids_json TEXT"),
+    ("transactions", "raw_ref VARCHAR(100)"),
+    ("transactions", "run_id INTEGER"),
+    ("transfers", "observation_kind VARCHAR(40) NOT NULL DEFAULT 'unspecified'"),
+    ("transfers", "parse_status VARCHAR(16) NOT NULL DEFAULT 'complete'"),
+    ("transfers", "block_time VARCHAR(32)"),
+    ("transfers", "raw_ref VARCHAR(100)"),
+    ("provider_checks", "last_failure_at VARCHAR(32)"),
+    ("provider_checks", "consecutive_failures INTEGER NOT NULL DEFAULT 0"),
+    ("provider_checks", "last_latency_ms INTEGER"),
+)
+
+
+def _provider_registry_and_ingestion(conn: Connection) -> None:
+    """v2: provider health, network observations, blocks, balance changes, raw payloads,
+    ingestion runs/errors/cursors; new columns on transactions, transfers, provider_checks."""
+    for table, column_ddl in _V2_COLUMNS:
+        conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column_ddl}")
+    for table in schema.V2_TABLES:
+        table.create(conn)
+    conn.exec_driver_sql(
+        "CREATE INDEX ix_transactions_chain_block_time ON transactions (chain, block_time)"
+    )
+    conn.exec_driver_sql("CREATE INDEX ix_transfers_chain_tx_id ON transfers (chain, tx_id)")
+
+
+MIGRATIONS: tuple[Migration, ...] = (
+    Migration(1, "initial operational schema", _initial_schema),
+    Migration(
+        2, "provider registry state and read-only ingestion", _provider_registry_and_ingestion
+    ),
+)
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 
 

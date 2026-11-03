@@ -6,7 +6,9 @@ database under the configured data root. Tests inject a temporary engine and dis
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+import threading
+import time
+from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -21,6 +23,7 @@ from bip.api.routes import (
     chains,
     dashboard,
     health,
+    ingestion,
     investigations,
     providers,
     settings_route,
@@ -30,6 +33,11 @@ from bip.api.routes import (
 from bip.config.settings import Settings, load_settings
 from bip.db.engine import create_db_engine
 from bip.db.repository import Repository
+from bip.ingest.wallet import WalletIngestor
+from bip.providers.registry import Registry, default_registry
+from bip.providers.state import ProviderStateStore
+from bip.router.router import ProviderRouter
+from bip.rpc.transport import HttpsTransport, Transport
 from bip.storage.disk_guard import DiskGuard, guard_from_settings
 
 API_PREFIX = "/api/v1"
@@ -40,14 +48,42 @@ def create_app(
     *,
     engine: Engine | None = None,
     disk_guard: DiskGuard | None = None,
+    transport: Transport | None = None,
+    registry: Registry | None = None,
+    environ: Mapping[str, str] | None = None,
+    rpc_sleep: Callable[[float], None] | None = None,
 ) -> FastAPI:
+    """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport`` and ``environ``;
+    in normal use the transport is the real hardened HTTPS client."""
     cfg = settings if settings is not None else load_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         db = engine if engine is not None else create_db_engine(cfg)
         guard = disk_guard if disk_guard is not None else guard_from_settings(cfg)
-        app.state.bip = AppContext(settings=cfg, repo=Repository(db), disk_guard=guard)
+        repo = Repository(db)
+        reg = registry if registry is not None else default_registry()
+        state = ProviderStateStore(repo)
+        router = ProviderRouter(
+            reg,
+            cfg,
+            transport
+            if transport is not None
+            else HttpsTransport(use_env_proxy=cfg.rpc.use_env_proxy),
+            state,
+            environ=environ,
+            sleep=rpc_sleep if rpc_sleep is not None else time.sleep,
+        )
+        app.state.bip = AppContext(
+            settings=cfg,
+            repo=repo,
+            disk_guard=guard,
+            registry=reg,
+            provider_state=state,
+            router=router,
+            ingestor=WalletIngestor(router, repo, cfg),
+            ingest_lock=threading.Lock(),
+        )
         try:
             yield
         finally:
@@ -72,6 +108,7 @@ def create_app(
         watchlists,
         investigations,
         settings_route,
+        ingestion,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

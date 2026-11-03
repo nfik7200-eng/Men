@@ -21,6 +21,10 @@ All ADRs below were written on 2026-11-03 and are **Proposed**. None has been ap
 | 014 | Stage 1 package layout and configuration conventions | Proposed; implemented provisionally in Stage 1 |
 | 015 | SQLite (via SQLAlchemy Core) as the BIP 0.1 operational store; PostgreSQL deferred | Proposed; implemented provisionally in Stage 1b |
 | 016 | FastAPI + React/Vite/TypeScript application moved forward to Stage 1b (was Stages 13/16, Next.js) | Proposed; implemented provisionally in Stage 1b |
+| 017 | Provider registry as TOML (stdlib tomllib) instead of YAML; read-only method allow-list; host allow-lists | Proposed; implemented provisionally in Stage 2 |
+| 018 | Stdlib HTTPS transport with IP pinning, no redirects and size caps (no httpx/web3/solana SDK) | Proposed; implemented provisionally in Stage 2 |
+| 019 | Bounded synchronous ingestion with a single-run lock instead of a job queue | Proposed; implemented provisionally in Stage 2 |
+| 020 | Ethereum wallet discovery via Transfer logs over a bounded block window; Solana via signature lists | Proposed; implemented provisionally in Stage 2 |
 
 ---
 
@@ -102,3 +106,40 @@ All ADRs below were written on 2026-11-03 and are **Proposed**. None has been ap
 - No Node server in production: the SPA build can be served as static files.
 - Next.js is dropped unless SSR becomes necessary.
 - The UI shows real backend state only. Sections whose engines do not exist (flows, opportunities) are clearly marked placeholders.
+
+## ADR-017 Provider registry format and safety rules
+**Context.** `PROVIDER_REGISTRY.md` §6 sketched a YAML registry, but YAML would add a dependency.
+**Decision.**
+- Use `bip/providers/registry.toml`, loaded with the stdlib `tomllib`. Entries are validated by pydantic at startup.
+- **Methods:** only methods in a code-level read-only allow-list may be listed. Write and signing methods are rejected.
+- **Endpoints:** a built-in URL is allowed only for keyless public providers. Credentialed URLs come from `BIP_PROVIDER_*` environment variables, and their host must match that provider's `allowed_hosts`.
+- **Unknowns:** undocumented capabilities and limits are left out, so they load as unknown.
+- **Throttle:** `client_rps` is BIP's own politeness throttle and is labelled as such.
+- **Consequence:** adding a provider is a data change, and no ingestion code changes.
+
+## ADR-018 Outbound transport
+**Decision.**
+- A small transport built on the standard-library `http.client`: HTTPS only, the resolved address validated and pinned, TLS checked against the hostname, redirects refused, responses capped by size, timeouts on every request.
+- Optional `HTTPS_PROXY` mode for restricted networks. The proxy resolves hosts, so pinning is not possible in that mode, and this is documented.
+- JSON-RPC envelopes are validated strictly.
+- No web3.py or Solana SDK. Parsing is done by BIP's own pure functions over BIP contracts.
+**Trade-off.** The code and its tests are BIP's to maintain. In return it has exact control over the SSRF and size controls, and no new dependency.
+
+## ADR-019 Synchronous bounded ingestion
+**Decision.**
+- `POST /ingestion/wallet/{chain}/{address}` runs one bounded run inside the request: at most 50 transactions, 150 RPC calls and 90 s by default.
+- A process-wide lock allows one run at a time. A second request gets 409.
+- Runs, errors and cursors are persisted, so an interrupted run resumes.
+**Consequences.**
+- The request can take tens of seconds on rate-limited public endpoints.
+- A queue (ADR-006, Postgres `SKIP LOCKED`) replaces this when background or bulk ingestion is needed.
+
+## ADR-020 Wallet discovery without an address index
+**Context.** Standard Ethereum JSON-RPC has no "transactions by address" method.
+**Decision.**
+- **Ethereum:** discover activity through `eth_getLogs` for the ERC-20/721 `Transfer` topic with the wallet as sender or recipient, over a bounded recent block window (default 2,000 blocks, chunked and split adaptively). Then fetch each transaction, its receipt and its block.
+- **Solana:** use `getSignaturesForAddress`, bounded, newest first, then `getTransaction`.
+- Coverage gaps are stored with each run and shown in the UI. On Ethereum these are plain ETH transfers without logs, internal transfers, and activity older than the window.
+**Alternatives.**
+- Explorer or indexer APIs: need keys, and are planned for Stage 10.
+- Block scanning: too costly on free tiers.

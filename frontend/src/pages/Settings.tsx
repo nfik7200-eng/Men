@@ -1,6 +1,6 @@
 import { api } from "../api/client";
 import { ErrorState, Loading, PageHeader, Panel, Pill } from "../components/ui";
-import { fmtBytes } from "../lib/format";
+import { fmtBytes, fmtInt } from "../lib/format";
 import { useApi } from "../lib/useApi";
 
 export default function Settings() {
@@ -71,14 +71,20 @@ export default function Settings() {
           </Panel>
           <Panel title="Data acquisition">
             <dl className="kv">
-              <dt>Live provider requests</dt>
-              <dd>
-                <Pill tone="idle">{settings.data.live_requests_enabled ? "Enabled" : "Disabled"}</Pill>
-              </dd>
               <dt>Cross-verification sample rate</dt>
-              <dd className="num">{(settings.data.cross_verification_sample_rate * 100).toFixed(1)}%</dd>
+              <dd className="num">{(settings.data.cross_verification_sample_rate * 100).toFixed(1)}% (not yet applied)</dd>
             </dl>
-            <p className="note">These flags have no effect until the provider router exists.</p>
+            <dl className="kv">
+              <dt>Default / max transactions per run</dt>
+              <dd className="num">{settings.data.ingest_default_limit} / {settings.data.ingest_max_limit}</dd>
+              <dt>Ethereum log scan window</dt>
+              <dd className="num">{fmtInt(settings.data.ethereum_lookback_blocks)} blocks</dd>
+              <dt>Solana commitment</dt>
+              <dd>{settings.data.solana_commitment}</dd>
+              <dt>RPC timeout / attempts</dt>
+              <dd className="num">{settings.data.rpc_timeout_s} s / {settings.data.rpc_max_attempts}</dd>
+            </dl>
+            <p className="note">Requests are read-only and bounded. Wallet retrieval runs one at a time.</p>
           </Panel>
           <Panel title="API">
             <dl className="kv">

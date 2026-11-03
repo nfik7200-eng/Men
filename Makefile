@@ -1,6 +1,6 @@
 # Developer shortcuts. Everything runs locally; `install` downloads dependencies once.
 .PHONY: install install-backend install-frontend lint format typecheck test check \
-        api web web-build web-lint web-typecheck web-test e2e check-all precommit
+        api web web-build web-lint web-typecheck web-test e2e check-all precommit live-smoke
 
 install: install-backend install-frontend
 
@@ -51,6 +51,9 @@ e2e: web-build  ## Real backend + built frontend + Chromium, temporary data root
 	cd frontend && npm run e2e
 
 check-all: check web-lint web-typecheck web-test e2e
+
+live-smoke:  ## REAL network: identity + head + bounded balance read per usable provider (opt-in)
+	BIP_LIVE_RPC=1 uv run python -m bip.tools.live_smoke
 
 precommit:
 	uvx pre-commit run --all-files

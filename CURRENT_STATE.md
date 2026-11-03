@@ -1,49 +1,35 @@
 # Current State
 
-_Last updated: 2026-11-03 (Stage 1b, BIP 0.1)_
+_Last updated: 2026-11-03 (Stage 2)_
 
 ## Phase
-**Stage 1b — BIP 0.1 application foundation: done.**
-- BIP is a locally runnable prototype: FastAPI backend, SQLite database, REST API and a connected React dashboard.
-- Watchlists and investigations work end to end.
-- **No chain, provider or AI integration exists.** Every chain shows "configured, no adapter" and zero data.
-- **There is no authentication**: local use only.
+**Stage 2: provider registry and read-only data engine.** Built and verified offline.
+- **Live provider verification is blocked:** the authoring sandbox's network policy refuses connections to every RPC host. No real Ethereum or Solana provider has answered a BIP request yet.
+- BIP is a local prototype with **no authentication**.
 
-## What exists in code
+## Status by component (honest labels)
 
-### Stage 1 foundation (unchanged, reused)
-| Component | Module | Status |
+| Component | Status | Evidence |
 |---|---|---|
-| Typed settings (now with `api` and `database` groups) | `bip/config/settings.py` | Implemented and tested |
-| Secrets and redaction; redacting logging | `bip/security/secrets.py`, `bip/core/logging.py` | Implemented and tested |
-| URL validation (first SSRF layer) | `bip/security/url_validation.py` | Implemented and tested. Not used yet, because the API fetches no URLs |
-| Storage root, disk guard | `bip/storage/` | Implemented and tested. Now gates every API write |
-| Data contracts (chain records, provenance, findings) | `bip/contracts/` | Implemented and tested. Now used by the database layer and API validation |
+| Stage 1 foundation and BIP 0.1 app (settings, security, storage, contracts, API, SQLite, dashboard) | Implemented and tested | Unchanged behaviour; existing tests pass |
+| Provider registry: 16 entries, read-only method allow-list, host allow-lists, unknowns kept unknown | Implemented and tested | `tests/stage2/test_registry_and_rpc.py` |
+| Provider lifecycle (registered → … → healthy/degraded/unavailable/disabled), enable/disable | Implemented and tested | Registry, router and API tests |
+| Router: capability gating, identity verification, bounded retries with backoff and jitter, 429/Retry-After, unsupported-method memory, call budget, throttle | Implemented and tested (offline) | `tests/stage2/test_router.py` |
+| HTTPS transport: IP pinning, DNS-vs-unsafe distinction, no redirects, size cap, proxy mode | Implemented and tested | Offline tests. Against a real allowed host (pypi.org, not an RPC provider) via proxy: TLS tunnel OK, a 301 redirect was refused, the size cap triggered |
+| Ethereum adapter and parsers (blocks, tx, receipts, logs, ERC-20/721 Transfer, native value) | Implemented, tested offline. **Not tested against a real provider** | Fixtures in `tests/stage2/fakes.py` |
+| Solana adapter and parsers (signatures, tx legacy/v0, fees, errors, System/SPL transfers, balance changes) | Implemented, tested offline. **Not tested against a real provider** | Same |
+| Wallet ingestion (bounded, resumable, idempotent, provenance, raw payloads, errors recorded) | Implemented and tested (offline) | `tests/stage2/test_ingestion_api.py` |
+| Migration v2 (in place, preserves v1 data) | Implemented and tested | v1 fixture upgrade test |
+| API: providers, health check, chain network and latest block, wallet transactions/transfers/balance changes, ingestion jobs | Implemented and tested (offline transport) | API tests |
+| Dashboard: Providers (health check, details, enable/disable), Chains (fetch head), Wallet retrieval and observations, Overview metrics | Implemented and tested | Vitest, plus e2e Phase B on fixture data |
+| Live smoke command (`make live-smoke`) | Implemented. **Run: 0/2 keyless providers reachable** (DNS blocked direct; proxy CONNECT refused, 403) | 2026-11-03 run |
+| Capital Flows, Opportunities, AI research | Planned (placeholders only) | — |
+| Cross-provider verification, historical crawler, live followers, Parquet lake | Planned | — |
 
-### BIP 0.1 application
-| Component | Module | Status |
-|---|---|---|
-| SQLite schema v1, versioned migrations, connectivity check | `bip/db/schema.py`, `bip/db/engine.py` | Implemented and tested |
-| Repository: watchlists, investigations, findings with evidence, wallets, activity log | `bip/db/repository.py` | Implemented and tested |
-| Chain-data writers (`store_transaction`, `store_transfer`, wallet observation) | `bip/db/repository.py` | Implemented and tested with synthetic fixtures. Nothing calls them in the app yet; ingestion (Stage 6+) will |
-| Provider catalog | `bip/providers/catalog.py` | Implemented and tested as metadata. Every provider reports `unavailable` because no adapter exists |
-| REST API `/api/v1`: health, chains, dashboard summary, providers, settings, wallets, watchlists, investigations, findings | `bip/api/` | Implemented and tested |
-| API safety: CORS allow-list, body-size limit, error envelope, security headers, disk-guard write gating | `bip/api/` | Implemented and tested |
-| Dashboard pages: Overview, Chains, Wallet Intelligence (search, validation, profile), Investigations, Providers, Watchlists, Settings | `frontend/src/pages/` | Implemented and tested |
-| Capital Flows and Opportunities pages | `frontend/src/pages/` | Partially implemented: page structure and honest placeholders only. No engines exist |
-| Typed API client, loading / empty / error / retry states | `frontend/src/api/`, `frontend/src/lib/useApi.ts` | Implemented and tested |
-| End-to-end test (real backend + built UI + Chromium, restart persistence) | `frontend/e2e/smoke.mjs` | Implemented and tested locally. Not in CI (needs Chromium) |
-| CI: backend checks, frontend lint/types/tests/build, gitleaks | `.github/workflows/ci.yml` | Implemented and tested. All three jobs green on GitHub for `09bb27c` |
-
-Test evidence: `IMPLEMENTATION_LOG.md` (2026-11-03, Stage 1b).
-
-## What does not exist yet
-- Authentication and authorization.
-- Provider registry YAML and verified limits (Stage 2), the router and HTTP client (Stage 3), the capability prober (Stage 4).
-- Ethereum and Solana adapters and ingestion (Stages 6–8). The database therefore holds no chain data.
-- Parquet lake (Stage 5), normalization, features, detectors (Stages 9–12).
-- Capital-flow graphs, opportunity scoring, AI agents (Stages 11–15).
-- Provider accounts or API keys.
+## Blockers
+1. **Network policy (authoring sandbox):** `ethereum-rpc.publicnode.com`, `api.mainnet.solana.com` and other RPC hosts are denied. To verify live, run `make live-smoke` on a machine with internet access, or allow those hosts in the cloud environment's network settings.
+2. **Credentials:** Alchemy, Infura, Ankr, QuickNode and Helius need free accounts and keys (`BIP_PROVIDER_*_URL`). None are configured. No accounts were created.
+3. **PublicNode Solana hostname** is unconfirmed (sources disagree). It is left unconfigured.
 
 ## VPS (owner's Contabo, 8 vCPU / 24 GB RAM / ~145 GB disk, ~94% used at last measurement)
 Untouched by BIP. No installs, downloads or deletions have been made. The default `BIP_MAX_DATA_BYTES` is 5 GiB, and the free-space floor is 5 GiB / 5%.
@@ -53,7 +39,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 - `claude/nifty-ptolemy-1emo3n`: separate Graphify developer tooling. Not merged, not part of BIP code.
 
 ## Awaiting owner approval
-1. ADRs 001–016 (all Proposed). ADR-004 tooling, ADR-014 layout, ADR-015 SQLite and ADR-016 application stack are already implemented provisionally.
+1. ADRs 001–020 (all Proposed). Already implemented provisionally: ADR-004, ADR-014 to ADR-016, and ADR-017 to ADR-020 (TOML registry, stdlib transport, synchronous bounded ingestion, log-based Ethereum discovery).
 2. Storage target beyond the ~5 GB prototype cap.
 3. Free accounts: Alchemy, Infura, Chainstack, Helius, Etherscan, GitHub PAT, Google Cloud BigQuery sandbox.
 4. Where Postgres (and later Redis) run, and with what resource limits.
@@ -63,6 +49,11 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 8. Remote LLM providers allowed, or local Ollama only.
 
 ## Known limitations
+- Ethereum wallet history is discovered only through Transfer logs in the last 2,000 blocks (configurable). Plain ETH transfers without logs, internal transfers and ERC-1155 are not covered.
+- Solana history is bounded to the most recent signatures per run. Cursors continue older history on later runs.
+- Every ingested record is `unverified`, because it comes from a single provider with no cross-check yet.
+- Ingestion is synchronous, one run at a time. A run can take tens of seconds on rate-limited public endpoints.
+- `GET /chains/{chain}/latest-block` performs a network request and stores an observation. It is also exposed as POST, which the dashboard uses.
 - No authentication. The API binds to 127.0.0.1 by default and must not be exposed.
 - SQLite is single-host. It is fine for one local user but not for multiple concurrent worker processes (ADR-015).
 - The disk guard measures the data directory on every write request. That is acceptable at prototype scale, but it should be cached once the lake grows.

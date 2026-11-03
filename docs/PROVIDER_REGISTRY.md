@@ -2,6 +2,37 @@
 
 Status: **Research snapshot, 2026-11-03.**
 
+## Stage 2 status (2026-11-03)
+
+The machine-readable registry now exists: `bip/providers/registry.toml`, loaded by `bip/providers/registry.py`. This table records what is *implemented* and what was *actually tested*.
+
+| Provider id | Chain | Adapter | Credentials | Endpoint in registry | Real request tested | Notes |
+|---|---|---|---|---|---|---|
+| `publicnode-eth` | Ethereum | Yes | No | `https://ethereum-rpc.publicnode.com` | **Failed: host blocked by the sandbox network policy** (no answer obtained) | Hostname from a third-party monitor plus the ethereum.org listing |
+| `solana-public` | Solana | Yes | No | `https://api.mainnet.solana.com` (current official docs) | **Failed: host blocked by the sandbox network policy** | Official limit 100 req/10 s per IP |
+| `publicnode-sol` | Solana | Yes | No | None: sources disagree on the hostname | No | Set `BIP_PROVIDER_PUBLICNODE_SOL_URL` after confirming it |
+| `ankr-eth` | Ethereum | Yes | Yes (treated as) | Via env | No | Bare keyless URL unconfirmed |
+| `alchemy-eth`, `alchemy-sol` | Ethereum, Solana | Yes | Yes | Via env | No | Free account needed |
+| `infura-eth` | Ethereum | Yes | Yes | Via env | No | Free account needed |
+| `quicknode-eth`, `quicknode-sol` | Ethereum, Solana | Yes | Yes | Via env | No | Free tier is a trial |
+| `helius-sol` | Solana | Yes | Yes | Via env | No | Free account needed |
+| `etherscan`, `bigquery`, `old-faithful`, `thegraph`, `defillama`, `github` | various | **No** | varies | n/a | n/a | Registered only |
+
+**Methods exposed through adapters.**
+- Ethereum: `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBalance`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getLogs`, `eth_getTransactionCount`.
+- Solana: `getHealth`, `getGenesisHash`, `getSlot`, `getBlock`, `getBalance`, `getSignaturesForAddress`, `getTransaction`.
+
+**Not yet confirmed for any provider:**
+- archive depth;
+- `eth_getLogs` range limits (the code adapts when a provider reports one);
+- Solana history depth.
+
+**Endpoint hostnames, rechecked by search on 2026-11-03:**
+- PublicNode is listed on ethereum.org. The `ethereum-rpc.publicnode.com` hostname was confirmed only by a third-party monitor (main.net), which observed `eth_chainId` returning 0x1.
+- Solana's current docs use `api.mainnet.solana.com`; older docs use `api.mainnet-beta.solana.com`.
+- These URL formats come from the providers' docs as quoted in search: Infura `https://mainnet.infura.io/v3/<KEY>`, Helius `https://mainnet.helius-rpc.com/?api-key=<KEY>`.
+- These come from third-party sources: Alchemy `https://eth-mainnet.g.alchemy.com/v2/<KEY>` and `https://solana-mainnet.g.alchemy.com/v2/<KEY>`, and Ankr `https://rpc.ankr.com/eth/<KEY>`.
+
 ## 0. How to read this document
 
 **Verification method used on 2026-11-03.** This session's network policy blocked direct fetches of provider websites (DNS resolution failed for `alchemy.com`, `helius.dev`, `ankr.com`, `drpc.org`, `infura.io`). Figures below come from web-search results that quoted official documentation pages. Each figure is graded:

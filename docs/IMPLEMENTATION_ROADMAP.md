@@ -11,7 +11,9 @@ Each stage is small, independently testable, and ends with green checks recorded
 | 0 Blueprint | Done; ADRs still awaiting owner approval | Commit `c3d5251`, PR #2 |
 | 1 Repository skeleton & core contracts | Done (tested foundation, no integrations) | 213 unit tests passing; ruff and pyright (strict) clean on Python 3.12 and 3.13; gitleaks clean. See `IMPLEMENTATION_LOG.md`, 2026-11-03 Stage 1 |
 | 1b BIP 0.1 application foundation | Done (local prototype; no chain integrations) | Backend, SQLite, REST API, React dashboard; pytest, Vitest and a 15-check end-to-end run. See `IMPLEMENTATION_LOG.md`, 2026-11-03 Stage 1b |
-| 2 onward | Not started | — |
+| 2 Provider registry **+ read-only data engine** (expanded scope, Build Prompt 03) | Done offline; **live provider verification blocked** by the authoring network policy | Registry, router, Ethereum/Solana adapters, ingestion, API, UI; 345 pytest, 30 Vitest, 21/21 e2e (Phase B on offline fixtures). Live smoke: 0 of 2 keyless providers reachable from the sandbox |
+| 3, 4, 6–8 (partially pulled forward into 2) | Partial | Router core, capability checks and scoped wallet ingestion exist. Still missing: circuit-breaker tuning, a multi-process quota store (3b), a full capability prober (4), historical range crawler and live followers (6–8) |
+| 5 onward (others) | Not started | — |
 
 **Re-sequencing (ADR-016).** The owner moved the API and dashboard forward to Stage 1b. Stages 13 and 16 now extend them: metrics, backup tooling, auth, graph views. They no longer create them. The rest of the order is unchanged.
 

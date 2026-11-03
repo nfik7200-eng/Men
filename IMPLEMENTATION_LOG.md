@@ -2,6 +2,52 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-03 — Stage 2: Provider registry and read-only data engine
+
+**Scope.**
+- Provider registry and lifecycle, router, hardened transport, and Ethereum and Solana adapters.
+- Bounded wallet ingestion, migration v2, API and dashboard integration.
+- An opt-in live smoke tool.
+- Built on the existing `bip/` package, API, SQLite and UI. Nothing was rewritten.
+
+**Plugins and tools.**
+- Context7 and the GitHub plugin failed to connect (proxy refusal), so no library docs came from Context7.
+- Web search was used for provider endpoints, auth and limits.
+- Pyright ran via the CLI.
+- An independent code-review agent (`feature-dev:code-reviewer`) reviewed the stage.
+- Superpowers skills were available, but no skill-driven workflow was invoked.
+
+**Live network results (real, 2026-11-03).**
+- `make live-smoke` reached **0/2** keyless providers:
+  - direct mode: DNS resolution failed;
+  - proxy mode: the proxy refused CONNECT (403).
+- The sandbox network policy blocks RPC hosts.
+- The proxy transport itself was verified against an allowed host (pypi.org): the TLS tunnel worked, a 301 was refused and the size cap triggered.
+- **No real provider has answered a BIP request yet.**
+
+**Defects found and fixed during the stage.**
+- Registry validator raised `UnsafeURLError` instead of `ValueError` (bad URLs escaped as raw exceptions). Fixed.
+- A 429 with a single provider could retry during its cooldown. It now waits inline at most 5 s, otherwise stops.
+- DNS failure was mislabelled `unsafe_destination`, and proxy refusal was labelled generic `connection`. These are now `connection` ("DNS resolution failed") and `proxy`.
+- A reorg detected through a receipt block-hash mismatch was labelled `parse_error`. It is now `reorg_detected`.
+- Signature-only Solana rows were not linked to the wallet. Added the `wallet_activity` table.
+- SPL transfers between token accounts owned by the wallet were not shown for it. These are now included through owner metadata.
+- e2e: stale `vite preview` children survived stop (now killed by process group); an Overview/Chains selector race was fixed.
+
+**Verification (actual output).**
+```
+uv run ruff check . / ruff format --check .  -> clean
+uv run pyright (strict)                        -> 0 errors (Python 3.12 and 3.13)
+uv run pytest -q                               -> 345 passed (offline; RPC via fake nodes)
+npm run lint / npm run typecheck               -> clean
+npx vitest run                                 -> 30 passed
+npm run build                                  -> built
+node e2e/smoke.mjs                             -> 21/21 (Phase A real backend; real-network health
+                                                  check observed "Check failed"; Phase B offline fixture)
+gitleaks (staged)                              -> no leaks found
+make live-smoke                                -> 0/2 providers reachable (network policy)
+```
+
 ## 2026-11-03 — Stage 1b: BIP 0.1 integrated application foundation
 
 **Scope.** A locally runnable prototype: FastAPI backend, SQLite persistence, REST API and a React/TypeScript dashboard connected to it. No blockchain, provider or AI integration. No authentication. No VPS changes.

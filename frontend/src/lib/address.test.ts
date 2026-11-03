@@ -35,3 +35,17 @@ describe("validateAddress", () => {
     expect(base58DecodedLength("0")).toBeNull();
   });
 });
+
+import { addressUrl, txUrl } from "./explorer";
+
+describe("explorer links", () => {
+  it("are built only from valid identifiers", () => {
+    expect(txUrl("ethereum", "0x" + "ab".repeat(32))).toBe(`https://etherscan.io/tx/0x${"ab".repeat(32)}`);
+    expect(txUrl("ethereum", "javascript:alert(1)")).toBeNull();
+    expect(txUrl("solana", "abc/../../x")).toBeNull();
+    expect(addressUrl("solana", "11111111111111111111111111111111")).toBe(
+      "https://explorer.solana.com/address/11111111111111111111111111111111",
+    );
+    expect(addressUrl("base", "0x" + "11".repeat(20))).toBeNull();
+  });
+});

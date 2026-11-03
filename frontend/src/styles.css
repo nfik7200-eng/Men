@@ -88,7 +88,7 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-.stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.stats { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
 .stat { padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; border-left: 1px solid var(--line); }
 .stat:first-child { border-left: 0; }
 .stat-value { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -175,3 +175,5 @@ tr:last-child td { border-bottom: 0; }
   .stat { border-left: 0; border-top: 1px solid var(--line); }
   .activity li { grid-template-columns: minmax(0, 1fr); }
 }
+
+.detail-row td { background: var(--surface); }

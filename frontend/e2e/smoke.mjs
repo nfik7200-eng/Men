@@ -13,12 +13,15 @@ const { chromium } = require("playwright");
 const repoRoot = resolve(import.meta.dirname, "..", "..");
 const dataRoot = mkdtempSync(join(tmpdir(), "bip-e2e-"));
 const API_PORT = 8765;
+const FIXTURE_PORT = 8766;
 const WEB = "http://127.0.0.1:4173";
 const children = [];
 const results = [];
+const realNetwork = { healthCheck: "not run" };
 
 function start(cmd, args, opts) {
-  const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], ...opts });
+  // detached: each child leads its own process group, so stop() can kill npx/uv AND their children.
+  const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"], detached: true, ...opts });
   let log = "";
   child.stdout.on("data", (d) => (log += d));
   child.stderr.on("data", (d) => (log += d));
@@ -58,9 +61,27 @@ function startBackend() {
 }
 
 async function stop(child) {
-  if (child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((r) => child.once("exit", r));
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((r) => child.once("exit", r));
+  try {
+    process.kill(-child.pid, "SIGTERM"); // whole process group
+  } catch {
+    child.kill("SIGTERM");
+  }
+  await exited;
+}
+
+async function waitForPortFree(url, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(url);
+    } catch {
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`${url} is still serving after stop`);
 }
 
 function check(name, ok, detail = "") {
@@ -69,15 +90,15 @@ function check(name, ok, detail = "") {
 }
 
 let backend;
+let preview;
 try {
   backend = startBackend();
   await waitFor(`http://127.0.0.1:${API_PORT}/api/v1/health`, "backend");
-  const preview = start("npx", ["vite", "preview"], {
+  preview = start("npx", ["vite", "preview"], {
     cwd: resolve(repoRoot, "frontend"),
     env: { ...process.env, BIP_API_URL: `http://127.0.0.1:${API_PORT}` },
   });
   await waitFor(WEB, "frontend preview");
-  void preview;
 
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
@@ -95,9 +116,10 @@ try {
 
   // 2. Chains are configured but not connected.
   await page.getByRole("link", { name: "Chains" }).click();
-  await page.getByRole("heading", { level: 2, name: "Ethereum" }).waitFor();
-  const notConnected = await page.getByText("Configured, no adapter").count();
-  check("chains page reports both chains without adapters", notConnected === 2, `count=${notConnected}`);
+  await page.getByRole("heading", { level: 1, name: "Chains" }).waitFor();
+  await page.getByText("Adapter ready, not connected").first().waitFor();
+  const notConnected = await page.getByText("Adapter ready, not connected").count();
+  check("chains page: adapters present, not connected before any request", notConnected === 2, `count=${notConnected}`);
 
   // 3. Watchlist created and populated through the UI.
   await page.getByRole("link", { name: "Watchlists" }).click();
@@ -150,7 +172,19 @@ try {
   const cors = await api("/health", { headers: { Origin: "https://evil.example.net" } });
   check("CORS does not allow foreign origins", !cors.headers.get("access-control-allow-origin"));
 
-  // 7. Mobile layout renders without horizontal overflow.
+  // 7. Provider health check against the REAL network (outcome depends on network access).
+  await page.goto(`${WEB}/providers`);
+  await page.getByRole("button", { name: "Health check" }).first().waitFor();
+  await page.getByRole("button", { name: "Health check" }).first().click();
+  const verdict = page.getByText(/Check passed|Check failed/).first();
+  await verdict.waitFor({ timeout: 90000 });
+  const outcome = (await verdict.textContent())?.trim();
+  check("health-check result is shown in the UI (real network)", true, `observed: ${outcome}`);
+  const lifecycle = await page.locator("tbody tr").first().locator(".pill").first().textContent();
+  check("provider status reflects the recorded outcome", /Healthy|Unavailable|Degraded/.test(lifecycle ?? ""), `status=${lifecycle}`);
+  realNetwork.healthCheck = outcome ?? "unknown";
+
+  // 8. Mobile layout renders without horizontal overflow.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${WEB}/providers`);
   await page.getByRole("heading", { level: 1, name: "Providers" }).waitFor();
@@ -158,9 +192,46 @@ try {
   check("no horizontal page overflow at 390px", !overflow);
   await page.screenshot({ path: join(dataRoot, "mobile-providers.png") });
 
-  // The deliberate duplicate submission above produces exactly one expected 409 resource error.
-  const unexpected = consoleErrors.filter((m) => !m.includes("status of 409"));
+  // The deliberate duplicate submission above produces exactly one expected 409 resource error,
+  // and a failed real-network health check may log a 502/503 resource error.
+  const unexpected = consoleErrors.filter((m) => !/status of (409|502|503)/.test(m));
   check("no unexpected browser console errors", unexpected.length === 0, unexpected.join(" | "));
+
+  // ---------- Phase B: same UI against the OFFLINE FIXTURE backend (fake RPC nodes) ----------
+  await stop(backend);
+  await stop(preview);
+  await waitForPortFree(WEB);
+  const fixtureRoot = mkdtempSync(join(tmpdir(), "bip-e2e-fixture-"));
+  const fixture = start("uv", ["run", "python", "-m", "tests.stage2.serve_offline", String(FIXTURE_PORT)], {
+    cwd: repoRoot,
+    env: { ...process.env, BIP_DATA_ROOT: fixtureRoot },
+  });
+  await waitFor(`http://127.0.0.1:${FIXTURE_PORT}/api/v1/health`, "offline fixture backend");
+  const wallets = /eth_wallet=(\S+) sol_wallet=(\S+)/.exec(fixture.getLog());
+  const preview2 = start("npx", ["vite", "preview"], {
+    cwd: resolve(repoRoot, "frontend"),
+    env: { ...process.env, BIP_API_URL: `http://127.0.0.1:${FIXTURE_PORT}` },
+  });
+  await waitFor(WEB, "frontend preview (fixture)");
+  await page.setViewportSize({ width: 1360, height: 900 });
+  for (const [chain, address] of [["ethereum", wallets?.[1]], ["solana", wallets?.[2]]]) {
+    await page.goto(`${WEB}/wallets/${chain}/${address}`);
+    await page.getByRole("button", { name: "Retrieve recent activity" }).click();
+    await page.getByText(/Run \d+: (succeeded|partial)/).waitFor({ timeout: 60000 });
+    await page.getByText(/^Transactions \([1-9]\d*\)$/).waitFor();
+    const rows = await page.locator("table").first().locator("tbody tr").count();
+    check(`[offline fixture] ${chain} wallet retrieval stores and displays transactions`, rows > 0, `rows=${rows}`);
+    if (chain === "solana") await page.screenshot({ path: join(dataRoot, "fixture-solana-wallet.png"), fullPage: true });
+  }
+  await page.getByRole("button", { name: "Retrieve recent activity" }).click();
+  await page.getByText(/Run \d+: /).first().waitFor();
+  const txCount = await page.getByText(/^Transactions \(\d+\)$/).textContent();
+  check("[offline fixture] repeated retrieval does not duplicate rows", txCount === "Transactions (3)", `${txCount}`);
+  await page.goto(`${WEB}/chains`);
+  await page.getByRole("button", { name: "Fetch latest block" }).click();
+  await page.getByText("20000000").first().waitFor();
+  check("[offline fixture] latest block fetched and displayed", true);
+  void preview2;
   await browser.close();
 } catch (err) {
   check("e2e run completed", false, String(err));
@@ -169,6 +240,7 @@ try {
   for (const c of children) await stop(c);
   const failed = results.filter((r) => !r.ok).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed. Artifacts: ${dataRoot}`);
+  console.log(`Real-network provider health check observed: ${realNetwork.healthCheck}`);
   if (failed === 0 && !process.env.BIP_E2E_KEEP) rmSync(dataRoot, { recursive: true, force: true });
   process.exit(failed === 0 ? 0 : 1);
 }

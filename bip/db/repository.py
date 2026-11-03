@@ -8,8 +8,8 @@ All SQL is built with SQLAlchemy Core expressions, so values are always bound pa
 
 from __future__ import annotations
 
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import Generator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 
 from pydantic import ValidationError
@@ -73,6 +73,10 @@ class Repository:
             raise DuplicateRecordError("record violates a uniqueness or integrity rule") from exc
         except SQLAlchemyError as exc:
             raise DatabaseError(f"database operation failed: {type(exc).__name__}") from exc
+
+    def transaction(self) -> AbstractContextManager[Connection]:
+        """Public transaction scope with the same error mapping as repository methods."""
+        return self._tx()
 
     def _log(self, conn: Connection, event_type: str, summary: str) -> None:
         conn.execute(
@@ -392,7 +396,9 @@ class Repository:
 
     # ------------------------------------------------------------------ chain data
 
-    def store_transaction(self, tx: EvmTransaction | SolanaTransaction) -> bool:
+    def store_transaction(
+        self, tx: EvmTransaction | SolanaTransaction, *, extras: Mapping[str, object] | None = None
+    ) -> bool:
         """Insert a validated transaction; return False if it was already stored.
 
         Not exposed through the API: chain data arrives only from ingestion (later stages).
@@ -429,6 +435,7 @@ class Repository:
                     block_time=block_time,
                     from_address=from_address,
                     to_address=to_address,
+                    **dict(extras or {}),
                 )
             )
             observed = block_time or tx.provenance.event_time
@@ -436,7 +443,9 @@ class Repository:
                 self._touch_wallet(conn, tx.chain, address, observed, tx.provenance)
         return True
 
-    def store_transfer(self, transfer: TokenTransfer) -> bool:
+    def store_transfer(
+        self, transfer: TokenTransfer, *, extras: Mapping[str, object] | None = None
+    ) -> bool:
         """Insert a validated transfer; return False if it was already stored."""
         tx_id = transfer.tx.tx_hash if transfer.tx.kind == "evm_tx_hash" else transfer.tx.signature
         if transfer.instruction_path is not None:
@@ -472,6 +481,7 @@ class Repository:
                     classification=transfer.classification.value,
                     provenance_json=transfer.provenance.model_dump_json(),
                     stored_at=utcnow(),
+                    **dict(extras or {}),
                 )
             )
             for ref in (transfer.from_address, transfer.to_address):
@@ -484,6 +494,14 @@ class Repository:
                         transfer.provenance,
                     )
         return True
+
+    def observe_wallet(
+        self, chain: str, address: str, observed: datetime | None, provenance: Provenance
+    ) -> None:
+        """Create or update the wallet record for an address seen in ingested data."""
+        ref = canonical_address(chain, address)
+        with self._tx() as conn:
+            self._touch_wallet(conn, ref.chain, ref.address, observed, provenance)
 
     def _touch_wallet(
         self,
@@ -530,15 +548,40 @@ class Repository:
     # ------------------------------------------------------------------ wallets
 
     def _wallet_counts(self, conn: Connection, chain: str, address: str) -> tuple[int, int]:
-        t, tr = schema.transactions, schema.transfers
+        t, tr, bc = schema.transactions, schema.transfers, schema.balance_changes
+        involved_transfers = select(tr.c.tx_id).where(
+            tr.c.chain == chain, or_(tr.c.from_address == address, tr.c.to_address == address)
+        )
+        involved_balances = select(bc.c.tx_id).where(
+            bc.c.chain == chain, or_(bc.c.account == address, bc.c.owner == address)
+        )
+        linked = select(schema.wallet_activity.c.tx_id).where(
+            schema.wallet_activity.c.chain == chain, schema.wallet_activity.c.address == address
+        )
         tx_count = conn.execute(
             select(func.count()).where(
-                t.c.chain == chain, or_(t.c.from_address == address, t.c.to_address == address)
+                t.c.chain == chain,
+                or_(
+                    t.c.from_address == address,
+                    t.c.to_address == address,
+                    t.c.tx_id.in_(involved_transfers),
+                    t.c.tx_id.in_(involved_balances),
+                    t.c.tx_id.in_(linked),
+                ),
             )
         ).scalar_one()
+        owned = select(bc.c.account).where(
+            bc.c.chain == chain, bc.c.owner == address, bc.c.account != address
+        )
         transfer_count = conn.execute(
             select(func.count()).where(
-                tr.c.chain == chain, or_(tr.c.from_address == address, tr.c.to_address == address)
+                tr.c.chain == chain,
+                or_(
+                    tr.c.from_address == address,
+                    tr.c.to_address == address,
+                    tr.c.from_address.in_(owned),
+                    tr.c.to_address.in_(owned),
+                ),
             )
         ).scalar_one()
         return int(tx_count), int(transfer_count)

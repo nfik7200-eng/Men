@@ -10,6 +10,20 @@ export type Health = {
   timestamp: string;
 };
 
+export type NetworkObservation = {
+  chain: string;
+  network: string;
+  provider_id: string;
+  observed_at: string;
+  identity: string;
+  head_block: number | null;
+  head_slot: number | null;
+  head_hash: string | null;
+  head_time: string | null;
+  finalized_block: number | null;
+  commitment: string | null;
+};
+
 export type ChainStatus = {
   chain: string;
   family: string;
@@ -23,24 +37,91 @@ export type ChainStatus = {
   latest_stored_block: number | null;
   latest_stored_slot: number | null;
   last_successful_retrieval: string | null;
+  latest_observation: NetworkObservation | null;
+  usable_providers: string[];
   status_note: string;
 };
+
+export type Lifecycle =
+  | "disabled"
+  | "registered"
+  | "configured"
+  | "adapter_available"
+  | "untested"
+  | "healthy"
+  | "degraded"
+  | "unavailable";
 
 export type Provider = {
   id: string;
   name: string;
+  operator: string;
   kind: string;
+  protocol: string;
   chains: string[];
-  implemented_capabilities: string[];
-  adapter_implemented: boolean;
-  configuration_status: "not_configured" | "configured" | "not_required";
-  connection_status: "unavailable";
-  status_reason: string;
-  research_grade: string;
+  network: string | null;
+  access: "public" | "credentials";
+  lifecycle: Lifecycle;
+  enabled: boolean;
+  adapter_available: boolean;
+  configuration_status: string;
+  configuration_note: string;
+  endpoint_host: string | null;
+  methods: string[];
+  archive: string;
+  max_log_block_range: number | null;
+  rate_limit: string;
+  client_rps: number | null;
+  limitations: string[];
   docs_url: string;
+  terms_url: string;
+  sources: string[];
+  notes: string | null;
   last_check_at: string | null;
   last_success_at: string | null;
+  last_failure_at: string | null;
+  consecutive_failures: number;
+  last_latency_ms: number | null;
+  last_outcome: string | null;
 };
+
+export type HealthCheck = {
+  provider_id: string;
+  checked_at: string;
+  ok: boolean;
+  latency_ms: number | null;
+  outcome: string;
+  detail: string | null;
+  observed_network: string | null;
+  head_block: number | null;
+  head_slot: number | null;
+};
+
+export type ProviderDetail = Provider & { recent_checks: HealthCheck[] };
+
+export type IngestionJob = {
+  id: number;
+  chain: string;
+  address: string;
+  status: "running" | "succeeded" | "partial" | "failed";
+  requested_limit: number;
+  started_at: string;
+  finished_at: string | null;
+  providers: string[];
+  rpc_calls: number;
+  transactions_seen: number;
+  transactions_stored: number;
+  transfers_stored: number;
+  balance_changes_stored: number;
+  error_count: number;
+  coverage: Record<string, unknown> | null;
+  message: string | null;
+  mode: string;
+  errors: { occurred_at: string; stage: string; item_ref: string | null; error_code: string; detail: string }[];
+};
+
+export type ObservationRow = Record<string, unknown>;
+export type ObservationPage = { total: number; limit: number; offset: number; items: ObservationRow[] };
 
 export type FindingSummary = {
   finding_id: string;
@@ -66,7 +147,23 @@ export type DashboardSummary = {
   findings_stored: number;
   recent_findings: FindingSummary[];
   recent_activity: ActivityEvent[];
-  providers: { total: number; configured: number; adapters_implemented: number; connected: number };
+  providers: {
+    total: number;
+    rpc_providers: number;
+    configured: number;
+    adapters_available: number;
+    healthy: number;
+    degraded: number;
+    unavailable: number;
+    untested: number;
+    disabled: number;
+  };
+  ingestion: {
+    runs_total: number;
+    runs_by_status: Record<string, number>;
+    balance_changes_stored: number;
+    blocks_stored: number;
+  };
 };
 
 export type WalletSummary = {
@@ -172,4 +269,10 @@ export type PublicSettings = {
     reasons: string[];
   } | null;
   authentication: "not_implemented";
+  ingest_default_limit: number;
+  ingest_max_limit: number;
+  ethereum_lookback_blocks: number;
+  solana_commitment: string;
+  rpc_timeout_s: number;
+  rpc_max_attempts: number;
 };

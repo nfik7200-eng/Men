@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import App, { NAV } from "./App";
-import { installFakeBackend } from "./test/fakeBackend";
+import { SOL_WALLET, installFakeBackend } from "./test/fakeBackend";
 
 const renderAt = (path = "/") =>
   render(
@@ -20,8 +20,9 @@ describe("BIP dashboard", () => {
     expect(await screen.findByText(/No blockchain data has been ingested/)).toBeInTheDocument();
     expect(screen.getByText("No findings recorded")).toBeInTheDocument();
     expect(screen.getByText("No activity yet")).toBeInTheDocument();
-    expect(screen.getAllByText("Configured, no adapter")).toHaveLength(2);
-    expect(screen.getByText("0 / 14")).toBeInTheDocument();
+    expect(screen.getAllByText("Adapter ready, not connected")).toHaveLength(2);
+    expect(screen.getByText("0 / 10")).toBeInTheDocument();
+    expect(screen.getAllByText("Not retrieved")).toHaveLength(2);
   });
 
   it("shows a loading state before data arrives", () => {
@@ -75,7 +76,7 @@ describe("BIP dashboard", () => {
     await user.clear(screen.getByLabelText("Address"));
     await user.type(screen.getByLabelText("Address"), "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
     await user.click(screen.getByRole("button", { name: "Look up" }));
-    expect(await screen.findByText("No data stored for this address")).toBeInTheDocument();
+    expect(await screen.findByText("No data stored for this address yet")).toBeInTheDocument();
   });
 
   it("creates a watchlist, adds and removes entries, rejects duplicates, deletes the list", async () => {
@@ -110,5 +111,44 @@ describe("BIP dashboard", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     expect(await screen.findByText("No watchlists yet")).toBeInTheDocument();
     expect(watchlists.size).toBe(0);
+  });
+
+  it("runs a provider health check and shows the real result", async () => {
+    const user = userEvent.setup();
+    installFakeBackend();
+    renderAt("/providers");
+    expect(await screen.findByText("Untested")).toBeInTheDocument();
+    expect(screen.getByText("Adapter, not configured")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Health check" })).toHaveLength(1); // unconfigured: no button
+    await user.click(screen.getByRole("button", { name: "Health check" }));
+    expect(await screen.findByText("Check passed")).toBeInTheDocument();
+    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+  });
+
+  it("fetches the latest block on demand", async () => {
+    const user = userEvent.setup();
+    installFakeBackend();
+    renderAt("/chains");
+    expect(await screen.findAllByText("Not retrieved yet")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "Fetch latest block" }));
+    expect(await screen.findByText("20000000")).toBeInTheDocument();
+    expect(screen.getByText("Connected", { selector: ".pill" })).toBeInTheDocument();
+  });
+
+  it("retrieves wallet activity and shows partial results honestly", async () => {
+    const user = userEvent.setup();
+    installFakeBackend();
+    renderAt(`/wallets/solana/${SOL_WALLET}`);
+    expect(await screen.findByText("No retrieval has been run for this address yet.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retrieve recent activity" }));
+    expect(await screen.findByText("Run 1: partial")).toBeInTheDocument();
+    expect(screen.getByText(/Not covered by this run/)).toBeInTheDocument();
+    expect(screen.getByText("1 recorded issue(s)")).toBeInTheDocument();
+    expect(await screen.findByText("Transactions (1)")).toBeInTheDocument();
+    expect(screen.getByText("partial")).toBeInTheDocument();
+    expect(screen.getByText("1 unknown instr.")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /5555/ });
+    expect(link).toHaveAttribute("href", `https://explorer.solana.com/tx/${"5".repeat(64)}`);
+    expect(screen.getByText("unknown")).toBeInTheDocument(); // null block time is not fabricated
   });
 });

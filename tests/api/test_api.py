@@ -92,28 +92,31 @@ def test_settings_and_responses_expose_no_secrets(
 ) -> None:
     monkeypatch.setenv("BIP_POSTGRES_DSN", "postgresql://bip:Sup3rS3cretPw@db.example.com/bip")
     fake_key = "alk_live_" + "9f8e7d6c5b4a"  # synthetic; assembled so scanners do not flag it
-    monkeypatch.setenv("BIP_PROVIDER_ALCHEMY_KEY", fake_key)
+    monkeypatch.setenv(
+        "BIP_PROVIDER_ALCHEMY_ETH_URL", f"https://eth-mainnet.g.alchemy.com/v2/{fake_key}"
+    )
     settings = load_settings(data_root=tmp_path / "secretroot", env="test")
     app = create_app(settings, disk_guard=roomy_guard(tmp_path))
     with TestClient(app) as c:
-        bodies = [
-            c.get(f"{API}/{p}").text
-            for p in (
-                "health",
-                "settings",
-                "chains",
-                "dashboard/summary",
-                "providers/status",
-                "wallets",
-            )
-        ]
-        alchemy = next(p for p in c.get(f"{API}/providers/status").json() if p["id"] == "alchemy")
+        paths = (
+            "health",
+            "settings",
+            "chains",
+            "dashboard/summary",
+            "providers/status",
+            "providers",
+            "providers/alchemy-eth",
+            "wallets",
+        )
+        bodies = [c.get(f"{API}/{p}").text for p in paths]
+        alchemy = next(p for p in c.get(f"{API}/providers").json() if p["id"] == "alchemy-eth")
     blob = "\n".join(bodies)
     for leaked in ("Sup3rS3cretPw", fake_key, "secretroot", str(tmp_path)):
         assert leaked not in blob
     assert alchemy["configuration_status"] == "configured"
-    assert alchemy["connection_status"] == "unavailable"
-    assert alchemy["adapter_implemented"] is False
+    assert alchemy["lifecycle"] == "untested"
+    assert alchemy["endpoint_host"] is None  # credentialed URLs are never exposed
+    assert alchemy["last_success_at"] is None
 
 
 def test_public_settings_shape(client: TestClient) -> None:
@@ -127,18 +130,21 @@ def test_public_settings_shape(client: TestClient) -> None:
 # ---------- chains, providers, dashboard ----------
 
 
-def test_chains_are_configured_but_not_connected(client: TestClient) -> None:
+def test_chains_have_adapters_but_are_not_connected_without_requests(client: TestClient) -> None:
     chains = {c["chain"]: c for c in client.get(f"{API}/chains").json()}
     assert set(chains) == {"ethereum", "solana"}
     for c in chains.values():
         assert c["configured"] is True
-        assert c["adapter_implemented"] is False
-        assert c["connected"] is False
+        assert c["adapter_implemented"] is True
+        assert c["connected"] is False  # no successful request has been made
         assert c["data_available"] is False
         assert c["latest_stored_block"] is None
         assert c["latest_stored_slot"] is None
         assert c["last_successful_retrieval"] is None
+        assert c["latest_observation"] is None
     assert chains["solana"]["position_kind"] == "slot"
+    assert chains["ethereum"]["usable_providers"] == ["publicnode-eth"]
+    assert chains["solana"]["usable_providers"] == ["solana-public"]
 
 
 def test_chain_data_available_reflects_stored_rows(client: TestClient, repo: Repository) -> None:
@@ -149,12 +155,21 @@ def test_chain_data_available_reflects_stored_rows(client: TestClient, repo: Rep
     assert eth["connected"] is False
 
 
-def test_providers_never_claim_connectivity(client: TestClient) -> None:
-    rows = client.get(f"{API}/providers/status").json()
+def test_no_provider_is_healthy_without_a_recorded_request(client: TestClient) -> None:
+    rows = client.get(f"{API}/providers").json()
     assert len(rows) >= 10
-    assert all(r["connection_status"] == "unavailable" for r in rows)
-    assert all(r["implemented_capabilities"] == [] for r in rows)
+    assert {r["lifecycle"] for r in rows} <= {
+        "registered",
+        "configured",
+        "adapter_available",
+        "untested",
+        "disabled",
+    }
     assert all(r["last_success_at"] is None for r in rows)
+    untested = {r["id"]: r for r in rows if r["lifecycle"] == "untested"}
+    assert set(untested) == {"publicnode-eth", "solana-public"}
+    assert untested["publicnode-eth"]["endpoint_host"] == "ethereum-rpc.publicnode.com"
+    assert all(m.startswith(("eth_", "get")) for r in rows for m in r["methods"])
 
 
 def test_dashboard_empty_state(client: TestClient) -> None:
@@ -171,8 +186,9 @@ def test_dashboard_empty_state(client: TestClient) -> None:
         assert body[key] == 0
     assert body["recent_findings"] == []
     assert body["recent_activity"] == []
-    assert body["providers"]["connected"] == 0
-    assert body["providers"]["adapters_implemented"] == 0
+    assert body["providers"]["healthy"] == 0
+    assert body["providers"]["untested"] == 2
+    assert body["ingestion"]["runs_total"] == 0
 
 
 def test_dashboard_counts_follow_real_records(client: TestClient) -> None:

@@ -10,9 +10,17 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 ## Status
 
-**BIP 0.1, a locally runnable prototype.** It has a FastAPI backend, a SQLite database, a React dashboard, and working watchlists and investigations, built on the Stage 1 foundation (configuration, security utilities, storage safety, data contracts).
+**Stage 2, the read-only data engine.** BIP 0.1 can retrieve, validate, store and display Ethereum and Solana data from real JSON-RPC providers:
+- a provider registry and router (identity verification, bounded retries, rate-limit handling);
+- adapters, plus bounded wallet ingestion with provenance;
+- API endpoints and the dashboard that show it.
 
-Nothing connects to a blockchain, provider or AI model yet. Chain pages honestly show "configured, no adapter" and zero data. There is no authentication; run it on your own machine only. See [`CURRENT_STATE.md`](CURRENT_STATE.md).
+Not yet proven:
+- **No real provider has answered a request yet.** The authoring sandbox's network policy blocks RPC hosts, so every live result so far is a failure to connect. Run `make live-smoke` where those hosts are reachable.
+- There is no authentication: local use only.
+- Capital flows, opportunity detection and AI research are not implemented.
+
+See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
 ## Documentation map
 
@@ -33,10 +41,10 @@ Nothing connects to a blockchain, provider or AI model yet. Chain pages honestly
 
 ## Proposed stack (awaiting approval — see DECISIONS.md)
 
-**In use (BIP 0.1):** Python 3.12, uv, pydantic, FastAPI, SQLAlchemy Core with SQLite, React, TypeScript, Vite.
+**In use:** Python 3.12, uv, pydantic, FastAPI, SQLAlchemy Core with SQLite, stdlib HTTPS JSON-RPC client, React, TypeScript, Vite.
 
 **Planned:**
-- Acquisition and analytics: httpx/asyncio, Apache Parquet (zstd), DuckDB, Polars.
+- Analytics: Apache Parquet (zstd), DuckDB, Polars.
 - Operational storage at scale: PostgreSQL, Redis (from Stage 3b).
 - Intelligence: NetworkX, scikit-learn, Ollama (optional).
 
@@ -64,7 +72,13 @@ Run the dashboard (terminal 2), then open http://127.0.0.1:5173:
 make web
 ```
 
-Run every check: backend lint, pyright and pytest; frontend ESLint, tsc and Vitest; then the end-to-end test:
+To pull real data, open a wallet in the dashboard and choose **Retrieve recent activity**. The keyless PublicNode (Ethereum) and Solana public endpoints need no setup; credentialed providers are configured with `BIP_PROVIDER_*_URL` (see `.env.example`). To check providers on your network:
+
+```bash
+make live-smoke
+```
+
+Run every offline check: backend lint, pyright and pytest; frontend ESLint, tsc and Vitest; then the end-to-end test:
 
 ```bash
 make check-all

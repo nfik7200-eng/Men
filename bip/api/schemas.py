@@ -62,6 +62,20 @@ class Health(Out):
     timestamp: datetime
 
 
+class NetworkObservationOut(Out):
+    chain: str
+    network: str
+    provider_id: str
+    observed_at: datetime
+    identity: str
+    head_block: int | None
+    head_slot: int | None
+    head_hash: str | None
+    head_time: datetime | None
+    finalized_block: int | None
+    commitment: str | None
+
+
 class ChainStatus(Out):
     chain: str
     family: str
@@ -75,30 +89,83 @@ class ChainStatus(Out):
     latest_stored_block: int | None
     latest_stored_slot: int | None
     last_successful_retrieval: datetime | None
+    latest_observation: NetworkObservationOut | None
+    usable_providers: tuple[str, ...]
     status_note: str
 
 
 class ProviderOut(Out):
     id: str
     name: str
+    operator: str
     kind: str
+    protocol: str
     chains: tuple[str, ...]
-    implemented_capabilities: tuple[str, ...]
-    adapter_implemented: bool
-    configuration_status: Literal["not_configured", "configured", "not_required"]
-    connection_status: Literal["unavailable"]
-    status_reason: str
-    research_grade: str
+    network: str | None
+    access: Literal["public", "credentials"]
+    lifecycle: str
+    enabled: bool
+    adapter_available: bool
+    configuration_status: str
+    configuration_note: str
+    endpoint_host: str | None
+    """Shown only for built-in public endpoints. Credentialed URLs are never exposed."""
+    methods: tuple[str, ...]
+    archive: str
+    max_log_block_range: int | None
+    rate_limit: str
+    client_rps: float | None
+    limitations: tuple[str, ...]
     docs_url: str
+    terms_url: str
+    sources: tuple[str, ...]
+    notes: str | None
     last_check_at: datetime | None
     last_success_at: datetime | None
+    last_failure_at: datetime | None
+    consecutive_failures: int
+    last_latency_ms: int | None
+    last_outcome: str | None
+
+
+class HealthCheckOut(Out):
+    provider_id: str
+    checked_at: datetime
+    ok: bool
+    latency_ms: int | None
+    outcome: str
+    detail: str | None
+    observed_network: str | None
+    head_block: int | None
+    head_slot: int | None
+
+
+class ProviderDetail(ProviderOut):
+    recent_checks: tuple[HealthCheckOut, ...]
+
+
+class ProviderUpdate(Body):
+    enabled: bool
+    reason: Annotated[str, Field(max_length=200)] | None = None
 
 
 class ProviderSummary(Out):
     total: int
+    rpc_providers: int
     configured: int
-    adapters_implemented: int
-    connected: int
+    adapters_available: int
+    healthy: int
+    degraded: int
+    unavailable: int
+    untested: int
+    disabled: int
+
+
+class IngestionSummary(Out):
+    runs_total: int
+    runs_by_status: dict[str, int]
+    balance_changes_stored: int
+    blocks_stored: int
 
 
 class DashboardSummary(Out):
@@ -114,6 +181,7 @@ class DashboardSummary(Out):
     recent_findings: tuple[FindingSummary, ...]
     recent_activity: tuple[ActivityEvent, ...]
     providers: ProviderSummary
+    ingestion: IngestionSummary
 
 
 class StorageOut(Out):
@@ -136,3 +204,9 @@ class PublicSettings(Out):
     database_schema_version: int
     storage: StorageOut | None
     authentication: Literal["not_implemented"]
+    ingest_default_limit: int
+    ingest_max_limit: int
+    ethereum_lookback_blocks: int
+    solana_commitment: str
+    rpc_timeout_s: float
+    rpc_max_attempts: int

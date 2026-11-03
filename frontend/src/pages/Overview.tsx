@@ -13,7 +13,8 @@ export function chainTone(c: ChainStatus) {
 
 export function chainStateLabel(c: ChainStatus): string {
   if (c.connected) return "Connected";
-  if (c.adapter_implemented) return "Adapter ready, not connected";
+  if (c.adapter_implemented && c.usable_providers.length > 0) return "Adapter ready, not connected";
+  if (c.adapter_implemented) return "No usable provider";
   return c.configured ? "Configured, no adapter" : "Not configured";
 }
 
@@ -62,9 +63,11 @@ export default function Overview() {
                 <dl className="kv">
                   <dt>Transactions stored</dt>
                   <dd className="num">{fmtInt(c.transactions_stored)}</dd>
-                  <dt>Latest stored {c.position_kind}</dt>
+                  <dt>Latest known {c.position_kind}</dt>
                   <dd className="num">
-                    {(c.position_kind === "block" ? c.latest_stored_block : c.latest_stored_slot) ?? "—"}
+                    {c.latest_observation
+                      ? ((c.position_kind === "block" ? c.latest_observation.head_block : c.latest_observation.head_slot) ?? "—")
+                      : "Not retrieved"}
                   </dd>
                   <dt>Last retrieval</dt>
                   <dd className="mono">{fmtTime(c.last_successful_retrieval)}</dd>
@@ -85,15 +88,20 @@ export default function Overview() {
             <Stat label="Transfers stored" value={fmtInt(summary.data.transfers_stored)} />
             <Stat label="Open investigations" value={fmtInt(summary.data.open_investigations)} />
             <Stat
-              label="Providers connected"
-              value={`${summary.data.providers.connected} / ${summary.data.providers.total}`}
-              hint="No provider adapter exists yet"
+              label="Healthy RPC providers"
+              value={`${summary.data.providers.healthy} / ${summary.data.providers.rpc_providers}`}
+              hint={`${summary.data.providers.untested} untested · ${summary.data.providers.unavailable} unavailable`}
+            />
+            <Stat
+              label="Ingestion runs"
+              value={fmtInt(summary.data.ingestion.runs_total)}
+              hint={Object.entries(summary.data.ingestion.runs_by_status).map(([k, v]) => `${v} ${k}`).join(" · ") || "none yet"}
             />
           </div>
           {summary.data.transactions_stored === 0 ? (
             <p className="notice">
-              No blockchain data has been ingested. Ethereum and Solana ingestion are the next
-              stages of the roadmap; until then, chain counts stay at zero.
+              No blockchain data has been ingested yet. Open Wallet Intelligence, look up an address
+              and choose "Retrieve recent activity" to fetch real data from a provider.
             </p>
           ) : null}
           <div className="grid grid-2">

@@ -38,4 +38,10 @@ def get_public_settings(ctx: Context) -> PublicSettings:
         database_schema_version=SCHEMA_VERSION,
         storage=storage,
         authentication="not_implemented",
+        ingest_default_limit=s.ingest.default_limit,
+        ingest_max_limit=s.ingest.max_limit,
+        ethereum_lookback_blocks=s.ingest.ethereum_lookback_blocks,
+        solana_commitment=s.ingest.solana_commitment,
+        rpc_timeout_s=s.rpc.timeout_s,
+        rpc_max_attempts=s.rpc.max_attempts,
     )

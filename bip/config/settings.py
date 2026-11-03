@@ -103,6 +103,43 @@ class DatabaseSettings(BaseModel):
     busy_timeout_ms: Annotated[int, Field(ge=0, le=60_000)] = 5_000
 
 
+class RpcSettings(BaseModel):
+    """Outbound JSON-RPC client limits (``BIP_RPC__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timeout_s: Annotated[float, Field(gt=0, le=60)] = 10.0
+    max_attempts: Annotated[int, Field(ge=1, le=5)] = 3
+    backoff_base_s: Annotated[float, Field(ge=0, le=10)] = 0.5
+    backoff_cap_s: Annotated[float, Field(ge=0, le=60)] = 8.0
+    max_retry_after_s: Annotated[float, Field(ge=0, le=600)] = 60.0
+    """Longest Retry-After BIP will honour inline; longer waits mark the provider rate-limited."""
+    max_response_bytes: Annotated[int, Field(ge=1024, le=64 * 1024 * 1024)] = 8 * 1024 * 1024
+    use_env_proxy: bool = False
+    """Send requests through HTTPS_PROXY. Disables local IP pinning (the proxy resolves hosts)."""
+
+
+class IngestSettings(BaseModel):
+    """Bounded read-only wallet ingestion (``BIP_INGEST__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    default_limit: Annotated[int, Field(ge=1, le=50)] = 20
+    max_limit: Annotated[int, Field(ge=1, le=50)] = 50
+    ethereum_lookback_blocks: Annotated[int, Field(ge=1, le=50_000)] = 2_000
+    """How many recent blocks the Ethereum log scan covers (standard RPC has no address index)."""
+    ethereum_log_chunk_blocks: Annotated[int, Field(ge=1, le=10_000)] = 500
+    solana_commitment: Literal["confirmed", "finalized"] = "finalized"
+    run_deadline_s: Annotated[float, Field(gt=0, le=300)] = 90.0
+    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=500)] = 150
+
+    @model_validator(mode="after")
+    def _limits(self) -> Self:
+        if self.default_limit > self.max_limit:
+            raise ValueError("default_limit must not exceed max_limit")
+        return self
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BIP_",
@@ -133,6 +170,8 @@ class Settings(BaseSettings):
     router: RouterFlags = RouterFlags()
     api: ApiSettings = ApiSettings()
     database: DatabaseSettings = DatabaseSettings()
+    rpc: RpcSettings = RpcSettings()
+    ingest: IngestSettings = IngestSettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""

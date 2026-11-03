@@ -20,6 +20,9 @@ from bip.db.errors import (
     InvalidRecordError,
     RecordNotFoundError,
 )
+from bip.providers.registry import ProviderNotFoundError
+from bip.router.router import NoEligibleProviderError, RoutingFailedError
+from bip.security.secrets import redact_text
 
 log = get_logger("bip.api")
 
@@ -59,6 +62,28 @@ def install_error_handlers(app: FastAPI) -> None:
             "storage_limit",
             "Writes are paused: the BIP storage limit or free-space floor has been reached.",
         )
+
+    @app.exception_handler(NoEligibleProviderError)
+    async def _no_provider(_: Request, exc: NoEligibleProviderError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        return error_response(
+            503,
+            "no_eligible_provider",
+            f"No provider can serve {exc.chain} {exc.method} right now.",
+            [{"provider": k, "reason": redact_text(v)} for k, v in exc.reasons.items()],
+        )
+
+    @app.exception_handler(RoutingFailedError)
+    async def _routing(_: Request, exc: RoutingFailedError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        return error_response(
+            502,
+            "upstream_failed",
+            "Every provider attempt failed.",
+            [redact_text(a)[:300] for a in exc.attempts],
+        )
+
+    @app.exception_handler(ProviderNotFoundError)
+    async def _provider_missing(_: Request, exc: ProviderNotFoundError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        return error_response(404, "not_found", str(exc))
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]

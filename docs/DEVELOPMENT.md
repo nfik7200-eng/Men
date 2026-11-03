@@ -27,6 +27,7 @@ How to work on the BIP code base. Applies from roadmap Stage 1 onward.
 | Production build of the frontend | `npm run build` | `make web-build` |
 | End-to-end test (real backend + built UI + Chromium) | `npm run build && npm run e2e` | `make e2e` |
 | Everything | | `make check-all` |
+| **Live** RPC smoke test (real network, opt-in) | `BIP_LIVE_RPC=1 uv run python -m bip.tools.live_smoke` | `make live-smoke` |
 
 **Run the app locally:** start `make api` in one terminal and `make web` in another, then open http://127.0.0.1:5173. The Vite dev server proxies `/api` to the backend, so the browser talks to one origin. Interactive API docs are at http://127.0.0.1:8000/api/v1/docs.
 
@@ -35,7 +36,20 @@ CI (`.github/workflows/ci.yml`) runs on pushes to `main` and `claude/**` branche
 - frontend: ESLint, `tsc`, Vitest, build;
 - a gitleaks scan.
 
-The end-to-end test needs a Chromium that `require("playwright")` can find, so it currently runs locally only.
+The end-to-end test needs a Chromium that `require("playwright")` can find, so it currently runs locally only. It has two phases:
+- **Phase A** runs against the real backend and real network. The provider health check there passes or fails according to your network, and the script prints the observed outcome.
+- **Phase B** restarts the backend wired to the deterministic fake RPC nodes (`tests/stage2/serve_offline.py`) to exercise the wallet screens with data. Every Phase B check is labelled `[offline fixture]`.
+
+### Test categories (never mix them up)
+
+| Kind | Where | What it proves |
+|---|---|---|
+| Offline unit/integration | `tests/unit`, `tests/api`, `tests/stage2` (fake RPC nodes in `tests/stage2/fakes.py`) | Parsing, routing, ingestion, storage and API logic on deterministic data |
+| Frontend | `frontend/src/**/*.test.tsx` (in-memory fake API) | UI states and interactions |
+| End-to-end | `frontend/e2e/smoke.mjs` | Phase A: real backend and UI. Phase B: same UI on fixture data |
+| **Live smoke** | `bip/tools/live_smoke.py` | That a specific real provider answered, identity-verified, at that time |
+
+Only the live smoke test, or a passing health check in the app, is evidence that a provider works.
 
 ## Package structure
 
@@ -87,12 +101,50 @@ frontend/                   React + TypeScript + Vite dashboard
 
 Packages for later stages (`router/`, `chains/`, `ingest/`, `quality/`, `process/`, `intel/`) are created when their stage starts, not as empty placeholders.
 
+## Provider registry and data engine (Stage 2)
+
+- **Registry:** `bip/providers/registry.toml`, loaded and validated by `bip/providers/registry.py`.
+  - It holds 16 entries: 10 RPC providers (5 Ethereum, 5 Solana) and 6 non-RPC sources without adapters.
+  - Only read-only methods are allowed. Undocumented capabilities and limits stay unknown.
+  - Every entry records its documentation, terms and source links.
+- **Lifecycle** (`bip/providers/status.py`):
+  - A provider with no adapter shows as `registered`, or `configured` if its credentials are set.
+  - An adapter without a configured endpoint shows as `adapter_available`.
+  - An adapter and endpoint that no request has ever reached shows as `untested`. It becomes `healthy` or `degraded` after successful requests, `unavailable` after a failed one, and `disabled` by override.
+  - Nothing is healthy until a real request succeeded.
+- **Router** (`bip/router/router.py`):
+  - **Selection:** it filters providers by method support, configuration, enablement, identity and rate-limit cooldown, then ranks healthy → untested → degraded → unavailable.
+  - **Identity:** network identity is verified before a provider's first use: `eth_chainId` = 0x1, or the Solana mainnet-beta genesis hash.
+  - **Retries:** bounded (3 attempts) with exponential backoff and jitter. `Retry-After` is honoured, and a provider is never retried on a method it reported unsupported.
+  - **Throttle:** a per-provider politeness throttle (`client_rps`). Requests are sequential.
+- **Transport** (`bip/rpc/transport.py`): HTTPS only, the resolved address validated and pinned, TLS verified against the hostname, no redirects, an 8 MiB response cap and timeouts. `BIP_RPC__USE_ENV_PROXY=true` sends requests through `HTTPS_PROXY`; pinning is not possible in that mode.
+- **Adapters** (`bip/chains/ethereum`, `bip/chains/solana`): pure parsers over untrusted JSON into BIP contracts. Raw responses are stored compressed in `raw_payloads`, and records reference them by SHA-256.
+
+### What wallet retrieval does and does not cover
+
+| | Ethereum | Solana |
+|---|---|---|
+| Discovery | `eth_getLogs` for ERC-20/721 `Transfer` with the wallet as sender or recipient, over the last `BIP_INGEST__ETHEREUM_LOOKBACK_BLOCKS` (default 2,000) blocks, chunked and split if a provider limits ranges | `getSignaturesForAddress`, newest first, up to the limit |
+| Per transaction | `eth_getTransactionByHash`, receipt, block header (timestamp, hash check) | `getTransaction` (`json`, `maxSupportedTransactionVersion: 0`) |
+| Transfers stored | ERC-20 and ERC-721 Transfer logs; top-level ETH value | System Program transfer; SPL Token / Token-2022 `Transfer`, `TransferChecked` |
+| Balance observations | Balance and nonce at head (in the run's coverage) | Native and token pre/post balance changes for the wallet and the token accounts it owns |
+| **Not covered** | Plain ETH transfers without logs (unless the same tx has a Transfer log), internal transfers, activity older than the window, ERC-1155 | Signatures older than the bounded window; other instructions are counted as unknown, not interpreted |
+| Finality | `finalized` tag compared per block; newer blocks stay `observed` | Commitment as configured (`finalized` default, or `confirmed`) |
+
+Every record is `unverified` (single provider, no cross-check yet). Failed or partially parsed items are stored with `parse_status` and an `ingestion_errors` row; nothing is dropped silently. A transaction whose block hash disagrees with its block is refused and logged as `reorg_detected`. Runs are bounded by `BIP_INGEST__MAX_LIMIT` (50), `BIP_INGEST__MAX_RPC_CALLS_PER_RUN` (150) and `BIP_INGEST__RUN_DEADLINE_S` (90). A run ends as `succeeded`, `partial` or `failed`. Cursors make repeated runs continue rather than restart.
+
+**How to ingest:** open a wallet in the dashboard and choose "Retrieve recent activity", or:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/v1/ingestion/wallet/solana/<ADDRESS>?limit=20"
+```
+
 ## Database
 
 - **Engine:** SQLite through SQLAlchemy Core (ADR-015). The file is `<BIP_DATA_ROOT>/operational/<BIP_DATABASE__FILENAME>` (default `var/data/operational/bip.sqlite3`).
 - **Location rules:** the path is built through `StorageRoot`, so it cannot leave the data root. The file name setting accepts a name only, never a path.
-- **Initialization:** `create_db_engine()` creates the directory and applies versioned migrations (`bip/db/engine.py`, recorded in `schema_migrations`). Repeated startups apply nothing new. A database with a newer schema than the code is refused.
-- **Starts empty:** no seed data. Chain data (`transactions`, `transfers`, `wallets`) can only be written by `Repository.store_transaction` / `store_transfer` from validated contracts. No API endpoint writes chain data; ingestion (Stage 6+) will call these functions.
+- **Initialization:** `create_db_engine()` creates the directory and applies versioned migrations (`bip/db/engine.py`, recorded in `schema_migrations`). v1 is frozen SQL (`bip/db/sql/v1.sql`). v2 adds columns and Stage 2 tables in place and is tested against a real v1 database. Repeated startups apply nothing new. A database with a newer schema than the code is refused.
+- **Starts empty:** no seed data. Chain data can only be written by the ingestion service, from validated RPC responses. No API endpoint accepts chain data from clients.
 - **Conventions:** UTC timestamps as ISO strings, raw amounts as decimal strings, separate `block_number`/`slot` columns, natural-key unique constraints (duplicates are no-ops or 409s), foreign keys on with cascading deletes for watchlist entries and findings.
 - **Backup:** stop the API and copy the `.sqlite3` file, plus its `-wal` file if present.
 
@@ -113,6 +165,14 @@ Packages for later stages (`router/`, `chains/`, `ingest/`, `quality/`, `process
 | DELETE | `/watchlists/{id}/entries/{entry_id}` | Remove an address |
 | GET, POST | `/investigations` | List (optional `?status=`), create |
 | GET, PATCH | `/investigations/{id}` | Retrieve with findings, update status (`open`, `in_progress`, `closed`) |
+| GET | `/providers`, `/providers/status` | Registry entries with lifecycle, methods, limits, configuration (never URLs or keys) |
+| GET, PATCH | `/providers/{id}` | Detail with the last 10 health checks; enable or disable (`{"enabled": false}`) |
+| POST | `/providers/{id}/health-check` | Bounded read-only check on that provider only (identity, then head). 409 if it is not usable |
+| GET | `/chains/{chain}/network` | Most recent stored, identity-verified network observation (no network request) |
+| GET, POST | `/chains/{chain}/latest-block` | Fetches the head from an eligible provider, then stores and returns it (503 if none) |
+| GET | `/wallets/{chain}/{address}/transactions` · `/transfers` · `/balance-changes` | Stored observations with provenance (`limit` ≤ 200) |
+| POST | `/ingestion/wallet/{chain}/{address}?limit=N` | One bounded synchronous run (N ≤ 50). 409 if another run is active |
+| GET | `/ingestion/jobs`, `/ingestion/jobs/{id}` | Run records with counts, coverage notes and errors |
 | POST | `/investigations/{id}/findings` | Attach a `Finding`. The contract's evidence rules are enforced, and evidence claiming verified provenance must be a transaction stored in the database (self-asserted verification is rejected with 422) |
 
 Errors always use `{"error": {"code", "message", "details?"}}`:
@@ -125,6 +185,9 @@ Errors always use `{"error": {"code", "message", "details?"}}`:
 | 422 | `validation_error` / `invalid_input` | Bad request body / bad chain or address |
 | 503 | `database_unavailable` | Database unavailable |
 | 507 | `storage_limit` | Disk guard refused the write |
+| 502 | `upstream_failed` | Every provider attempt failed (details list provider and error class) |
+| 503 | `no_eligible_provider` | No provider can serve the request (details give the reason for each) |
+| 409 | `ingestion_busy` / `provider_not_usable` | A run is already active / provider disabled or unconfigured |
 | 500 | `internal_error` | Unexpected error |
 
 ## Configuration variables
@@ -151,7 +214,13 @@ All settings are environment variables with the `BIP_` prefix. Nested groups use
 | `BIP_API__MAX_REQUEST_BYTES` | `65536` | Larger bodies get 413 |
 | `BIP_DATABASE__FILENAME` | `bip.sqlite3` | File name under `<data_root>/operational/` |
 | `BIP_DATABASE__BUSY_TIMEOUT_MS` | `5000` | SQLite lock wait |
-| `BIP_PROVIDER_*` | unset | Provider credentials (e.g. `BIP_PROVIDER_ALCHEMY_KEY`). Only their presence is reported; no adapter reads them yet |
+| `BIP_PROVIDER_<NAME>_URL` | unset | Full endpoint URL for a credentialed provider (see `.env.example`). Treated as a secret; host must match the registry's `allowed_hosts` |
+| `BIP_RPC__TIMEOUT_S` / `__MAX_ATTEMPTS` / `__MAX_RESPONSE_BYTES` | 10 / 3 / 8 MiB | Per-request limits |
+| `BIP_RPC__USE_ENV_PROXY` | `false` | Use `HTTPS_PROXY` (no local IP pinning) |
+| `BIP_INGEST__DEFAULT_LIMIT` / `__MAX_LIMIT` | 20 / 50 | Transactions per run |
+| `BIP_INGEST__ETHEREUM_LOOKBACK_BLOCKS` / `__ETHEREUM_LOG_CHUNK_BLOCKS` | 2000 / 500 | Ethereum log scan window |
+| `BIP_INGEST__SOLANA_COMMITMENT` | `finalized` | `confirmed` or `finalized` (`processed` is not allowed) |
+| `BIP_INGEST__RUN_DEADLINE_S` / `__MAX_RPC_CALLS_PER_RUN` | 90 / 150 | Run bounds |
 | `BIP_POSTGRES_DSN` | unset | Secret. Must start with `postgresql://`. Not used (SQLite is the operational store in BIP 0.1) |
 | `BIP_REDIS_URL` | unset | Secret. Must start with `redis://` or `rediss://` |
 
