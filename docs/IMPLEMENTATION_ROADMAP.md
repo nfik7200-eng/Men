@@ -10,7 +10,10 @@ Each stage is small, independently testable, and ends with green checks recorded
 |---|---|---|
 | 0 Blueprint | Done; ADRs still awaiting owner approval | Commit `c3d5251`, PR #2 |
 | 1 Repository skeleton & core contracts | Done (tested foundation, no integrations) | 213 unit tests passing; ruff and pyright (strict) clean on Python 3.12 and 3.13; gitleaks clean. See `IMPLEMENTATION_LOG.md`, 2026-11-03 Stage 1 |
+| 1b BIP 0.1 application foundation | Done (local prototype; no chain integrations) | Backend, SQLite, REST API, React dashboard; pytest, Vitest and a 15-check end-to-end run. See `IMPLEMENTATION_LOG.md`, 2026-11-03 Stage 1b |
 | 2 onward | Not started | — |
+
+**Re-sequencing (ADR-016).** The owner moved the API and dashboard forward to Stage 1b. Stages 13 and 16 now extend them: metrics, backup tooling, auth, graph views. They no longer create them. The rest of the order is unchanged.
 
 ## Stages
 
@@ -18,6 +21,7 @@ Each stage is small, independently testable, and ends with green checks recorded
 |---|---|---|---|---|---|
 | 0 | **Blueprint** | Docs, ADRs, roadmap | — | research only | Docs consistent; owner review |
 | 1 | **Repository skeleton & core contracts** | `pyproject` (uv), ruff/pyright/pytest config, package layout `bip/{config,core,security,contracts,storage}` (later-stage packages are created with their stage), typed settings with `SecretStr`, provenance envelope and natural-key models, URL/SSRF guard, logging with redaction, disk-guard utility, `.env.example`, pre-commit (ruff, gitleaks) | 0 | No | Unit tests: settings load/redaction, SSRF guard rejects private/metadata IPs and odd schemes, envelope validation, disk guard thresholds |
+| 1b | **BIP 0.1 application foundation** | FastAPI app (`bip/api`), SQLite via SQLAlchemy Core (`bip/db`), REST endpoints for health, chains, dashboard, providers, wallets, watchlists and investigations; React/Vite dashboard (`frontend/`) | 1 | No | API/DB tests on temporary SQLite; frontend unit tests; end-to-end run with persistence across a restart |
 | 2 | **Provider registry** | YAML schema + loader + validator; initial entries for the providers in `PROVIDER_REGISTRY.md` with `verified_at: null`; capability model and request-capability derivation | 1 | No | Invalid YAML rejected; capability gates computed correctly for `eth_getLogs` (range, pre-Merge), Solana `getTransaction` (version) |
 | 3 | **Router core (offline)** | Token buckets (multi-window), cost accounting, circuit breaker, cooldown, scoring and selection, retry/backoff with jitter, validation hooks, verification policy, cache interface; fake-provider test harness | 2 | No | Deterministic simulations: failover only to capable providers; quota reserve honoured; breaker transitions; 429 cooldown; no request when no eligible provider |
 | 3b | **Shared state** | Postgres schema (`registry`, `ingest`) via Alembic; optional Redis bucket backend | 3 | Local DB only (**owner approval to run Postgres/Redis**) | Multi-process bucket correctness test |

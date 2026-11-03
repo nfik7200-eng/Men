@@ -102,3 +102,35 @@ def test_settings_are_immutable() -> None:
     s = Settings()
     with pytest.raises(ValueError, match="frozen"):
         s.log_level = "DEBUG"  # type: ignore[misc]
+
+
+def test_api_and_database_defaults_are_safe() -> None:
+    s = load_settings()
+    assert s.api.host == "127.0.0.1"
+    assert s.api.cors_origins == ("http://localhost:5173", "http://127.0.0.1:5173")
+    assert s.api.max_request_bytes == 64 * 1024
+    assert s.database.filename == "bip.sqlite3"
+
+
+def test_cors_origins_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_API__CORS_ORIGINS", "https://bip.example.org, http://localhost:3000")
+    assert load_settings().api.cors_origins == ("https://bip.example.org", "http://localhost:3000")
+
+
+@pytest.mark.parametrize(
+    "origins",
+    ["*", "https://*.example.org", "http://evil.example.org", "https://bip.example.org/"],
+)
+def test_unsafe_cors_origins_rejected(monkeypatch: pytest.MonkeyPatch, origins: str) -> None:
+    monkeypatch.setenv("BIP_API__CORS_ORIGINS", origins)
+    with pytest.raises(ConfigurationError, match="BIP_API__CORS_ORIGINS"):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    "filename", ["../escape.sqlite3", "/abs/bip.sqlite3", "bip.db", "a/b.sqlite3"]
+)
+def test_database_filename_cannot_be_a_path(monkeypatch: pytest.MonkeyPatch, filename: str) -> None:
+    monkeypatch.setenv("BIP_DATABASE__FILENAME", filename)
+    with pytest.raises(ConfigurationError, match="BIP_DATABASE__FILENAME"):
+        load_settings()

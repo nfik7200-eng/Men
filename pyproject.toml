@@ -7,8 +7,11 @@ requires-python = ">=3.12"
 license = { text = "Proprietary" }
 # Runtime dependencies are deliberately minimal (see IMPLEMENTATION_LOG.md, Stage 1).
 dependencies = [
+    "fastapi>=0.115,<1",
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.7,<3",
+    "sqlalchemy>=2.0.36,<3",
+    "uvicorn>=0.32,<1",
 ]
 
 [dependency-groups]
@@ -16,6 +19,7 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
     "pyright>=1.1.390",
+    "httpx2>=2.16,<3",
 ]
 
 [build-system]

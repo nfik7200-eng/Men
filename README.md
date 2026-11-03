@@ -10,7 +10,9 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 ## Status
 
-**Stage 1: engineering foundation.** Typed configuration, secret redaction, URL validation, storage safety and canonical data contracts exist, all with offline unit tests. Nothing connects to a blockchain, provider, database or AI model yet. BIP is **not operational**. See [`CURRENT_STATE.md`](CURRENT_STATE.md).
+**BIP 0.1, a locally runnable prototype.** It has a FastAPI backend, a SQLite database, a React dashboard, and working watchlists and investigations, built on the Stage 1 foundation (configuration, security utilities, storage safety, data contracts).
+
+Nothing connects to a blockchain, provider or AI model yet. Chain pages honestly show "configured, no adapter" and zero data. There is no authentication; run it on your own machine only. See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
 ## Documentation map
 
@@ -31,23 +33,42 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 ## Proposed stack (awaiting approval — see DECISIONS.md)
 
-Python 3.12 · uv · httpx/asyncio · pydantic · PostgreSQL · Apache Parquet (zstd) · DuckDB · Polars · Redis (from Stage 3) · FastAPI (from Stage 13) · NetworkX · scikit-learn · Ollama (optional) · Next.js/TypeScript (later dashboard).
+**In use (BIP 0.1):** Python 3.12, uv, pydantic, FastAPI, SQLAlchemy Core with SQLite, React, TypeScript, Vite.
+
+**Planned:**
+- Acquisition and analytics: httpx/asyncio, Apache Parquet (zstd), DuckDB, Polars.
+- Operational storage at scale: PostgreSQL, Redis (from Stage 3b).
+- Intelligence: NetworkX, scikit-learn, Ollama (optional).
 
 Explicitly **not** used at the start: Kafka, Kubernetes, Elasticsearch, Neo4j, ClickHouse, self-hosted full/archive nodes.
 
 ## Setup
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). No database, Docker, API keys or network access is needed for the checks.
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 22+ with npm. No database server, Docker, API keys or network access is needed.
+
+Install everything:
 
 ```bash
-uv sync --locked
+make install
 ```
+
+Run the backend (terminal 1). It serves http://127.0.0.1:8000 and creates `var/data/operational/bip.sqlite3` on first start:
 
 ```bash
-make check
+make api
 ```
 
-`make check` runs ruff (lint and format), pyright (strict) and pytest. The individual commands, the package structure, every configuration variable and the security rules for later stages are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+Run the dashboard (terminal 2), then open http://127.0.0.1:5173:
+
+```bash
+make web
+```
+
+Run every check: backend lint, pyright and pytest; frontend ESLint, tsc and Vitest; then the end-to-end test:
+
+```bash
+make check-all
+``` The individual commands, the package structure, every configuration variable and the security rules for later stages are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 Configuration comes from `BIP_*` environment variables. To use a local file, copy `.env.example` to `.env` (git-ignored) and run commands with `uv run --env-file .env …`. Settings never read `.env` implicitly.
 

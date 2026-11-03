@@ -23,6 +23,8 @@ class Layer(StrEnum):
     GOLD = "gold"
     INTELLIGENCE = "intelligence"
     MANIFESTS = "manifests"
+    OPERATIONAL = "operational"
+    """Operational application database (SQLite in BIP 0.1)."""
     TMP = "tmp"
 
 

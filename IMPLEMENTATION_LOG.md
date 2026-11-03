@@ -2,6 +2,76 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-03 — Stage 1b: BIP 0.1 integrated application foundation
+
+**Scope.** A locally runnable prototype: FastAPI backend, SQLite persistence, REST API and a React/TypeScript dashboard connected to it. No blockchain, provider or AI integration. No authentication. No VPS changes.
+
+**Reused from Stage 1 (not rebuilt)**
+- `Settings`, extended with `api` and `database` groups.
+- `StorageRoot` and `Layer`, extended with `OPERATIONAL`: they locate the SQLite file.
+- `DiskGuard` gates every API write.
+- `AddressRef` / chain registry validate every chain and address.
+- The `Finding` contract is the findings request body, and its evidence rules are enforced.
+- `Provenance` is stored as JSON on chain rows.
+- The redacting logger is used for all API errors.
+
+**Added**
+- `bip/db/`: SQLAlchemy Core schema v1 (12 tables, natural-key unique constraints, foreign keys with cascades, indexes); versioned migrator that refuses newer schemas; UTC datetime column type; repository with typed errors (404/409/422/503 mapping).
+- Chain-data writers `store_transaction` / `store_transfer`. These are idempotent and update wallet first/last observation. They are not exposed through the API.
+- `bip/providers/catalog.py`: 14 providers from `PROVIDER_REGISTRY.md`. Configuration is detected by variable presence only. Every provider is `unavailable`.
+- `bip/api/`: app factory and lifespan; 19 route handlers under `/api/v1`. It also adds an error envelope, a body-size limit (Content-Length and streamed), security headers, a CORS exact-origin allow-list, and `python -m bip.api`.
+- `frontend/`: Vite + React 19 + TypeScript (strict, `exactOptionalPropertyTypes`).
+  - Nine navigation sections and a typed API client, with loading, empty, error and retry states.
+  - Address validation that mirrors the backend.
+  - A restrictive CSP.
+  - Capital Flows and Opportunities are explicit "Not built yet" placeholders.
+- Tooling and docs: Makefile targets (`api`, `web`, `web-*`, `e2e`, `check-all`), CI frontend job, `.env.example` additions, ADR-015 (SQLite), ADR-016 (stack moved forward), roadmap Stage 1b, `docs/DEVELOPMENT.md` (database, endpoints, error codes, security).
+
+**Dependencies added**
+- Runtime:
+  - `fastapi` 0.162 (brings `starlette` 1.10): the API framework requested.
+  - `uvicorn` 0.54: ASGI server.
+  - `sqlalchemy` 2.1: parameterized, dialect-portable SQL (ADR-015).
+- Dev: `httpx2` 2.16, which Starlette 1.10's TestClient requires (plain `httpx` emits a deprecation warning).
+- Frontend runtime: `react`, `react-dom`, `react-router-dom`.
+- Frontend dev: `vite`, `@vitejs/plugin-react`, `typescript`, `vitest`, `jsdom`, `@testing-library/*`, `eslint` with `typescript-eslint` and `eslint-plugin-react-hooks`.
+- No Postgres, Redis, Docker or chain SDKs.
+
+**Defects found and fixed during this stage**
+- Pyright strict flagged protected `Row._asdict()` use, untyped SQLite hooks and `Iterator`-typed context managers. Switched to `.mappings()`, typed the hooks and used `Generator`.
+- The React Hooks v7 linter flagged a ref write during render and a synchronous `setState` in an effect in `useApi`. The hook was rewritten so state changes only in async callbacks, and loading is derived from a request key.
+- The end-to-end run found that `frame-ancestors` is ignored in a meta CSP. It was removed rather than leaving a no-op.
+- **Independent review, both confirmed by failing tests first:**
+  - A chunked oversize body returned 400, not 413, because FastAPI rewraps body-parser exceptions. The limit exception is now an `HTTPException(413)`.
+  - The findings API accepted self-asserted `cross_verified` evidence for transactions never stored, which the UI would show as verified. Verified evidence must now be a stored chain record, otherwise 422.
+- Also from the review: the SQLite URL is now built with `URL.create`, so special characters in the path cannot corrupt it.
+
+**Verification (actual commands and output)**
+```
+$ uv run ruff check .                 -> All checks passed!
+$ uv run ruff format --check .        -> all files formatted
+$ uv run pyright                      -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q                    -> 272 passed (213 Stage 1 + 59 new: 49 API/DB, 10 settings)
+$ npm run lint / npm run typecheck    -> clean
+$ npx vitest run                      -> 26 passed (3 files)
+$ npm run build                       -> built (JS 296 kB, 91 kB gzip)
+$ node e2e/smoke.mjs                  -> 15/15 checks passed
+```
+The end-to-end run used the real backend on a temporary data root, the built UI through `vite preview` and headless Chromium. It covered:
+- health through the proxy, and zero counts on an empty database;
+- chains shown as not connected;
+- watchlist create and add, with address normalization;
+- duplicate rejection, and investigation create plus status change;
+- the SQLite file under the data root, and persistence across a **backend restart**;
+- dashboard counts;
+- 422 and 404 wallet responses, no paths in settings, and CORS refusing a foreign origin;
+- no horizontal overflow at 390 px, and no unexpected console errors.
+
+**Not done (by design or blocked)**
+- Authentication and authorization (documented as future work, API bound to loopback).
+- Chain adapters and ingestion, so the database holds no chain data, and the UI and API say so.
+- The end-to-end test is not in CI (it needs Chromium). The CI frontend job had not yet run on GitHub at the time of writing.
+
 ## 2026-11-03 — Stage 1: Repository foundation & core engineering contracts
 
 **Scope.** Offline foundation only. No RPC, provider, database, LLM or frontend code. No network access at runtime. No VPS changes.

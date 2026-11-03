@@ -55,6 +55,54 @@ class RouterFlags(BaseModel):
     cross_verification_sample_rate: Annotated[float, Field(ge=0.0, le=1.0)] = 0.01
 
 
+_LOCAL_ORIGIN_PREFIXES = ("http://localhost:", "http://127.0.0.1:", "https://")
+
+
+class ApiSettings(BaseModel):
+    """HTTP API settings (``BIP_API__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    host: str = "127.0.0.1"
+    """Bind address. Defaults to loopback; there is no authentication yet (see docs)."""
+    port: Annotated[int, Field(ge=1, le=65535)] = 8000
+    cors_origins: Annotated[tuple[str, ...], NoDecode] = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    )
+    """Exact origins allowed by CORS. Comma-separated in the environment. ``*`` is rejected."""
+    max_request_bytes: Annotated[int, Field(ge=1024, le=10 * 1024 * 1024)] = 64 * 1024
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _exact_origins(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for origin in value:
+            if "*" in origin:
+                raise ValueError("wildcard CORS origins are not allowed")
+            if not origin.startswith(_LOCAL_ORIGIN_PREFIXES) or origin.endswith("/"):
+                raise ValueError(
+                    "CORS origins must be exact, e.g. http://localhost:5173 or https://host"
+                )
+        return value
+
+
+class DatabaseSettings(BaseModel):
+    """Operational SQLite database settings (``BIP_DATABASE__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    filename: Annotated[str, Field(pattern=r"^[A-Za-z0-9_.\-]{1,64}\.sqlite3$")] = "bip.sqlite3"
+    """File name inside ``<data_root>/operational/``. Never a path."""
+    busy_timeout_ms: Annotated[int, Field(ge=0, le=60_000)] = 5_000
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BIP_",
@@ -83,6 +131,8 @@ class Settings(BaseSettings):
     """Comma-separated in the environment: ``BIP_ENABLED_CHAINS=ethereum,solana``."""
 
     router: RouterFlags = RouterFlags()
+    api: ApiSettings = ApiSettings()
+    database: DatabaseSettings = DatabaseSettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""

@@ -1,38 +1,49 @@
 # Current State
 
-_Last updated: 2026-11-03 (Stage 1)_
+_Last updated: 2026-11-03 (Stage 1b, BIP 0.1)_
 
 ## Phase
-**Stage 1 — Repository foundation & core engineering contracts: done.** BIP has a tested, offline software foundation. It is **not operational**: nothing connects to a blockchain, provider, database or AI model.
+**Stage 1b — BIP 0.1 application foundation: done.**
+- BIP is a locally runnable prototype: FastAPI backend, SQLite database, REST API and a connected React dashboard.
+- Watchlists and investigations work end to end.
+- **No chain, provider or AI integration exists.** Every chain shows "configured, no adapter" and zero data.
+- **There is no authentication**: local use only.
 
 ## What exists in code
 
+### Stage 1 foundation (unchanged, reused)
 | Component | Module | Status |
 |---|---|---|
-| Python project (uv, locked deps), ruff, pyright strict, pytest | `pyproject.toml`, `uv.lock`, `Makefile` | Implemented and tested |
-| Typed settings with validation and readable, value-free errors | `bip/config/settings.py` | Implemented and tested |
-| Secret references (env / `*_FILE`) and redaction | `bip/security/secrets.py` | Implemented and tested |
-| Logging with mandatory redaction (JSON/text) | `bip/core/logging.py` | Implemented and tested |
-| Outbound URL validation (first SSRF layer) | `bip/security/url_validation.py` | Implemented and tested. Connection-time IP pinning and redirect enforcement belong to the Stage 3 HTTP client and do not exist yet |
-| Storage-root containment and no-overwrite file creation | `bip/storage/paths.py` | Implemented and tested |
-| Disk guard (BIP quota, free-space floor and ratio) | `bip/storage/disk_guard.py` | Implemented and tested. Not yet called by any writer, because no writer exists |
-| Chain registry, positions, identifiers, address refs | `bip/contracts/blockchain.py`, `identifiers.py` | Implemented and tested |
-| Provenance contract | `bip/contracts/provenance.py` | Implemented and tested |
-| Block, transaction, log, instruction, transfer, deployment contracts | `bip/contracts/*.py` | Implemented and tested as data shapes. No adapter produces them yet |
-| Finding / claim / evidence / attribution contracts | `bip/contracts/findings.py` | Implemented and tested as data shapes. No detector or agent produces them yet |
-| Pre-commit config (ruff, gitleaks, large-file guard) | `.pre-commit-config.yaml` | Implemented but not fully tested: the hook set has not been run end to end. Gitleaks itself was run locally and is clean |
-| CI workflow (lint, format, pyright, pytest, gitleaks) | `.github/workflows/ci.yml` | Implemented and tested. Both jobs green on GitHub for `3342f86`. An earlier test-fixture false positive in the secret scan was fixed in that commit |
+| Typed settings (now with `api` and `database` groups) | `bip/config/settings.py` | Implemented and tested |
+| Secrets and redaction; redacting logging | `bip/security/secrets.py`, `bip/core/logging.py` | Implemented and tested |
+| URL validation (first SSRF layer) | `bip/security/url_validation.py` | Implemented and tested. Not used yet, because the API fetches no URLs |
+| Storage root, disk guard | `bip/storage/` | Implemented and tested. Now gates every API write |
+| Data contracts (chain records, provenance, findings) | `bip/contracts/` | Implemented and tested. Now used by the database layer and API validation |
 
-Test evidence: see `IMPLEMENTATION_LOG.md` (2026-11-03, Stage 1).
+### BIP 0.1 application
+| Component | Module | Status |
+|---|---|---|
+| SQLite schema v1, versioned migrations, connectivity check | `bip/db/schema.py`, `bip/db/engine.py` | Implemented and tested |
+| Repository: watchlists, investigations, findings with evidence, wallets, activity log | `bip/db/repository.py` | Implemented and tested |
+| Chain-data writers (`store_transaction`, `store_transfer`, wallet observation) | `bip/db/repository.py` | Implemented and tested with synthetic fixtures. Nothing calls them in the app yet; ingestion (Stage 6+) will |
+| Provider catalog | `bip/providers/catalog.py` | Implemented and tested as metadata. Every provider reports `unavailable` because no adapter exists |
+| REST API `/api/v1`: health, chains, dashboard summary, providers, settings, wallets, watchlists, investigations, findings | `bip/api/` | Implemented and tested |
+| API safety: CORS allow-list, body-size limit, error envelope, security headers, disk-guard write gating | `bip/api/` | Implemented and tested |
+| Dashboard pages: Overview, Chains, Wallet Intelligence (search, validation, profile), Investigations, Providers, Watchlists, Settings | `frontend/src/pages/` | Implemented and tested |
+| Capital Flows and Opportunities pages | `frontend/src/pages/` | Partially implemented: page structure and honest placeholders only. No engines exist |
+| Typed API client, loading / empty / error / retry states | `frontend/src/api/`, `frontend/src/lib/useApi.ts` | Implemented and tested |
+| End-to-end test (real backend + built UI + Chromium, restart persistence) | `frontend/e2e/smoke.mjs` | Implemented and tested locally. Not in CI (needs Chromium) |
+| CI: backend checks, frontend lint/types/tests/build, gitleaks | `.github/workflows/ci.yml` | Frontend job not yet run on GitHub |
+
+Test evidence: `IMPLEMENTATION_LOG.md` (2026-11-03, Stage 1b).
 
 ## What does not exist yet
-- Provider registry YAML, loader and capability model (Stage 2).
-- Router, HTTP client, chain adapters, any network code (Stages 3–8).
-- Parquet writer, manifests, compaction (Stage 5).
-- PostgreSQL/Redis schemas or connections (Stage 3b; needs approval).
-- Normalization, features, detectors, API, web fetcher, AI agents, dashboard (Stages 9–16).
+- Authentication and authorization.
+- Provider registry YAML and verified limits (Stage 2), the router and HTTP client (Stage 3), the capability prober (Stage 4).
+- Ethereum and Solana adapters and ingestion (Stages 6–8). The database therefore holds no chain data.
+- Parquet lake (Stage 5), normalization, features, detectors (Stages 9–12).
+- Capital-flow graphs, opportunity scoring, AI agents (Stages 11–15).
 - Provider accounts or API keys.
-- Any ingested data.
 
 ## VPS (owner's Contabo, 8 vCPU / 24 GB RAM / ~145 GB disk, ~94% used at last measurement)
 Untouched by BIP. No installs, downloads or deletions have been made. The default `BIP_MAX_DATA_BYTES` is 5 GiB, and the free-space floor is 5 GiB / 5%.
@@ -42,7 +53,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 - `claude/nifty-ptolemy-1emo3n`: separate Graphify developer tooling. Not merged, not part of BIP code.
 
 ## Awaiting owner approval
-1. ADRs 001–014 (all Proposed). ADR-004 tooling and ADR-014 layout are already implemented provisionally.
+1. ADRs 001–016 (all Proposed). ADR-004 tooling, ADR-014 layout, ADR-015 SQLite and ADR-016 application stack are already implemented provisionally.
 2. Storage target beyond the ~5 GB prototype cap.
 3. Free accounts: Alchemy, Infura, Chainstack, Helius, Etherscan, GitHub PAT, Google Cloud BigQuery sandbox.
 4. Where Postgres (and later Redis) run, and with what resource limits.
@@ -52,6 +63,11 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 8. Remote LLM providers allowed, or local Ollama only.
 
 ## Known limitations
+- No authentication. The API binds to 127.0.0.1 by default and must not be exposed.
+- SQLite is single-host. It is fine for one local user but not for multiple concurrent worker processes (ADR-015).
+- The disk guard measures the data directory on every write request. That is acceptable at prototype scale, but it should be cached once the lake grows.
+- The frontend CSP is a `<meta>` tag. Vite's dev server sends no security headers; production static hosting must add them.
+- `npm audit`: one moderate advisory (minimatch ReDoS) inside ESLint's dependency tree. It affects development tooling only, not the shipped bundle. The only "fix" downgrades ESLint to v4, so it was not applied.
 - Unknown `BIP_*` environment variables are ignored, so a misspelled setting falls back to its default.
 - EIP-55 checksums are not verified (no Keccak in stdlib); EVM addresses are lower-cased.
 - Redaction patterns are heuristics; only exact registered secret values are guaranteed to be removed.

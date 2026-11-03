@@ -19,6 +19,8 @@ All ADRs below were written on 2026-11-03 and are **Proposed**. None has been ap
 | 012 | No self-hosted ETH/SOL nodes in Phase 1 | Proposed |
 | 013 | Docker Compose with resource limits for deployment; no Kubernetes | Proposed |
 | 014 | Stage 1 package layout and configuration conventions | Proposed; implemented provisionally in Stage 1 |
+| 015 | SQLite (via SQLAlchemy Core) as the BIP 0.1 operational store; PostgreSQL deferred | Proposed; implemented provisionally in Stage 1b |
+| 016 | FastAPI + React/Vite/TypeScript application moved forward to Stage 1b (was Stages 13/16, Next.js) | Proposed; implemented provisionally in Stage 1b |
 
 ---
 
@@ -77,3 +79,26 @@ All ADRs below were written on 2026-11-03 and are **Proposed**. None has been ap
 **Consequences.**
 - Unknown `BIP_*` variables are ignored, because provider secret references will share the prefix. This should be revisited in Stage 2.
 - Adapters must convert RPC hex and string values to Python ints themselves, since contracts never coerce.
+
+## ADR-015 SQLite as the BIP 0.1 operational store
+**Context.** ADR-002 puts operational data in PostgreSQL. Build Prompt "BIP 0.1" asked for a locally runnable app with SQLite and no PostgreSQL/Redis.
+**Decision.**
+- Use SQLite through **SQLAlchemy Core** (not the ORM). The file lives at `<data_root>/operational/bip.sqlite3`.
+- Run with WAL mode and foreign keys on.
+- Schema changes go through versioned in-code migrations.
+- Core expressions keep SQL dialect-portable, so moving to PostgreSQL later changes the engine URL and migrations rather than every query.
+**Consequences.**
+- Fine for a single local user. Not for concurrent multi-process writers, or for chain-wide data, which still belongs in the Parquet lake (ADR-002).
+- PostgreSQL returns when Stage 3b needs shared state across workers.
+**Alternatives.** Stdlib `sqlite3` with hand-written SQL: fewer dependencies, but not portable. Alembic: deferred until there is more than one migration.
+
+## ADR-016 Application stack moved forward
+**Context.** The roadmap had the API at Stage 13 and a Next.js dashboard at Stage 16. The owner asked for an integrated, runnable prototype now (BIP 0.1).
+**Decision.**
+- FastAPI for the API, under `bip/api` (inside the existing package, not a parallel `backend/`).
+- React 19, TypeScript and Vite for the UI under `frontend/`, as a static SPA with no server-side rendering.
+- Vite's dev and preview servers proxy `/api`, so the browser uses one origin.
+**Consequences.**
+- No Node server in production: the SPA build can be served as static files.
+- Next.js is dropped unless SSR becomes necessary.
+- The UI shows real backend state only. Sections whose engines do not exist (flows, opportunities) are clearly marked placeholders.

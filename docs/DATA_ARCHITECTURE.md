@@ -232,7 +232,8 @@ Bronze --(normalizer vN, chain adapter)--> Silver --(feature jobs)--> Gold --(de
 | DuckDB | **Adopt** | Embedded analytical SQL over Parquet. No server |
 | Polars | **Adopt** | Fast transforms |
 | Redis | Adopt at Stage 3 | Shared rate-limit state across processes. Until then, in-process buckets |
-| FastAPI | Adopt at Stage 13 | API for findings and dashboard |
+| FastAPI | **Adopted in Stage 1b** (ADR-016) | API for the dashboard, watchlists, investigations and findings |
+| SQLite + SQLAlchemy Core | **Adopted in Stage 1b** (ADR-015) | Prototype operational store. Portable to PostgreSQL |
 | Docker (compose) | Adopt for deployment | Reproducible; resource limits (cpus/mem) to protect the VPS |
 | NetworkX | Adopt at Stage 11 | Graph analytics on extracted subgraphs (not the whole chain) |
 | scikit-learn | Adopt at Stage 11–12 | Anomaly detection, clustering |
@@ -241,7 +242,7 @@ Bronze --(normalizer vN, chain adapter)--> Silver --(feature jobs)--> Gold --(de
 | Scrapy | Defer | Thin fetcher is enough initially |
 | ClickHouse | **Defer** | Justified when interactive queries over >~10B rows need sub-second latency, or concurrent users exceed DuckDB's single-process model |
 | PyTorch | Defer | Only for learned models with labelled data |
-| Next.js / TypeScript | Defer to Stage 16 | Dashboard |
+| React + Vite + TypeScript | **Adopted in Stage 1b** (ADR-016) | Static SPA dashboard. Next.js is not used |
 | Kafka, Kubernetes, Elasticsearch, Neo4j | **Reject for now** | Not justified by current volume. Postgres outbox + Parquet + NetworkX covers these needs |
 
 ## 8. Deployment topology
