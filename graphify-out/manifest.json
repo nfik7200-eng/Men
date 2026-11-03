@@ -1,0 +1,38 @@
+{
+  ".claude/hooks/graphify-guard.sh": {
+    "mtime": 1793690007.056129,
+    "seen": 1793691634.6734817,
+    "ast_hash": "0039392307fa993795da37b9929d347f",
+    "semantic_hash": "0039392307fa993795da37b9929d347f"
+  },
+  ".claude/hooks/session-start.sh": {
+    "mtime": 1793690526.7090652,
+    "seen": 1793691634.6734884,
+    "ast_hash": "59cd0fb42ab22040fc4b5570759e2fa0",
+    "semantic_hash": "59cd0fb42ab22040fc4b5570759e2fa0"
+  },
+  ".claude/settings.json": {
+    "mtime": 1793690007.0612855,
+    "seen": 1793691634.6734917,
+    "ast_hash": "743f39f414158b6e19cf5befc034f2e9",
+    "semantic_hash": "743f39f414158b6e19cf5befc034f2e9"
+  },
+  ".claude/CLAUDE.md": {
+    "mtime": 1793686616.6198826,
+    "seen": 1793691634.6734934,
+    "ast_hash": "9b31786b637be3c13978bec4c2330752",
+    "semantic_hash": "9b31786b637be3c13978bec4c2330752"
+  },
+  "CLAUDE.md": {
+    "mtime": 1793686616.620339,
+    "seen": 1793691634.6734953,
+    "ast_hash": "67d88e9d0760c3ba54c75dfd9551c1c5",
+    "semantic_hash": "67d88e9d0760c3ba54c75dfd9551c1c5"
+  },
+  "README.md": {
+    "mtime": 1793686594.4472754,
+    "seen": 1793691634.6734962,
+    "ast_hash": "01478e8d24c11546dd83ba1a9fc88f75",
+    "semantic_hash": "01478e8d24c11546dd83ba1a9fc88f75"
+  }
+}
