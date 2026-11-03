@@ -75,6 +75,7 @@ def test_http_allowed_only_when_explicit() -> None:
         "https://[2002:7f00:1::]/",
         "https://[64:ff9b::a00:1]/",
         "https://[ff02::1]/",
+        "https://[fec0::1]/",
     ],
 )
 def test_rejects_non_public_ip_literals(url: str) -> None:

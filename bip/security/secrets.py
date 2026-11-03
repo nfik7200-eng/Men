@@ -66,7 +66,11 @@ _sensitive_key_alt = (
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # scheme://user:password@host  -> scheme://[REDACTED]@host
     (
-        re.compile(r"(?<![a-zA-Z0-9+.\-])(?P<pre>[a-zA-Z][a-zA-Z0-9+.\-]{0,31}://)[^/\s@]{1,512}@"),
+        # Greedy, so it ends at the last "@" within 512 chars: passwords may contain "@" or "/".
+        # This can over-redact (e.g. an e-mail in a query string), which is the safe direction.
+        re.compile(
+            r"(?<![a-zA-Z0-9+.\-])(?P<pre>[a-zA-Z][a-zA-Z0-9+.\-]{0,31}://)[^\s\"'<>]{1,512}@"
+        ),
         rf"\g<pre>{REDACTED}@",
     ),
     # Authorization: Bearer xyz / Basic xyz
@@ -168,7 +172,11 @@ def is_sensitive_key(key: str) -> bool:
 
 
 def redact_value(value: object) -> object:
-    """Recursively redact strings, mappings and sequences; mask values under sensitive keys."""
+    """Recursively redact strings, mappings and sequences; mask values under sensitive keys.
+
+    Scalars (``None``, ``bool``, ``int``, ``float``) pass through; every other object is
+    converted with ``str()`` and redacted.
+    """
     if isinstance(value, SecretStr):
         return REDACTED
     if isinstance(value, str):
@@ -182,7 +190,11 @@ def redact_value(value: object) -> object:
         seq = cast("list[object] | tuple[object, ...]", value)
         items = [redact_value(v) for v in seq]
         return tuple(items) if isinstance(seq, tuple) else items
-    return value
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    # Anything else (exceptions, paths, sets, bytes, objects) is rendered and redacted, so a
+    # formatter's later str() cannot reintroduce an unredacted secret.
+    return redact_text(str(value))
 
 
 def validate_secret_name(name: str) -> str:

@@ -82,7 +82,14 @@ BLOCKED_SUFFIXES: tuple[str, ...] = (
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
 _EXTRA_BLOCKED_NETS = tuple(
     ipaddress.ip_network(n)
-    for n in ("0.0.0.0/8", "100.64.0.0/10", "198.18.0.0/15", "fc00::/7", "fe80::/10")
+    for n in (
+        "0.0.0.0/8",
+        "100.64.0.0/10",
+        "198.18.0.0/15",
+        "fc00::/7",
+        "fe80::/10",
+        "fec0::/10",  # deprecated IPv6 site-local; not covered by ipaddress.is_private
+    )
 )
 _NUMERIC_LABEL = re.compile(r"^(?:0x[0-9a-f]*|[0-9]+)$", re.IGNORECASE)
 _LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")

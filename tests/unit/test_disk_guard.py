@@ -186,3 +186,9 @@ def test_guard_from_settings_uses_configured_limits(tmp_path: Path) -> None:
     settings = load_settings(data_root=tmp_path, max_data_bytes="1MiB", min_free_bytes=0)
     guard = guard_from_settings(settings)
     assert guard.status().max_data_bytes == 1024**2
+
+
+def test_parent_that_is_a_file_is_a_storage_error(tmp_path: Path) -> None:
+    (tmp_path / "bronze").write_bytes(b"not a directory")
+    with pytest.raises(StoragePathError, match="not a directory"):
+        StorageRoot(tmp_path).create_exclusive("bronze", "x.bin")

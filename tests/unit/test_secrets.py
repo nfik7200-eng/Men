@@ -21,6 +21,8 @@ from bip.security.secrets import (
     register_secret,
 )
 
+_FAKE_KEY = "0123456789" + "abcdefghij"
+
 
 @pytest.mark.parametrize(
     ("raw", "leaked"),
@@ -35,7 +37,8 @@ from bip.security.secrets import (
         ("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig", "eyJhbGciOiJIUzI1NiJ9"),
         ('config {"password": "correct-horse-battery"}', "correct-horse-battery"),
         ("db_password=s3cr3t-value", "s3cr3t-value"),
-        ("X-API-KEY: 0123456789abcdefghij", "0123456789abcdefghij"),
+        # Synthetic key assembled at runtime so secret scanners do not flag the fixture.
+        ("X-API-KEY: " + _FAKE_KEY, _FAKE_KEY),
     ],
 )
 def test_patterns_redact_common_credential_shapes(raw: str, leaked: str) -> None:
@@ -162,3 +165,28 @@ def test_redaction_cost_is_bounded_on_hostile_input(hostile: str) -> None:
     out = redact_text(hostile)
     assert time.perf_counter() - start < 3.0
     assert len(out) <= MAX_REDACT_CHARS + len("[TRUNCATED]") + 64 * len(REDACTED)
+
+
+@pytest.mark.parametrize(
+    ("raw", "leaked"),
+    [
+        ("postgresql://user:p@ss@db.example.com/bip", "ss@db"),
+        ("redis://:ab/cd@cache.example.com/0", "ab/cd"),
+    ],
+)
+def test_userinfo_with_at_or_slash_in_password(raw: str, leaked: str) -> None:
+    out = redact_text(raw)
+    assert leaked not in out
+    assert out.endswith(("@db.example.com/bip", "@cache.example.com/0"))
+
+
+def test_logging_redacts_non_string_extra_values() -> None:
+    stream = io.StringIO()
+    configure_logging("INFO", "json", stream=stream)
+    error = ValueError("GET https://rpc.example.com/v2/AbCd1234AbCd1234AbCd1234 failed")
+    get_logger("t").error("fail", extra={"error": error, "count": 3, "ok": True})
+    record = json.loads(stream.getvalue())
+    assert "AbCd1234AbCd1234AbCd1234" not in record["error"]
+    assert record["count"] == 3
+    assert record["ok"] is True
+    logging.getLogger("bip").handlers.clear()

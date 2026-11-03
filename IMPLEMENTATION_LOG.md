@@ -27,16 +27,29 @@ Entries are newest first. Each entry records what was done, how it was verified,
 - A substring match on `token` would have masked `token_address`. Changed to suffix matching.
 - Two redaction regexes were super-linear on hostile input (2–45 s on 65–80 KB strings). The URL-userinfo scheme is now bounded, the URL-path rule is a linear parser, the key-prefix is bounded, and there is a 256 KiB input cap. Regression tests cover these cases.
 
+**Independent review (code-review agent) — findings confirmed by running them, then fixed**
+- Passwords containing `@` or `/` partly survived URL-userinfo redaction (`postgresql://user:p@ss@host` left `ss`). The pattern now ends at the last `@`. It may over-redact, which is the safe direction.
+- Non-string `extra=` values (e.g. exceptions) reached JSON logs unredacted through `default=str`. `redact_value` now renders and redacts every non-scalar object.
+- `https://[fec0::1]/` (deprecated IPv6 site-local) was accepted. `fec0::/10` is now blocked.
+- Orphaned (reorged-out) evidence counted as verified. `EvidenceRef.is_verified` now excludes `finality=orphaned`.
+- A parent path that is a file raised a raw `FileExistsError`. It now raises `StoragePathError`.
+- Not changed (by design, documented): keys whose sensitive word is not at the end (`secret_key_base`, `password1`) are not pattern-masked. Unresolved hostnames such as `127.0.0.1.nip.io` pass when `resolve=False`, and connection-time pinning (Stage 3) must catch them.
+
+**CI on GitHub (commit 663e949)**
+- `checks` (ruff, pyright, pytest on Python 3.12) passed.
+- `secret-scan` failed on a false positive: the synthetic `X-API-KEY` fixture in `tests/unit/test_secrets.py`. Reproduced locally with gitleaks 8.24.3. Fixed with a `.gitleaksignore` fingerprint for that historical commit, and the fixture is now assembled at runtime. The local scans `gitleaks git` (PR range), `gitleaks dir .` and `gitleaks git --staged` each report "no leaks found".
+
 **Verification (actual commands and output)**
 ```
 $ uv run ruff check .            -> All checks passed!
-$ uv run ruff format --check .   -> 45 files already formatted
+$ uv run ruff format --check .   -> 46 files already formatted
 $ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
-$ uv run pytest -q               -> 207 passed
-$ (Python 3.12.3 venv) pytest    -> 207 passed; pyright -> 0 errors
+$ uv run pytest -q               -> 213 passed
+$ (Python 3.12.3 venv) pytest    -> 213 passed; pyright -> 0 errors
+$ gitleaks dir . / git --staged  -> no leaks found
 ```
 - `.env.example` was loaded through `uv run --env-file .env.example` and validates.
-- Pre-commit hooks and gitleaks were **not run locally** (gitleaks is not installed). The CI workflow has not yet run on GitHub.
+- Gitleaks 8.24.3 was run locally from a binary in the session scratchpad; nothing was installed in the project. The full `pre-commit` hook set was not run locally.
 
 **Not done (by design)**
 - No provider registry, router, HTTP client, adapters, Parquet writer, database, AI or UI.

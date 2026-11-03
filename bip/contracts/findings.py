@@ -22,7 +22,7 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from bip.contracts.base import ContractModel, Probability, Slug
 from bip.contracts.blockchain import ChainId
-from bip.contracts.provenance import VERIFIED_STATUSES, Provenance, SourceKind
+from bip.contracts.provenance import VERIFIED_STATUSES, Finality, Provenance, SourceKind
 
 EvidenceId = Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:\-]{0,127}$")]
 Text = Annotated[str, Field(min_length=1, max_length=4000)]
@@ -73,7 +73,9 @@ class EvidenceRef(ContractModel):
     @property
     def is_verified(self) -> bool:
         return (
-            self.provenance is not None and self.provenance.verification_status in VERIFIED_STATUSES
+            self.provenance is not None
+            and self.provenance.verification_status in VERIFIED_STATUSES
+            and self.provenance.finality is not Finality.ORPHANED
         )
 
     @model_validator(mode="after")

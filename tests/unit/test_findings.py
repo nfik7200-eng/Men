@@ -16,7 +16,13 @@ from bip.contracts.findings import (
     Finding,
     FindingStatus,
 )
-from bip.contracts.provenance import IngestionMethod, Provenance, SourceKind, VerificationStatus
+from bip.contracts.provenance import (
+    Finality,
+    IngestionMethod,
+    Provenance,
+    SourceKind,
+    VerificationStatus,
+)
 from tests.conftest import COLLECTED, EVM_ADDR_A, evm_provenance
 
 VERIFIED_TX = EvidenceRef(
@@ -210,3 +216,17 @@ def test_attribution_requires_verified_public_evidence() -> None:
     )
     with pytest.raises(ValidationError, match="unknown evidence"):
         finding(subject=dangling)
+
+
+def test_orphaned_evidence_cannot_support_verified_facts() -> None:
+    orphaned = EvidenceRef(
+        evidence_id="ev-tx-1",
+        kind=EvidenceKind.CHAIN_RECORD,
+        locator="silver/x",
+        provenance=evm_provenance(
+            verification_status=VerificationStatus.CROSS_VERIFIED, finality=Finality.ORPHANED
+        ),
+    )
+    assert not orphaned.is_verified
+    with pytest.raises(ValidationError, match="verified provenance"):
+        finding(evidence=(orphaned,), status=FindingStatus.VERIFIED)

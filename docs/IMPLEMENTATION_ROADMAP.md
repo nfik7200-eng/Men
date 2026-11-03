@@ -9,7 +9,7 @@ Each stage is small, independently testable, and ends with green checks recorded
 | Stage | Status | Evidence |
 |---|---|---|
 | 0 Blueprint | Done; ADRs still awaiting owner approval | Commit `c3d5251`, PR #2 |
-| 1 Repository skeleton & core contracts | Done (tested foundation, no integrations) | 207 unit tests passing; ruff and pyright (strict) clean on Python 3.12 and 3.13. See `IMPLEMENTATION_LOG.md`, 2026-11-03 Stage 1 |
+| 1 Repository skeleton & core contracts | Done (tested foundation, no integrations) | 213 unit tests passing; ruff and pyright (strict) clean on Python 3.12 and 3.13; gitleaks clean. See `IMPLEMENTATION_LOG.md`, 2026-11-03 Stage 1 |
 | 2 onward | Not started | — |
 
 ## Stages

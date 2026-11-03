@@ -91,7 +91,10 @@ class StorageRoot:
         """
         self.require_exists()
         target = self.path(*parts)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except (FileExistsError, NotADirectoryError):
+            raise StoragePathError(f"a parent of {target} exists and is not a directory") from None
         # Re-check after mkdir: a parent could be a symlink created concurrently.
         if not target.parent.resolve().is_relative_to(self._root):
             raise StoragePathError("parent directory resolves outside the storage root")
