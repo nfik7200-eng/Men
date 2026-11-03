@@ -175,7 +175,7 @@ def test_migration_v2_recovers_from_partial_application(tmp_path: Path) -> None:
     con.commit()
     con.close()
     engine = create_db_engine(settings)
-    assert migrate(engine) == 2
+    assert migrate(engine) == 3
     engine.dispose()
 
 

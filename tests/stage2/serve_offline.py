@@ -33,6 +33,9 @@ def main() -> None:
         transport=FakeTransport({ETH_HOST: eth.handle, SOL_HOST: sol.handle}),
         environ={},
         rpc_sleep=lambda _s: None,
+        # Marks the database so every page labels these records as offline fixtures, never as
+        # real blockchain data (the marker stays with the database).
+        data_origin="offline_fixture",
     )
     print(f"OFFLINE FIXTURE BACKEND eth_wallet={eth.wallet} sol_wallet={sol.wallet}", flush=True)  # noqa: T201
     uvicorn.run(app, host="127.0.0.1", port=port, log_config=None, access_log=False)

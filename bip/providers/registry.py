@@ -97,6 +97,8 @@ class ProviderSpec(BaseModel):
     endpoint_env: str | None = None
     allowed_hosts: tuple[Host, ...] = ()
     enabled: bool = True
+    infrastructure: Annotated[str, Field(pattern=r"^[a-z0-9\-]{2,40}$")] | None = None
+    """Operator group. Providers in the same group are never treated as independent."""
     methods: tuple[str, ...] = ()
     client_rps: Annotated[float, Field(gt=0, le=50)] | None = None
     rate_limit: Annotated[str, Field(max_length=300)] | None = None
@@ -135,6 +137,8 @@ class ProviderSpec(BaseModel):
                 raise ValueError("RPC providers must declare allowed_hosts")
             if self.endpoint_url is None and self.endpoint_env is None:
                 raise ValueError("RPC providers need endpoint_url or endpoint_env")
+            if self.infrastructure is None:
+                raise ValueError("RPC providers must declare an infrastructure group")
         if self.endpoint_url is not None:
             if self.access != "public":
                 raise ValueError("built-in endpoint_url is only allowed for public providers")
@@ -230,6 +234,16 @@ def resolve_endpoint(
         f"Set {spec.endpoint_env} to enable this provider."
         if spec.endpoint_env
         else "No endpoint.",
+    )
+
+
+def independent(a: ProviderSpec, b: ProviderSpec) -> bool:
+    """True only for different, declared infrastructure groups."""
+    return (
+        a.id != b.id
+        and a.infrastructure is not None
+        and b.infrastructure is not None
+        and a.infrastructure != b.infrastructure
     )
 
 

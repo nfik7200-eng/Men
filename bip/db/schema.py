@@ -31,7 +31,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 metadata = MetaData(
     naming_convention={
@@ -99,6 +99,8 @@ transactions = Table(
     Column("program_ids_json", Text, nullable=True),
     Column("raw_ref", String(100), nullable=True),
     Column("run_id", Integer, nullable=True),
+    # v3: EVM receipt.contractAddress for contract-creation transactions (NULL = none/unknown)
+    Column("created_contract", String(64), nullable=True),
     UniqueConstraint("chain", "tx_id"),
     CheckConstraint("(block_number IS NULL) != (slot IS NULL)", name="one_position"),
     Index(None, "chain", "from_address"),
@@ -425,4 +427,110 @@ V2_TABLES = (
     ingestion_errors,
     wallet_cursors,
     wallet_activity,
+)
+
+
+# ============================================================================ v3 tables
+# Stage 3: verification and intelligence. Source observations are never modified by these.
+
+provider_observations = Table(
+    "provider_observations",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("tx_id", String(100), nullable=False),
+    Column("provider_id", String(64), nullable=False),
+    Column("infrastructure", String(40), nullable=True),
+    Column("fetched_at", UTCDateTime, nullable=False),
+    Column("found", Boolean, nullable=False),
+    Column("fields_json", Text, nullable=True),
+    Column("raw_ref", String(100), nullable=True),
+    Column("verification_id", Integer, nullable=True),
+    Index(None, "chain", "tx_id"),
+)
+"""What one provider reported for one transaction during a corroboration check."""
+
+evidence_verifications = Table(
+    "evidence_verifications",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("tx_id", String(100), nullable=False),
+    Column("checked_at", UTCDateTime, nullable=False),
+    Column("outcome", String(16), nullable=False),
+    Column("independent_providers", Integer, nullable=False),
+    Column("providers_json", Text, nullable=False),
+    Column("differences_json", Text, nullable=False),
+    Column("note", String(300), nullable=True),
+    CheckConstraint(
+        "outcome IN ('unverified', 'cross_verified', 'conflict', 'invalidated')", name="outcome"
+    ),
+    Index(None, "chain", "tx_id", "checked_at"),
+)
+"""Outcome of comparing stored evidence with independent providers. The latest row per
+(chain, tx_id) is the evidence's effective verification status."""
+
+analysis_runs = Table(
+    "analysis_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("address", String(64), nullable=False),
+    Column("analyzer_version", String(32), nullable=False),
+    Column("input_hash", String(64), nullable=False),
+    Column("params_json", Text, nullable=False),
+    Column("started_at", UTCDateTime, nullable=False),
+    Column("finished_at", UTCDateTime, nullable=True),
+    Column("status", String(16), nullable=False),
+    Column("result_json", Text, nullable=True),
+    Index(None, "chain", "address", "started_at"),
+    Index(None, "chain", "address", "input_hash", "analyzer_version"),
+)
+"""Reproducible analysis snapshots: same inputs + same analyzer version => same result."""
+
+anomaly_observations = Table(
+    "anomaly_observations",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_id", Integer, ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("address", String(64), nullable=False),
+    Column("detector_id", String(64), nullable=False),
+    Column("detector_version", String(16), nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("severity", String(16), nullable=True),
+    Column("confidence", String(8), nullable=True),
+    Column("window_start", UTCDateTime, nullable=True),
+    Column("window_end", UTCDateTime, nullable=True),
+    Column("payload_json", Text, nullable=False),
+    Column("finding_id", String(128), nullable=True),
+    Column("created_at", UTCDateTime, nullable=False),
+    Index(None, "chain", "address"),
+    Index(None, "status"),
+)
+
+opportunity_candidates = Table(
+    "opportunity_candidates",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("candidate_key", String(64), nullable=False, unique=True),
+    Column("kind", String(48), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("subject", String(100), nullable=False),
+    Column("first_detected_at", UTCDateTime, nullable=False),
+    Column("last_detected_at", UTCDateTime, nullable=False),
+    Column("window_start", UTCDateTime, nullable=True),
+    Column("window_end", UTCDateTime, nullable=True),
+    Column("score", String(16), nullable=False),
+    Column("verification", String(24), nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Index(None, "chain", "subject"),
+)
+
+V3_TABLES = (
+    provider_observations,
+    evidence_verifications,
+    analysis_runs,
+    anomaly_observations,
+    opportunity_candidates,
 )

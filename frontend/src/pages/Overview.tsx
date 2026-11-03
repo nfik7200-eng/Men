@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type { ChainStatus } from "../api/types";
+import { DataOriginBanner } from "../components/intel";
 import { EmptyState, ErrorState, Loading, PageHeader, Panel, Pill, Stat } from "../components/ui";
 import { chainLabel } from "../lib/address";
 import { fmtInt, fmtTime, humanize } from "../lib/format";
@@ -21,6 +22,7 @@ export function chainStateLabel(c: ChainStatus): string {
 export default function Overview() {
   const health = useApi(api.health);
   const summary = useApi(api.summary);
+  const intel = useApi(api.intelStatus);
 
   return (
     <>
@@ -98,6 +100,25 @@ export default function Overview() {
               hint={Object.entries(summary.data.ingestion.runs_by_status).map(([k, v]) => `${v} ${k}`).join(" · ") || "none yet"}
             />
           </div>
+          <Panel title="Intelligence and verification">
+            {intel.status === "loading" ? <Loading /> : null}
+            {intel.status === "error" ? <ErrorState error={intel.error} onRetry={intel.reload} /> : null}
+            {intel.status === "ready" ? (
+              <>
+                <DataOriginBanner origin={intel.data.data_origin} />
+                <div className="stats">
+                  <Stat label="Corroborated transactions" value={fmtInt(intel.data.verification.corroborated)}
+                    hint={`of ${fmtInt(intel.data.verification.stored_transactions)} stored`} />
+                  <Stat label="Unverified transactions" value={fmtInt(intel.data.verification.unverified)} hint="single provider or not checked" />
+                  <Stat label="Conflicted / invalidated" value={`${fmtInt(intel.data.verification.conflicted)} / ${fmtInt(intel.data.verification.invalidated)}`} />
+                  <Stat label="Analysed wallets" value={fmtInt(intel.data.analysed_wallets)} hint={`${fmtInt(intel.data.analysis_runs)} runs`} />
+                  <Stat label="Anomalies (latest runs)" value={fmtInt(intel.data.anomalies)} />
+                  <Stat label="Findings" value={fmtInt(intel.data.findings)} />
+                  <Stat label="Research leads" value={fmtInt(intel.data.opportunity_candidates)} />
+                </div>
+              </>
+            ) : null}
+          </Panel>
           {summary.data.transactions_stored === 0 ? (
             <p className="notice">
               No blockchain data has been ingested yet. Open Wallet Intelligence, look up an address

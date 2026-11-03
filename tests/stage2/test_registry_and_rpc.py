@@ -56,6 +56,7 @@ def _write(tmp_path: Path, body: str) -> Path:
 BASE = """
 [[provider]]
 id = "x-eth"
+infrastructure = "x-infra"
 name = "X"
 operator = "X"
 kind = "rpc"

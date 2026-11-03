@@ -173,7 +173,7 @@ class FakeEthNode:
                 "status": "0x1",
                 "gasUsed": hex(51_000),
                 "contractAddress": None,
-                "logs": [],
+                "logs": [lg for lg in self.logs if lg["transactionHash"] == txh],
             }
         raise _RpcFaultError(-32601, "method not found")
 

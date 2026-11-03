@@ -343,6 +343,7 @@ class WalletIngestor:
                 else None,
                 "raw_ref": tx_src.raw_sha256,
                 "run_id": run_id,
+                "created_contract": tx.created_contract,
             },
         ):
             stats.transactions_stored += 1

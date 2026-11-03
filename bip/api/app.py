@@ -24,6 +24,7 @@ from bip.api.routes import (
     dashboard,
     health,
     ingestion,
+    intelligence,
     investigations,
     providers,
     settings_route,
@@ -34,6 +35,8 @@ from bip.config.settings import Settings, load_settings
 from bip.db.engine import create_db_engine
 from bip.db.repository import Repository
 from bip.ingest.wallet import WalletIngestor
+from bip.intel.service import IntelligenceService
+from bip.intel.verify import Corroborator
 from bip.providers.registry import Registry, default_registry
 from bip.providers.state import ProviderStateStore
 from bip.router.router import ProviderRouter
@@ -52,6 +55,7 @@ def create_app(
     registry: Registry | None = None,
     environ: Mapping[str, str] | None = None,
     rpc_sleep: Callable[[float], None] | None = None,
+    data_origin: str | None = None,
 ) -> FastAPI:
     """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport`` and ``environ``;
     in normal use the transport is the real hardened HTTPS client."""
@@ -62,6 +66,9 @@ def create_app(
         db = engine if engine is not None else create_db_engine(cfg)
         guard = disk_guard if disk_guard is not None else guard_from_settings(cfg)
         repo = Repository(db)
+        if data_origin is not None:
+            # e.g. "offline_fixture": stored with the data so every view can label it
+            repo.set_meta("data_origin", data_origin)
         reg = registry if registry is not None else default_registry()
         state = ProviderStateStore(repo)
         router = ProviderRouter(
@@ -83,6 +90,10 @@ def create_app(
             router=router,
             ingestor=WalletIngestor(router, repo, cfg),
             ingest_lock=threading.Lock(),
+            intel=IntelligenceService(repo, cfg),
+            corroborator=Corroborator(repo, reg, router),
+            analysis_lock=threading.Lock(),
+            verify_lock=threading.Lock(),
         )
         try:
             yield
@@ -109,6 +120,7 @@ def create_app(
         investigations,
         settings_route,
         ingestion,
+        intelligence,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

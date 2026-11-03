@@ -343,6 +343,38 @@ class Repository:
             raise DuplicateRecordError(f"finding {finding.finding_id} already exists") from None
         return _summarize_finding(finding, investigation_id)
 
+    def refresh_finding(self, finding: Finding) -> bool:
+        """Replace the derived content of an existing finding (same deterministic id) with a
+        recomputation, keeping its investigation link and first detection time.
+        Returns False if no finding with that id exists."""
+        f, ev = schema.findings, schema.evidence_refs
+        with self._tx() as conn:
+            self._check_verified_evidence(conn, finding)
+            row = conn.execute(select(f.c.id).where(f.c.finding_id == finding.finding_id)).first()
+            if row is None:
+                return False
+            pk = int(row[0])
+            conn.execute(
+                update(f)
+                .where(f.c.id == pk)
+                .values(status=finding.status.value, payload_json=finding.model_dump_json())
+            )
+            conn.execute(delete(ev).where(ev.c.finding_pk == pk))
+            for ref in finding.evidence:
+                conn.execute(
+                    insert(ev).values(
+                        finding_pk=pk,
+                        evidence_id=ref.evidence_id,
+                        kind=ref.kind.value,
+                        locator=ref.locator,
+                        verified=ref.is_verified,
+                        provenance_json=ref.provenance.model_dump_json()
+                        if ref.provenance
+                        else None,
+                    )
+                )
+        return True
+
     def _check_verified_evidence(self, conn: Connection, finding: Finding) -> None:
         t, tr = schema.transactions, schema.transfers
         for ref in finding.evidence:
@@ -393,6 +425,24 @@ class Repository:
     def recent_findings(self, limit: int = 5) -> list[records.FindingSummary]:
         with self._tx() as conn:
             return self._finding_summaries(conn, limit=limit)
+
+    # ------------------------------------------------------------------ metadata
+
+    def get_meta(self, key: str) -> str | None:
+        m = schema.app_metadata
+        with self._tx() as conn:
+            row = conn.execute(select(m.c.value).where(m.c.key == key)).first()
+        return None if row is None else str(row[0])
+
+    def set_meta(self, key: str, value: str) -> None:
+        m = schema.app_metadata
+        with self._tx() as conn:
+            if conn.execute(select(m.c.key).where(m.c.key == key)).first() is None:
+                conn.execute(insert(m).values(key=key, value=value, updated_at=utcnow()))
+            else:
+                conn.execute(
+                    update(m).where(m.c.key == key).values(value=value, updated_at=utcnow())
+                )
 
     # ------------------------------------------------------------------ chain data
 

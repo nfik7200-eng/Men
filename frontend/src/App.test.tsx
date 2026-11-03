@@ -53,10 +53,10 @@ describe("BIP dashboard", () => {
     }
   });
 
-  it("marks unbuilt sections as placeholders without invented data", async () => {
+  it("shows no research lead when the backend has none (nothing invented)", async () => {
     installFakeBackend();
     renderAt("/opportunities");
-    expect(screen.getByText("Not built yet")).toBeInTheDocument();
+    expect(await screen.findByText("No research leads")).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByText(/\b\d+(\.\d+)?\s*(%|\/\s*100)/)).toBeNull();
   });

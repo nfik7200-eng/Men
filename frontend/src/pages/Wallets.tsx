@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, FieldError, Loading, Mono, PageHeader, Panel, P
 import { CHAINS, chainLabel, validateAddress } from "../lib/address";
 import { fmtInt, fmtTime, humanize, shortId } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import WalletIntel from "./WalletIntel";
 
 export function WalletSearch() {
   const navigate = useNavigate();
@@ -70,8 +71,8 @@ export default function Wallets() {
         {wallets.status === "error" ? <ErrorState error={wallets.error} onRetry={wallets.reload} /> : null}
         {wallets.status === "ready" && wallets.data.total === 0 ? (
           <EmptyState title="No wallet data stored yet">
-            Wallet records are created when chain data is ingested. Ingestion is not implemented
-            yet, so this list is empty. Lookups still validate addresses.
+            Wallet records are created when chain data is retrieved. Look up an address and
+            choose "Retrieve recent activity". Lookups validate addresses first.
           </EmptyState>
         ) : null}
         {wallets.status === "ready" && wallets.data.total > 0 ? (
@@ -215,7 +216,9 @@ export function WalletProfilePage() {
   const txs = useApi(() => api.walletTransactions(chain, address), [chain, address]);
   const transfers = useApi(() => api.walletTransfers(chain, address), [chain, address]);
   const balances = useApi(() => api.walletBalanceChanges(chain, address), [chain, address]);
+  const [ingests, setIngests] = useState(0);
   const reloadAll = () => {
+    setIngests((n) => n + 1);
     profile.reload();
     txs.reload();
     transfers.reload();
@@ -236,6 +239,7 @@ export function WalletProfilePage() {
         }
       />
       <IngestPanel chain={chain} address={address} onDone={reloadAll} />
+      {profile.status === "ready" ? <WalletIntel chain={chain} address={address} refreshKey={ingests} /> : null}
       {profile.status === "loading" ? <Loading /> : null}
       {profile.status === "error" && profile.error.status === 404 ? (
         <EmptyState title="No data stored for this address yet">

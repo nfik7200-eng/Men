@@ -11,6 +11,8 @@ from fastapi import Depends, Request
 from bip.config.settings import Settings
 from bip.db.repository import Repository
 from bip.ingest.wallet import WalletIngestor
+from bip.intel.service import IntelligenceService
+from bip.intel.verify import Corroborator
 from bip.providers.registry import Registry
 from bip.providers.state import ProviderStateStore
 from bip.router.router import ProviderRouter
@@ -34,6 +36,10 @@ class AppContext:
     router: ProviderRouter
     ingestor: WalletIngestor
     ingest_lock: threading.Lock
+    intel: IntelligenceService
+    corroborator: Corroborator
+    analysis_lock: threading.Lock
+    verify_lock: threading.Lock
 
 
 def get_context(request: Request) -> AppContext:

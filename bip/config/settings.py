@@ -140,6 +140,27 @@ class IngestSettings(BaseModel):
         return self
 
 
+class IntelSettings(BaseModel):
+    """Wallet intelligence bounds and detector thresholds (``BIP_INTEL__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    graph_max_depth: Annotated[int, Field(ge=1, le=3)] = 2
+    graph_max_nodes: Annotated[int, Field(ge=10, le=1000)] = 200
+    graph_max_edges: Annotated[int, Field(ge=10, le=3000)] = 500
+    graph_timeout_s: Annotated[float, Field(gt=0, le=30)] = 5.0
+    max_records_per_wallet: Annotated[int, Field(ge=10, le=20_000)] = 5_000
+    """Upper bound on stored records loaded into one analysis (larger sets are truncated and
+    say so)."""
+    flow_max_window_days: Annotated[int, Field(ge=1, le=3650)] = 365
+    newly_observed_days: Annotated[int, Field(ge=1, le=90)] = 7
+    spike_factor: Annotated[float, Field(ge=1.5, le=50)] = 3.0
+    large_transfer_mad_z: Annotated[float, Field(ge=2, le=50)] = 6.0
+    burst_count: Annotated[int, Field(ge=3, le=100)] = 5
+    burst_window_minutes: Annotated[int, Field(ge=1, le=1440)] = 10
+    concentration_share: Annotated[float, Field(gt=0.2, le=1.0)] = 0.5
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BIP_",
@@ -172,6 +193,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = DatabaseSettings()
     rpc: RpcSettings = RpcSettings()
     ingest: IngestSettings = IngestSettings()
+    intel: IntelSettings = IntelSettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""

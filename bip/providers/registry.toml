@@ -5,6 +5,9 @@
 # - Facts not documented are omitted, so they load as "unknown". Never guess.
 # - `methods` are the read-only methods BIP is permitted to call through the provider.
 #   Write or signing methods are rejected by the loader.
+# - `infrastructure` groups providers by operator. Agreement between two providers counts as
+#   independent corroboration ONLY if their groups differ (shared infrastructure is not
+#   independent). Unknown upstream sharing between different operators cannot be ruled out.
 # - `client_rps` is BIP's own self-throttle (a politeness policy), NOT a documented provider limit.
 # - Credentialed endpoints are read from `endpoint_env` (full URL, treated as a secret). The URL's
 #   host must match `allowed_hosts` (exact, or ".suffix" for subdomains). Users cannot supply URLs.
@@ -13,6 +16,7 @@
 
 [[provider]]
 id = "publicnode-eth"
+infrastructure = "allnodes"
 name = "PublicNode Ethereum"
 operator = "Allnodes"
 kind = "rpc"
@@ -35,6 +39,7 @@ notes = "Free, keyless (ethereum.org listing). Hostname confirmed by a third-par
 
 [[provider]]
 id = "ankr-eth"
+infrastructure = "ankr"
 name = "Ankr Ethereum"
 operator = "Ankr"
 kind = "rpc"
@@ -59,6 +64,7 @@ notes = "Current docs put an API key in the URL path (https://rpc.ankr.com/eth/<
 
 [[provider]]
 id = "alchemy-eth"
+infrastructure = "alchemy"
 name = "Alchemy Ethereum"
 operator = "Alchemy"
 kind = "rpc"
@@ -81,6 +87,7 @@ notes = "URL format https://eth-mainnet.g.alchemy.com/v2/<KEY> (third-party sour
 
 [[provider]]
 id = "infura-eth"
+infrastructure = "consensys"
 name = "Infura Ethereum"
 operator = "Consensys (MetaMask)"
 kind = "rpc"
@@ -103,6 +110,7 @@ notes = "URL format https://mainnet.infura.io/v3/<API-KEY> (Infura docs). Requir
 
 [[provider]]
 id = "quicknode-eth"
+infrastructure = "quicknode"
 name = "QuickNode Ethereum"
 operator = "QuickNode"
 kind = "rpc"
@@ -127,6 +135,7 @@ notes = "Per-endpoint URL issued in the QuickNode dashboard. The trial may not b
 
 [[provider]]
 id = "solana-public"
+infrastructure = "solana-labs"
 name = "Solana public mainnet RPC"
 operator = "Solana Labs / Solana Foundation"
 kind = "rpc"
@@ -148,6 +157,7 @@ notes = "Official docs call it rate-limited and not intended for production. Cur
 
 [[provider]]
 id = "publicnode-sol"
+infrastructure = "allnodes"
 name = "PublicNode Solana"
 operator = "Allnodes"
 kind = "rpc"
@@ -171,6 +181,7 @@ notes = "Keyless, but sources disagree on the hostname (rpc.publicnode.com vs so
 
 [[provider]]
 id = "helius-sol"
+infrastructure = "helius"
 name = "Helius Solana"
 operator = "Helius"
 kind = "rpc"
@@ -192,6 +203,7 @@ notes = "URL format https://mainnet.helius-rpc.com/?api-key=<KEY> (Helius docs).
 
 [[provider]]
 id = "alchemy-sol"
+infrastructure = "alchemy"
 name = "Alchemy Solana"
 operator = "Alchemy"
 kind = "rpc"
@@ -213,6 +225,7 @@ notes = "URL format https://solana-mainnet.g.alchemy.com/v2/<KEY> (third-party s
 
 [[provider]]
 id = "quicknode-sol"
+infrastructure = "quicknode"
 name = "QuickNode Solana"
 operator = "QuickNode"
 kind = "rpc"

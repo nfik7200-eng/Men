@@ -35,7 +35,75 @@ export function provider(id: string, lifecycle = "untested"): Json {
 
 export const SOL_WALLET = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 
-export function installFakeBackend() {
+export const ETH_WALLET = "0x" + "aa".repeat(20);
+const OTHER = "0x" + "bb".repeat(20);
+const TOKEN = "0x" + "70".repeat(20);
+const TX = "0x" + "b2".repeat(32);
+const scope = { kind: "retrieved_dataset", statement: "Computed only from records BIP retrieved for this wallet in 1 ingestion run(s). This is not the wallet's lifetime history.",
+  first_observed: now, last_observed: now, transactions: 2, transfers: 3, balance_changes: 0, truncated: false, ingestion_runs: 1, last_ingestion_at: now };
+const verif = { overall: "unverified", total: 2, counts: { unverified: 2 }, corroborated_share: 0 };
+const ev = { tx_id: TX, block_number: 19999995, block_time: now, provider: "publicnode-eth", verification: "unverified" };
+
+export type IntelOptions = { origin?: "offline_fixture" | "stored_observations"; leads?: boolean };
+
+export function intelResponse(path: string, method: string, opts: IntelOptions): Json | null {
+  const env = { data_origin: opts.origin ?? "stored_observations", analyzer_version: "3.0.0" };
+  if (path === "/intelligence/status")
+    return { ...env, verification: { stored_transactions: 2, checked: 1, corroborated: 1, conflicted: 0, invalidated: 0, unverified: 1, provider_observations: 1 },
+      analysis_runs: 1, analysed_wallets: 1, anomalies: 0, findings: 0, opportunity_candidates: opts.leads ? 1 : 0 };
+  if (path.endsWith("/profile"))
+    return { ...env, chain: "ethereum", address: ETH_WALLET, scope,
+      metrics: [{ id: "transactions", value: 2, unit: null, label: "2 transactions observed in retrieved dataset" }],
+      volumes: [{ asset: "native", standard: "native", in_raw: "2000000000000000000", out_raw: "0", net_raw: "2000000000000000000", in: "2", out: "0", net: "2", in_count: 1, out_count: 0, unit_note: null }],
+      counterparties: { total: 1, truncated: false, items: [{ address: OTHER, transfers: 2, in: 2, out: 0, assets: ["native"], transactions: 1, first_seen: now, last_seen: now,
+        resolved_from_token_account: false, verification: verif, relationship: "observed transfer counterparty (no ownership or identity implied)" }] },
+      interactions: { total: 1, items: [{ target: TOKEN, kind: "token contract", count: 1, tx: [TX], name: null }], note: "Unknown programs and contracts are left unnamed." },
+      deployments: [], activity: [{ date: "2026-11-03", transactions: 2, transfers_in: 2, transfers_out: 1 }], coverage: {}, verification: verif,
+      limitations: ["Metrics describe only the retrieved dataset, not lifetime activity."], evidence_sample: [ev], latest_analysis: null, findings: [] };
+  if (path.endsWith("/behaviour"))
+    return { ...env, scope, note: "Descriptive rules only.", items: [{ rule_id: "high_frequency", rule_version: "1.0.0", name: "High transaction frequency", status: "not_enough_data",
+      claim_type: "statistical_observation", inputs: {}, magnitude: null, supporting_count: 0, confidence: null, verification: verif, explanation: "Only 2 timestamped transactions retrieved; at least 10 are needed." }] };
+  if (path.startsWith("/intelligence/anomalies"))
+    return { ...env, total: 1, limit: 50, offset: 0, items: [{ detector_id: "tx_frequency_spike", version: "1.0.0", title: "Transaction frequency spike", status: "insufficient_data",
+      severity: null, confidence: null, window: "", minimum_data: "", baseline: "", thresholds: "", limitations: [], explanation: "2 transactions over 1 days; needs 10 over at least 8 days.",
+      window_start: null, window_end: null, observation_id: "obs-1", finding_id: null, chain: "ethereum", address: ETH_WALLET, verification: verif, evidence: { total: 0, transactions: [], transfers: [] } }] };
+  if (path.startsWith("/intelligence/analyze/") && method === "POST")
+    return { ...env, run_id: 1, chain: "ethereum", address: ETH_WALLET, analyzer_version: "3.0.0", input_hash: "f".repeat(64), started_at: now, finished_at: now, status: "succeeded", reused: false, result: null };
+  if (path.startsWith("/intelligence/verification/ethereum/wallet/") && method === "POST")
+    return { ...env, requested: 2, checked: 1, summary: { could_not_run: 1 }, items: [] };
+  if (path.startsWith("/intelligence/verification/") && method === "POST")
+    return { ...env, tx_id: TX, status: "could_not_run", outcome: null, reason: "No provider on independent infrastructure is eligible." };
+  if (path.startsWith("/intelligence/flows/"))
+    return { ...env, chain: "ethereum", address: ETH_WALLET, canonical_source: "transfers", window: { since: null, until: null, first_transfer: now, last_transfer: now },
+      transfers_considered: 3, transfers_without_time: 0, scope, verification: verif, usd_values: null,
+      assets: [{ asset: "native", standard: "native", decimals: 18, in_raw: "2000000000000000000", out_raw: "0", net_raw: "2000000000000000000", in: "2", out: "0", net: "2", in_count: 1, out_count: 0, self_count: 0 },
+        { asset: TOKEN, standard: "erc20", decimals: null, in_raw: "3000000", out_raw: "1500000", net_raw: "1500000", in: null, out: null, net: null, in_count: 1, out_count: 1, self_count: 0 }],
+      counterparties: [{ counterparty: OTHER, asset: "native", standard: "native", decimals: 18, count: 1, in_raw: "2000000000000000000", out_raw: "0", net_raw: "2000000000000000000", in: "2", out: "0" }],
+      time_buckets: [{ date: "2026-11-03", asset: "native", count: 1, in_raw: "2000000000000000000", out_raw: "0", in: "2", out: "0" }],
+      largest_transfers: { native: [{ ...ev, asset: "native", amount_raw: "2000000000000000000", direction: "in", counterparty: OTHER, amount: "2" }] },
+      repeated_paths: [], limitations: ["No USD values: no verified price source is configured."] };
+  if (path.startsWith("/intelligence/graph/"))
+    return { ...env, chain: "ethereum", center: ETH_WALLET, graph_version: "1.0.0", depth: 1,
+      nodes: [{ id: ETH_WALLET, kind: "address", depth: 0, degree: 2, center: true }, { id: OTHER, kind: "address", depth: 1, degree: 1 }, { id: TOKEN, kind: "token", depth: 1, degree: 1 }],
+      edges: [{ id: "e0", source: OTHER, target: ETH_WALLET, kind: "native_transfer", asset: "native", count: 1, amount_raw: "2000000000000000000", first_seen: now, last_seen: now, evidence: [{ ...ev, position: 19999995 }], verification: verif },
+        { id: "e1", source: ETH_WALLET, target: TOKEN, kind: "token_activity", asset: TOKEN, count: 1, amount_raw: "1500000", first_seen: now, last_seen: now, evidence: [{ ...ev, position: 19999995 }], verification: verif }],
+      limits: { max_depth: 1, max_nodes: 200, max_edges: 500, timeout_s: 5 }, truncation: { truncated: false, node_limit_reached: false, edge_limit_reached: false, timed_out: false, unexpanded_frontier: 1 },
+      verification: verif, statement: "Edges are observed on-chain interactions from BIP's stored data. They do not establish common ownership, control or identity." };
+  const lead = { candidate_key: "a".repeat(64), kind: "rising_token_participation", chain: "ethereum", subject: TOKEN, subject_kind: "token", label: "unverified research lead", score: 0.51, current: true,
+    features: { recent_participants: 6, prior_participants: 2, growth_ratio: 3, recent_events: 12, corroborated_share: 0 },
+    feature_scores: { participant_growth: 0.53, breadth: 0.6, activity: 0.24, corroboration: 0 }, weights: { participant_growth: 0.4, breadth: 0.3, activity: 0.2, corroboration: 0.1 },
+    contributions: { participant_growth: 0.21, breadth: 0.18, activity: 0.05, corroboration: 0 }, observation_period: { recent_start: now, anchor: now, prior_start: now },
+    evidence: { tx_ids: [TX], total: 12 }, verification: verif, coverage: { ingested_wallets: 3, events_considered: 25 },
+    uncertainty: ["Participation is measured only over wallets someone chose to ingest into BIP (selection bias)."], disclaimer: "Research lead only. Not investment advice; no buy or sell recommendation.",
+    rule: { id: "rising_participation", version: "1.0.0" }, first_detected_at: now, last_detected_at: now };
+  if (path.startsWith("/intelligence/opportunities/refresh/"))
+    return { ...env, chain: path.split("/").pop() ?? "", status: "insufficient_data", reason: "Needs stored events and at least 3 ingested wallets.", candidates: [], ingested_wallets: 1, events_considered: 0 };
+  if (path.startsWith("/intelligence/opportunities"))
+    return { ...env, total: opts.leads ? 1 : 0, limit: 50, offset: 0, items: opts.leads ? [lead] : [], disclaimer: "Research leads only. Not investment advice." };
+  return null;
+}
+
+export function installFakeBackend(intel: IntelOptions = {}) {
   let nextId = 1;
   let ethObserved = false;
   let healthy = false;
@@ -53,6 +121,10 @@ export function installFakeBackend() {
     const path = url.replace(/^\/api\/v1/, "");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
+    if (path.startsWith("/intelligence/")) {
+      const r = intelResponse(path, method, intel);
+      return r ? json(method === "POST" && path.includes("/analyze/") ? 201 : 200, r) : err(404, "not_found", "Not Found");
+    }
     if (path === "/health") return json(200, { status: "ok", version: "0.1.0", environment: "test", database: "ok", storage_writes: "allowed", timestamp: now });
     if (path === "/chains") return json(200, [chain("ethereum", ethObserved), chain("solana")]);
     if (path === "/chains/ethereum/latest-block" && method === "POST") {
@@ -86,6 +158,9 @@ export function installFakeBackend() {
           degraded: 0, unavailable: 0, untested: healthy ? 1 : 2, disabled: 0 },
       });
     if (path.startsWith("/wallets?")) return json(200, { total: 0, limit: 50, offset: 0, items: [] });
+    if (path === `/wallets/ethereum/${ETH_WALLET}`)
+      return json(200, { chain: "ethereum", address: ETH_WALLET, transaction_count: 2, transfer_count: 3, first_observed_at: now, last_observed_at: now,
+        first_seen_source: "publicnode-eth", first_seen_ingestion: "on_demand", first_seen_verification: "unverified", recent_transactions: [], recent_transfers: [] });
     if (path.startsWith("/wallets/")) return err(404, "not_found", "no data is stored for this address");
     if (path === "/watchlists" && method === "GET") return json(200, [...watchlists.values()].map(summary));
     if (path === "/watchlists" && method === "POST") {

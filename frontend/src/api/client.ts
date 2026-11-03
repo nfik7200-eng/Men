@@ -1,5 +1,17 @@
 import type {
+  AnalysisRun,
+  AnomalyPage,
+  Behaviour,
   ChainStatus,
+  Flows,
+  Graph,
+  IntelEnvelope,
+  IntelProfile,
+  IntelStatus,
+  OpportunityPage,
+  OpportunityRefresh,
+  VerifyResult,
+  WalletVerify,
   DashboardSummary,
   HealthCheck,
   IngestionJob,
@@ -129,6 +141,31 @@ export const api = {
   }) => request<Investigation>("/investigations", { method: "POST", ...json(body) }),
   updateInvestigation: (id: number, status: InvestigationStatus) =>
     request<Investigation>(`/investigations/${id}`, { method: "PATCH", ...json({ status }) }),
+  // ---- intelligence (Stage 3): computed from stored observations only
+  intelStatus: () => request<IntelStatus>("/intelligence/status"),
+  intelProfile: (chain: string, address: string) =>
+    request<IntelProfile>(`/intelligence/wallets/${enc(chain)}/${enc(address)}/profile`),
+  intelBehaviour: (chain: string, address: string) =>
+    request<Behaviour>(`/intelligence/wallets/${enc(chain)}/${enc(address)}/behaviour`),
+  analyze: (chain: string, address: string) =>
+    request<AnalysisRun & IntelEnvelope>(`/intelligence/analyze/${enc(chain)}/${enc(address)}`, { method: "POST" }),
+  anomalies: (chain: string, address: string) =>
+    request<AnomalyPage>(`/intelligence/anomalies?limit=50&chain=${enc(chain)}&address=${enc(address)}`),
+  flows: (chain: string, address: string) => request<Flows>(`/intelligence/flows/${enc(chain)}/${enc(address)}`),
+  graph: (chain: string, address: string, depth: number) =>
+    request<Graph>(`/intelligence/graph/${enc(chain)}/${enc(address)}?depth=${depth}`),
+  opportunities: () => request<OpportunityPage>("/intelligence/opportunities?limit=50"),
+  refreshOpportunities: (chain: string) =>
+    request<OpportunityRefresh>(`/intelligence/opportunities/refresh/${enc(chain)}`, { method: "POST" }),
+  verifyTx: (chain: string, txId: string) =>
+    request<VerifyResult>(`/intelligence/verification/${enc(chain)}/${enc(txId)}`, { method: "POST" }),
+  verifyWallet: (chain: string, address: string) =>
+    request<WalletVerify>(`/intelligence/verification/${enc(chain)}/wallet/${enc(address)}?limit=5`, { method: "POST" }),
+  attachFinding: (findingId: string, investigationId: number) =>
+    request<IntelEnvelope>(`/intelligence/findings/${enc(findingId)}/attach`, {
+      method: "POST",
+      ...json({ investigation_id: investigationId }),
+    }),
 };
 
 export type { FindingSummary };

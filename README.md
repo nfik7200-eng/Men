@@ -10,15 +10,20 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 ## Status
 
-**Stage 2, the read-only data engine.** BIP 0.1 can retrieve, validate, store and display Ethereum and Solana data from real JSON-RPC providers:
-- a provider registry and router (identity verification, bounded retries, rate-limit handling);
-- adapters, plus bounded wallet ingestion with provenance;
-- API endpoints and the dashboard that show it.
+**Stage 3, wallet intelligence.** BIP can retrieve, validate, store and display Ethereum and Solana data from JSON-RPC providers (Stage 2). It then analyses what it stored:
+- scope-labelled wallet profiles and descriptive behaviour rules;
+- deterministic, explainable anomaly detectors;
+- capital flows and a bounded, evidence-backed relationship graph;
+- research leads (never investment advice);
+- cross-provider corroboration of evidence (corroborated / conflicted / invalidated / unverified).
+
+See [`docs/INTELLIGENCE_METHODOLOGY.md`](docs/INTELLIGENCE_METHODOLOGY.md).
 
 Not yet proven:
 - **No real provider has answered a request yet.** The authoring sandbox's network policy blocks RPC hosts, so every live result so far is a failure to connect. Run `make live-smoke` where those hosts are reachable.
+- **No evidence has been corroborated live.** Corroboration needs two providers on independent infrastructure; only one keyless provider per chain is configured, and the sandbox cannot reach any.
 - There is no authentication: local use only.
-- Capital flows, opportunity detection and AI research are not implemented.
+- AI research is not implemented. No prices or USD values exist.
 
 See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
@@ -38,6 +43,7 @@ See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 | [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | Staged build plan (I) |
 | [docs/RISK_REGISTER.md](docs/RISK_REGISTER.md) | Risks and mitigations |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer setup, commands, configuration, security rules |
+| [docs/INTELLIGENCE_METHODOLOGY.md](docs/INTELLIGENCE_METHODOLOGY.md) | How profiles, rules, detectors, flows, graphs, leads and verification are computed |
 
 ## Proposed stack (awaiting approval — see DECISIONS.md)
 

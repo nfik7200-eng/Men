@@ -2,6 +2,76 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-03 — Stage 3 (Build Prompt 04): wallet intelligence, cross-provider verification, relationship graphs
+
+**Live connectivity retry (one bounded attempt, as instructed).** `make live-smoke` at 2026-11-03T17:25:24Z reached 0 of 2 keyless providers. Direct mode fails DNS; proxy mode gets 403 on CONNECT. It was not retried again, no proxy bypass was attempted, and no alternative endpoint was used. **No live observation was retrieved in this stage, and no evidence was corroborated live.**
+
+**Done**
+- **Verification model.**
+  - `VerificationStatus.INVALIDATED` added; display labels are corroborated / conflicted / invalidated / unverified.
+  - Every RPC provider declares an `infrastructure` group; `registry.independent()` (ADR-021).
+  - `bip/intel/verify.py` fetches the same transaction from up to two independent providers, compares normalized fields, and records `provider_observations` and `evidence_verifications`. Source records are never modified.
+- **Migration v3.** Additive and idempotent: five tables plus `transactions.created_contract`. Ingestion now stores `receipt.contractAddress`.
+- **`bip/intel/`:**
+  - dataset loader (scoped, hashable);
+  - profile (scope-labelled metrics);
+  - 9 descriptive behaviour rules;
+  - 5 anomaly detectors with published specs;
+  - capital flows (canonical source: `transfers`; no USD);
+  - bounded evidence-backed graph;
+  - `rising_participation` research leads;
+  - analysis runner with input-hash reuse, per-detector outcomes and deterministic findings.
+- **API.** `/api/v1/intelligence/*` (16 routes). Every response carries `data_origin`, scope and verification; inputs are validated and bounded.
+- **Dashboard:**
+  - wallet intelligence sections: analysis, verification with per-transaction verify, metrics, behaviour, detectors, findings, counterparties, interactions, limitations;
+  - Capital Flows replaces the placeholder: per asset, chart, counterparties, largest transfers, repeated paths;
+  - new Relationship Graph page (SVG: zoom, pan, node/edge evidence details);
+  - Opportunities replaces the placeholder;
+  - Overview shows verification and intelligence metrics;
+  - a "Demo data: offline fixtures" banner appears whenever `data_origin = offline_fixture` (set by `tests/stage2/serve_offline.py`).
+- **Docs.** New `docs/INTELLIGENCE_METHODOLOGY.md`; ADR-021 to ADR-024 (Proposed); README, CURRENT_STATE, DEVELOPMENT, roadmap and RISK_REGISTER (R21–R23) updated.
+
+**Independent review (code-review agent) and fixes.** Each fix has a regression test:
+1. The graph double-counted rows re-read at depth ≥ 2. Rows are now deduplicated by row id.
+2. Silent truncation when the per-level row limit was hit. Now reported as `row_limit_reached`.
+3. "Not found" by two providers was marked `invalidated`. History depth is unknown, so it is now `unverified`.
+4. An unparseable provider answer was shown as `conflict`. It is now a failed lookup (`could_not_run` when nothing usable was returned).
+5. Recomputed findings kept stale status after corroboration. They are refreshed in place, keeping the id and investigation link.
+6. Wallet findings were filtered in Python over the latest 2,000 rows. They are now filtered in SQL with `json_extract`.
+7. Verification was unbounded under concurrency. It is now serialized (409 `verification_busy`), capped at 20 transactions / 60 s per wallet, and stops early when no independent provider exists.
+8. Provider error text was stored and returned. Now only exception class and BIP error class are kept. A test confirms endpoint keys never appear in responses.
+
+Also fixed:
+- flows report untimed transfers excluded by a window;
+- lead event counts count one event per transfer, not per participant;
+- the new-contract detector uses an exact, case-sensitive match.
+
+Not changed:
+- The `data_origin` marker is per database, not per record. It persists with the database, so a fixture database stays labelled.
+
+**Verification (actual output)**
+```
+uv run ruff check .              -> All checks passed!
+uv run ruff format --check .     -> 125 files already formatted
+uv run pyright (strict)          -> 0 errors, 0 warnings, 0 informations
+uv run pytest -q                 -> 404 passed   (Python 3.13)
+venv312 python -m pytest -q      -> 404 passed   (Python 3.12)
+npm run lint / typecheck         -> clean
+npx vitest run                   -> 38 passed
+make e2e                         -> 30/30 checks passed (Phase A real backend; Phase B "[offline fixture]")
+gitleaks dir .                   -> no leaks found
+```
+- The e2e Phase B wallet corroboration check reports "Checked 1 of 2: 1 could not run", which is correct: the fixture backend has a single provider per chain.
+- Palette for graph node kinds and flow in/out validated with the dataviz validator (dark surface `#11171b`): 3 categorical slots, all checks pass; shape is the secondary encoding.
+
+**Candidate and verification counts in this environment**
+- Research leads on real data: **0** (no real data exists). Offline-fixture evaluation: `insufficient_data` (1 ingested wallet per chain; the rule needs 3).
+- Live observations: 0. Corroborated: 0. Conflicted: 0. Unverified: every stored record. All stored records are offline fixtures or test data.
+
+**Not done (by design)**
+- No accounts, keys, paid services, Parquet, graph database or new dependencies.
+- No AI in any path. No transaction signing, no writes to any chain.
+
 ## 2026-11-03 — Stage 2 follow-up: independent review fixes and live retry
 
 Each of these review findings was first reproduced by a failing test in `tests/stage2/test_review_regressions.py`, then fixed.

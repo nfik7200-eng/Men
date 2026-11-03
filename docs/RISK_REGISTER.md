@@ -24,3 +24,6 @@ Version 0.1 (2026-11-03). Likelihood (L) and impact (I) are rated High / Medium 
 | R18 | **Provider facts in this blueprint are search-derived**, not directly fetched (sandbox network policy) | H | M | `verified_at: null` until direct check; probe validates real behaviour | Stage 2/4 |
 | R19 | **Resource contention with existing VPS workloads** (Ollama models, quant projects) | M | M | Container CPU/RAM caps; nice/ionice; schedule heavy jobs off-peak | Stage 1+ |
 | R20 | **Price data unreliability** making PnL misleading | M | M | PnL only with coverage-complete cost basis; else `unknown`; show confidence | Stage 11 |
+| R21 | **Analytical output read as identification or advice** (pattern labels, research leads) | M | H | Hypothesis labels ("Possible … pattern"), no identity/ownership inference, "not investment advice" on every lead, findings contract rejects unsupported verified claims | Stage 3 |
+| R22 | **False corroboration** from providers that share infrastructure | M | H | Mandatory `infrastructure` group per RPC provider; independence = different groups; `could_not_run` recorded as nothing (ADR-021) | Stage 3 |
+| R23 | **Uncalibrated thresholds** producing misleading anomalies | M | M | Robust baselines, minimum-data gates, no high severity under 30 samples, confidence capped at 0.5 for uncorroborated evidence; methodology published | Stage 3 |

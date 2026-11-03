@@ -91,11 +91,22 @@ def _provider_registry_and_ingestion(conn: Connection) -> None:
     )
 
 
+def _intelligence(conn: Connection) -> None:
+    """v3: provider observations, evidence verifications, analysis runs, anomalies, leads.
+    Additive only (new tables, one nullable column); idempotent like v2."""
+    existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(transactions)")}
+    if "created_contract" not in existing:
+        conn.exec_driver_sql("ALTER TABLE transactions ADD COLUMN created_contract VARCHAR(64)")
+    for table in schema.V3_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
         2, "provider registry state and read-only ingestion", _provider_registry_and_ingestion
     ),
+    Migration(3, "verification and wallet intelligence", _intelligence),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

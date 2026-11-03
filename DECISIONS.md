@@ -143,3 +143,46 @@ All ADRs below were written on 2026-11-03 and are **Proposed**. None has been ap
 **Alternatives.**
 - Explorer or indexer APIs: need keys, and are planned for Stage 10.
 - Block scanning: too costly on free tiers.
+
+## ADR-021 Provider independence by infrastructure group (Proposed)
+**Context.** Corroboration is only meaningful if the providers do not share infrastructure. Different provider ids can front the same operator (for example, PublicNode Ethereum and Solana are both Allnodes).
+**Decision.**
+- Every RPC provider in `registry.toml` must declare `infrastructure = "<group>"`.
+- Two providers are independent only when their groups differ.
+- Corroboration requires at least two independent groups reporting identical normalized fields.
+- The original source counts as one group when its group is declared.
+**Consequences.**
+- With today's configuration (one keyless provider per chain), corroboration reports `could_not_run`.
+- A second, independent provider (free account, owner approval) is required to corroborate anything.
+
+## ADR-022 Intelligence computed on demand from SQLite; no graph database or Parquet yet (Proposed)
+**Context.** Stage 3 needs profiles, flows, graphs and detectors. Data volumes are tiny: bounded runs of ≤ 50 transactions.
+**Decision.**
+- Compute on demand from the operational SQLite tables in pure Python, bounded by `BIP_INTEL__*` limits.
+- Persist only analysis snapshots, detector outcomes, findings and leads.
+- No NetworkX, Neo4j, DuckDB or Parquet.
+**When to revisit (measured triggers).**
+- A single wallet analysis exceeds 2 s.
+- The graph routinely hits its node or edge limits.
+- Stored transfers exceed about 1 million rows.
+At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLite for state.
+
+## ADR-023 Reproducible analysis runs keyed by input hash (Proposed)
+**Decision.**
+- An analysis run is keyed by sha256 over:
+  - every input record's identity and effective verification;
+  - all intelligence settings;
+  - the `as_of` date;
+  - the analyzer version.
+- Identical inputs reuse the earlier run.
+- Detector outcomes are stored for every status.
+- Findings get deterministic ids from detector, wallet and supporting evidence, so a refresh never duplicates them.
+- Source observations are read-only for the intelligence layer.
+
+## ADR-024 Research leads, not recommendations (Proposed)
+**Decision.**
+- "Opportunities" are research leads from a published rule (`rising_participation` 1.0.0) with transparent feature contributions.
+- They require minimum data, or return no candidate.
+- They are labelled "unverified research lead" unless every evidence transaction is corroborated.
+- They always carry a "not investment advice" disclaimer.
+- No price, return or buy/sell signal is produced.

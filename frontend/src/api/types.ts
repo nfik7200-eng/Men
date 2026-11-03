@@ -276,3 +276,222 @@ export type PublicSettings = {
   rpc_timeout_s: number;
   rpc_max_attempts: number;
 };
+
+// ---------------------------------------------------------------- Stage 3: intelligence
+
+/** Where the analysed records came from. "offline_fixture" = deterministic test data. */
+export type DataOrigin = "offline_fixture" | "stored_observations";
+
+export type IntelEnvelope = { data_origin: DataOrigin; analyzer_version: string };
+
+export type VerificationSummary = {
+  overall: string;
+  total: number;
+  counts: Record<string, number>;
+  corroborated_share: number | null;
+};
+
+export type Confidence = {
+  value: number;
+  label: "low" | "medium" | "high";
+  sample_size: number;
+  sample_factor: number;
+  verification_factor: number;
+  method: string;
+};
+
+export type Scope = {
+  kind: string;
+  statement: string;
+  first_observed: string | null;
+  last_observed: string | null;
+  transactions: number;
+  transfers: number;
+  balance_changes: number;
+  truncated: boolean;
+  ingestion_runs: number;
+  last_ingestion_at: string | null;
+};
+
+export type Metric = { id: string; value: number; unit: string | null; label: string };
+
+export type TxEvidence = {
+  tx_id: string;
+  block_number?: number | null;
+  slot?: number | null;
+  position?: number | null;
+  block_time: string | null;
+  provider: string;
+  verification: string;
+  asset?: string;
+  amount_raw?: string;
+  event_key?: string;
+};
+
+export type Counterparty = {
+  address: string;
+  transfers: number;
+  in: number;
+  out: number;
+  assets: string[];
+  transactions: number;
+  first_seen: string | null;
+  last_seen: string | null;
+  resolved_from_token_account: boolean;
+  verification: VerificationSummary;
+  relationship: string;
+};
+
+export type Interaction = { target: string; kind: string; count: number; tx: string[]; name: string | null };
+
+export type AnalysisRun = {
+  run_id: number;
+  chain: string;
+  address: string;
+  analyzer_version: string;
+  input_hash: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  reused?: boolean;
+  result: { findings?: string[]; anomalies?: { detector_id: string; status: string; severity: string | null }[] } | null;
+};
+
+export type FindingClaim = { statement: string; claim_type: string; confidence: number | null; method: string | null };
+
+export type FindingPayload = {
+  finding_id: string;
+  finding_type: string;
+  status: string;
+  explanation: string;
+  confidence: number | null;
+  limitations: string[];
+  produced_by: string;
+  detected_at: string;
+  observation_start: string | null;
+  observation_end: string | null;
+  claims: FindingClaim[];
+  investigation_id?: number | null;
+};
+
+export type IntelProfile = IntelEnvelope & {
+  chain: string;
+  address: string;
+  scope: Scope;
+  metrics: Metric[];
+  volumes: { asset: string; standard: string; in_raw: string; out_raw: string; net_raw: string; in: string | null; out: string | null; net: string | null; in_count: number; out_count: number; unit_note: string | null }[];
+  counterparties: { total: number; items: Counterparty[]; truncated: boolean };
+  interactions: { total: number; items: Interaction[]; note: string };
+  deployments: (TxEvidence & { created_contract: string })[];
+  activity: { date: string; transactions: number; transfers_in: number; transfers_out: number }[];
+  coverage: Record<string, unknown>;
+  verification: VerificationSummary;
+  limitations: string[];
+  evidence_sample: TxEvidence[];
+  latest_analysis: AnalysisRun | null;
+  findings: FindingPayload[];
+};
+
+export type BehaviourRule = {
+  rule_id: string;
+  rule_version: string;
+  name: string;
+  status: "detected" | "not_detected" | "not_enough_data";
+  claim_type: string;
+  inputs: Record<string, unknown>;
+  magnitude: Record<string, unknown> | null;
+  supporting_count: number;
+  confidence: Confidence | null;
+  verification: VerificationSummary;
+  explanation: string;
+};
+
+export type Behaviour = IntelEnvelope & { items: BehaviourRule[]; note: string; scope: Scope };
+
+export type Anomaly = {
+  detector_id: string;
+  version: string;
+  title: string;
+  status: "anomaly" | "no_anomaly" | "insufficient_data" | "could_not_run";
+  severity: "low" | "medium" | "high" | null;
+  confidence: Confidence | null;
+  window: string;
+  minimum_data: string;
+  baseline: string;
+  thresholds: string;
+  limitations: string[];
+  explanation: string;
+  window_start: string | null;
+  window_end: string | null;
+  observation_id: string;
+  finding_id: string | null;
+  chain: string;
+  address: string;
+  verification: VerificationSummary;
+  evidence: { total: number; transactions: TxEvidence[]; transfers: TxEvidence[] };
+};
+
+export type AnomalyPage = IntelEnvelope & { total: number; limit: number; offset: number; items: Anomaly[] };
+
+export type FlowAsset = {
+  asset: string; standard: string; decimals: number | null;
+  in_raw: string; out_raw: string; net_raw: string; in: string | null; out: string | null; net: string | null;
+  in_count: number; out_count: number; self_count: number;
+};
+
+export type Flows = IntelEnvelope & {
+  chain: string;
+  address: string;
+  canonical_source: string;
+  window: { since: string | null; until: string | null; first_transfer: string | null; last_transfer: string | null };
+  transfers_considered: number;
+  assets: FlowAsset[];
+  counterparties: { counterparty: string; asset: string; count: number; in_raw: string; out_raw: string; net_raw: string; in: string | null; out: string | null }[];
+  time_buckets: { date: string; asset: string; count: number; in_raw: string; out_raw: string; in: string | null; out: string | null }[];
+  largest_transfers: Record<string, (TxEvidence & { direction: string; counterparty: string | null; amount: string | null })[]>;
+  repeated_paths: { from: string; to: string; asset: string; count: number }[];
+  verification: VerificationSummary;
+  limitations: string[];
+  scope: Scope;
+};
+
+export type GraphNode = { id: string; kind: "address" | "contract" | "token" | "program"; depth: number; degree: number; center?: boolean };
+export type GraphEdge = {
+  id: string; source: string; target: string; kind: string; asset: string | null; count: number;
+  amount_raw: string | null; first_seen: string | null; last_seen: string | null;
+  evidence: TxEvidence[]; verification: VerificationSummary;
+};
+export type Graph = IntelEnvelope & {
+  chain: string; center: string; depth: number; nodes: GraphNode[]; edges: GraphEdge[];
+  limits: { max_depth: number; max_nodes: number; max_edges: number; timeout_s: number };
+  truncation: { truncated: boolean; node_limit_reached: boolean; edge_limit_reached: boolean; timed_out: boolean; unexpanded_frontier: number };
+  verification: VerificationSummary;
+  statement: string;
+};
+
+export type Opportunity = {
+  candidate_key: string; kind: string; chain: string; subject: string; subject_kind: string;
+  label: string; score: number; current: boolean;
+  features: Record<string, number>; feature_scores: Record<string, number>; weights: Record<string, number>;
+  contributions: Record<string, number>;
+  observation_period: { recent_start: string; anchor: string; prior_start: string };
+  evidence: { tx_ids: string[]; total: number };
+  verification: VerificationSummary;
+  coverage: { ingested_wallets: number; events_considered: number };
+  uncertainty: string[]; disclaimer: string;
+  rule: Record<string, unknown>;
+  first_detected_at: string; last_detected_at: string;
+};
+export type OpportunityPage = IntelEnvelope & { total: number; limit: number; offset: number; items: Opportunity[]; disclaimer: string };
+export type OpportunityRefresh = IntelEnvelope & { chain: string; status: string; reason: string | null; candidates: Opportunity[]; ingested_wallets: number; events_considered: number };
+
+export type VerifyResult = IntelEnvelope & {
+  tx_id: string; status: "checked" | "could_not_run"; outcome: string | null; label?: string;
+  note?: string; reason?: string; independent_providers?: number;
+};
+export type WalletVerify = IntelEnvelope & { requested: number; checked: number; summary: Record<string, number>; items: VerifyResult[] };
+
+export type IntelStatus = IntelEnvelope & {
+  verification: { stored_transactions: number; checked: number; corroborated: number; conflicted: number; invalidated: number; unverified: number; provider_observations: number };
+  analysis_runs: number; analysed_wallets: number; anomalies: number; findings: number; opportunity_candidates: number;
+};

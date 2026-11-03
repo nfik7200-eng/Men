@@ -74,12 +74,18 @@ bip/
     contracts.py            ContractDeployment
     findings.py             Finding, Claim, EvidenceRef, Attribution
   db/
-    schema.py               SQLAlchemy Core tables (schema version 1)
+    schema.py               SQLAlchemy Core tables (schema version 3)
     engine.py               DB location, engine, versioned migrations, connectivity check
     repository.py           All reads/writes; maps failures to typed errors
     records.py              Read models (also used as API response bodies)
     types.py                UTCDateTime column type
-  providers/catalog.py      Static provider metadata; reports every provider as unavailable
+  providers/                Registry (registry.toml: methods, hosts, infrastructure groups), lifecycle
+  router/ rpc/ chains/ ingest/  Router, hardened transport, chain adapters, bounded wallet ingestion
+  intel/                    Stage 3 intelligence (stored data only; see INTELLIGENCE_METHODOLOGY.md)
+    dataset.py              Load one wallet's stored records as a scoped, hashable dataset
+    profile.py behaviour.py anomaly.py flows.py graph.py opportunities.py
+    verify.py               Cross-provider corroboration (the only network access, via the router)
+    service.py              Reproducible analysis runs, detector outcomes, findings
   api/
     app.py                  FastAPI factory (create_app); middleware, CORS, routers
     __main__.py             `python -m bip.api` entry point (uvicorn)
@@ -90,6 +96,7 @@ bip/
     schemas.py              Request bodies and API-only response models
 tests/unit/                 Offline unit tests (synthetic fixtures only)
 tests/api/                  API and database tests on temporary SQLite databases
+tests/stage2/ tests/stage3/ Offline fake-RPC integration and intelligence tests (no network)
 frontend/                   React + TypeScript + Vite dashboard
   src/api/                  Typed API client and response types
   src/pages/                One component per navigation section
@@ -99,7 +106,7 @@ frontend/                   React + TypeScript + Vite dashboard
   e2e/smoke.mjs             End-to-end test against the real stack
 ```
 
-Packages for later stages (`router/`, `chains/`, `ingest/`, `quality/`, `process/`, `intel/`) are created when their stage starts, not as empty placeholders.
+Packages for later stages (`quality/`, `process/`, `agents/`) are created when their stage starts, not as empty placeholders.
 
 ## Provider registry and data engine (Stage 2)
 
@@ -175,6 +182,27 @@ curl -X POST "http://127.0.0.1:8000/api/v1/ingestion/wallet/solana/<ADDRESS>?lim
 | GET | `/ingestion/jobs`, `/ingestion/jobs/{id}` | Run records with counts, coverage notes and errors |
 | POST | `/investigations/{id}/findings` | Attach a `Finding`. The contract's evidence rules are enforced, and evidence claiming verified provenance must be a transaction stored in the database (self-asserted verification is rejected with 422) |
 
+### Intelligence endpoints (Stage 3, `/api/v1/intelligence`)
+
+Every response includes `data_origin` (`offline_fixture` or `stored_observations`), `analyzer_version`, scope or coverage, and verification. Everything except the verification POSTs reads stored data only (no network). Methodology: [`INTELLIGENCE_METHODOLOGY.md`](INTELLIGENCE_METHODOLOGY.md).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/status` | Verification counts (corroborated / conflicted / invalidated / unverified), runs, anomalies, findings, leads, detector specs |
+| GET | `/wallets/{chain}/{address}/profile` | Scope-labelled metrics, volumes, counterparties, interactions, deployments, activity, coverage, verification, limitations, latest run, findings |
+| GET | `/wallets/{chain}/{address}/activity` · `/counterparties` | Paginated (`limit` ≤ 200, `offset`) |
+| GET | `/wallets/{chain}/{address}/behaviour` | Descriptive rules with status, evidence, confidence |
+| POST | `/analyze/{chain}/{address}` | Reproducible analysis run (reused when inputs are unchanged). 409 `analysis_busy` while another runs |
+| POST | `/watchlists/{id}/analyze` | Analyse up to 50 watchlist entries |
+| GET | `/graph/{chain}/{address}?depth=1..3&max_nodes=&max_edges=` | Bounded, evidence-backed graph with truncation flags |
+| GET | `/flows/{chain}/{address}?since=&until=` | Per-asset in/out/net, counterparties, daily buckets, largest transfers, repeated paths (no USD) |
+| GET | `/anomalies?chain=&address=&status=&watchlist_id=` · `/anomalies/{finding_id or obs-N}` | Detector results from each wallet's latest run |
+| POST | `/findings/{finding_id}/attach` | Attach a finding to an investigation (`{"investigation_id": N}`) |
+| GET | `/opportunities` · `/opportunities/{candidate_key}` | Research leads (never advice) |
+| POST | `/opportunities/refresh/{chain}` | Re-evaluate the lead rule; upserts, never duplicates |
+| GET | `/verification/{chain}/{tx_id}` | Effective status, every check, every provider observation |
+| POST | `/verification/{chain}/{tx_id}` · `/verification/{chain}/wallet/{address}?limit≤20` | Corroborate with independent providers (network, via the router) |
+
 Errors always use `{"error": {"code", "message", "details?"}}`:
 
 | Status | Code | Meaning |
@@ -221,6 +249,11 @@ All settings are environment variables with the `BIP_` prefix. Nested groups use
 | `BIP_INGEST__ETHEREUM_LOOKBACK_BLOCKS` / `__ETHEREUM_LOG_CHUNK_BLOCKS` | 2000 / 500 | Ethereum log scan window |
 | `BIP_INGEST__SOLANA_COMMITMENT` | `finalized` | `confirmed` or `finalized` (`processed` is not allowed) |
 | `BIP_INGEST__RUN_DEADLINE_S` / `__MAX_RPC_CALLS_PER_RUN` | 90 / 150 | Run bounds |
+| `BIP_INTEL__GRAPH_MAX_DEPTH` / `__GRAPH_MAX_NODES` / `__GRAPH_MAX_EDGES` / `__GRAPH_TIMEOUT_S` | 2 / 200 / 500 / 5 | Graph bounds (hard caps 3 / 1000 / 3000 / 30) |
+| `BIP_INTEL__MAX_RECORDS_PER_WALLET` | 5000 | Records loaded per analysis (truncation is reported) |
+| `BIP_INTEL__FLOW_MAX_WINDOW_DAYS` | 365 | Longest flow window |
+| `BIP_INTEL__NEWLY_OBSERVED_DAYS` / `__SPIKE_FACTOR` / `__LARGE_TRANSFER_MAD_Z` | 7 / 3.0 / 6.0 | Detector thresholds |
+| `BIP_INTEL__BURST_COUNT` / `__BURST_WINDOW_MINUTES` / `__CONCENTRATION_SHARE` | 5 / 10 / 0.5 | Rule thresholds |
 | `BIP_POSTGRES_DSN` | unset | Secret. Must start with `postgresql://`. Not used (SQLite is the operational store in BIP 0.1) |
 | `BIP_REDIS_URL` | unset | Secret. Must start with `redis://` or `rediss://` |
 

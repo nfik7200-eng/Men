@@ -47,7 +47,11 @@ class VerificationStatus(StrEnum):
     UNVERIFIED = "unverified"
     SINGLE_SOURCE = "single_source"
     CROSS_VERIFIED = "cross_verified"
+    """Displayed as "corroborated": matching observations from independent providers."""
     CONFLICT = "conflict"
+    """Displayed as "conflicted": independent providers or stored evidence disagree."""
+    INVALIDATED = "invalidated"
+    """Evidence no longer valid (e.g. the block was reorganized away)."""
 
 
 class Finality(StrEnum):

@@ -231,6 +231,41 @@ try {
   await page.getByRole("button", { name: "Fetch latest block" }).click();
   await page.getByText("20000000").first().waitFor();
   check("[offline fixture] latest block fetched and displayed", true);
+
+  // ---------- Stage 3 intelligence on the same fixture data ----------
+  const ethW = wallets?.[1];
+  await page.goto(`${WEB}/wallets/ethereum/${ethW}`);
+  await page.getByText(/Demo data: offline fixtures/).first().waitFor();
+  check("[offline fixture] fixture data carries an explicit demo label", true);
+  await page.getByText("2 transactions observed in retrieved dataset").or(page.getByText("transactions observed in retrieved dataset")).first().waitFor();
+  check("[offline fixture] metrics are scope-labelled (retrieved dataset)", true);
+  await page.getByRole("button", { name: "Run analysis" }).click();
+  await page.getByText(/Analysis run \d+ completed|previous analysis was reused/).waitFor({ timeout: 30000 });
+  check("[offline fixture] analysis run via UI", true);
+  await page.getByText("Transaction frequency spike").first().waitFor();
+  check("[offline fixture] detector results shown with explicit status", (await page.getByText("not enough data").count()) > 0);
+  await page.getByRole("button", { name: "Corroborate recent" }).click();
+  const verifyMsg = await page.getByText(/Checked \d+ of \d+:|Nothing left/).textContent({ timeout: 30000 });
+  check("[offline fixture] corroboration without an independent provider is reported, not faked",
+    /could not run/.test(verifyMsg ?? ""), `${verifyMsg}`);
+  await page.goto(`${WEB}/flows?chain=ethereum&address=${ethW}`);
+  await page.getByText("Per asset: in, out and net").waitFor();
+  await page.getByRole("img", { name: /Daily flows/ }).waitFor();
+  check("[offline fixture] capital flows page shows per-asset flows and chart", true);
+  await page.screenshot({ path: join(dataRoot, "fixture-flows.png"), fullPage: true });
+  await page.goto(`${WEB}/graph?chain=ethereum&address=${ethW}`);
+  const graphLabel = await page.getByRole("img", { name: /Relationship graph/ }).getAttribute("aria-label");
+  check("[offline fixture] relationship graph rendered from evidence", /[1-9]\d* edges/.test(graphLabel ?? ""), `${graphLabel}`);
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await page.getByRole("complementary", { name: "Selection details" }).locator("button.linklike").first().click();
+  await page.getByText("Evidence", { exact: true }).waitFor();
+  check("[offline fixture] graph edge shows its evidence", true);
+  await page.screenshot({ path: join(dataRoot, "fixture-graph.png"), fullPage: true });
+  await page.goto(`${WEB}/opportunities`);
+  await page.getByRole("button", { name: "Evaluate Ethereum" }).click();
+  await page.getByText(/insufficient data|evaluated/).first().waitFor();
+  check("[offline fixture] opportunity evaluation returns no candidate on insufficient data",
+    (await page.getByText("No research leads").count()) === 1);
   void preview2;
   await browser.close();
 } catch (err) {
