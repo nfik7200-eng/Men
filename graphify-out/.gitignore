@@ -1,0 +1,5 @@
+# Machine-local graphify state; regenerated per environment.
+.graphify_python
+.graphify_root
+cache/
+cost.json
