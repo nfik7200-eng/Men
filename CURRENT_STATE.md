@@ -33,7 +33,7 @@ _Last updated: 2026-11-03 (Stage 1b, BIP 0.1)_
 | Capital Flows and Opportunities pages | `frontend/src/pages/` | Partially implemented: page structure and honest placeholders only. No engines exist |
 | Typed API client, loading / empty / error / retry states | `frontend/src/api/`, `frontend/src/lib/useApi.ts` | Implemented and tested |
 | End-to-end test (real backend + built UI + Chromium, restart persistence) | `frontend/e2e/smoke.mjs` | Implemented and tested locally. Not in CI (needs Chromium) |
-| CI: backend checks, frontend lint/types/tests/build, gitleaks | `.github/workflows/ci.yml` | Frontend job not yet run on GitHub |
+| CI: backend checks, frontend lint/types/tests/build, gitleaks | `.github/workflows/ci.yml` | Implemented and tested. All three jobs green on GitHub for `09bb27c` |
 
 Test evidence: `IMPLEMENTATION_LOG.md` (2026-11-03, Stage 1b).
 

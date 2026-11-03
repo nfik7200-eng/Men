@@ -70,7 +70,9 @@ The end-to-end run used the real backend on a temporary data root, the built UI 
 **Not done (by design or blocked)**
 - Authentication and authorization (documented as future work, API bound to loopback).
 - Chain adapters and ingestion, so the database holds no chain data, and the UI and API say so.
-- The end-to-end test is not in CI (it needs Chromium). The CI frontend job had not yet run on GitHub at the time of writing.
+- The end-to-end test is not in CI (it needs Chromium).
+
+**CI on GitHub (`09bb27c`):** `checks`, `frontend` and `secret-scan` all succeeded (push and pull_request runs).
 
 ## 2026-11-03 — Stage 1: Repository foundation & core engineering contracts
 
