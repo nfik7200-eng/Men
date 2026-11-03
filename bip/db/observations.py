@@ -17,6 +17,7 @@ from sqlalchemy import Select, func, insert, or_, select, update
 from bip.db import schema
 from bip.db.repository import Repository
 from bip.db.types import utcnow
+from bip.security.secrets import redact_text
 
 MAX_RAW_BYTES = 4 * 1024 * 1024
 
@@ -238,7 +239,7 @@ class ObservationStore:
                     stage=stage[:40],
                     item_ref=(item_ref or "")[:120] or None,
                     error_code=error_code[:40],
-                    detail=detail[:500],
+                    detail=redact_text(detail)[:500],
                 )
             )
 

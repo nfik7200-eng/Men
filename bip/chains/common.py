@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from bip.core.exceptions import BIPError
 
@@ -37,12 +37,25 @@ def text(value: object, field: str, *, max_len: int = 200) -> str:
     return value
 
 
-def integer(value: object, field: str, *, minimum: int = 0, maximum: int = 2**64 - 1) -> int:
+SQL_INT_MAX = 2**63 - 1
+"""Largest value SQLite INTEGER columns can hold; positions above it are rejected as malformed."""
+MAX_TIMESTAMP = 253_402_300_799
+"""9999-12-31T23:59:59Z, the largest second Python datetimes can represent."""
+
+
+def integer(value: object, field: str, *, minimum: int = 0, maximum: int = SQL_INT_MAX) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ParseError(field, "expected an integer")
     if not minimum <= value <= maximum:
         raise ParseError(field, "integer out of range")
     return value
+
+
+def unix_time(seconds: int, field: str) -> datetime:
+    """Convert unix seconds to an aware UTC datetime, rejecting out-of-range values."""
+    if not 0 <= seconds <= MAX_TIMESTAMP:
+        raise ParseError(field, "timestamp out of range")
+    return datetime.fromtimestamp(seconds, tz=UTC)
 
 
 @dataclass(frozen=True, slots=True)

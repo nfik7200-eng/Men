@@ -18,12 +18,12 @@ from __future__ import annotations
 import json
 import struct
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal
 
 from pydantic import ValidationError
 
-from bip.chains.common import ParseError, SourceInfo, arr, integer, obj, text
+from bip.chains.common import ParseError, SourceInfo, arr, integer, obj, text, unix_time
 from bip.contracts.blockchain import AddressKind, AddressRef, SlotPosition
 from bip.contracts.identifiers import SolanaTxRef, b58decode
 from bip.contracts.provenance import (
@@ -76,7 +76,7 @@ def _signature(value: object, field_name: str) -> str:
 def _time(value: object, field_name: str) -> datetime | None:
     if value is None:
         return None
-    return datetime.fromtimestamp(integer(value, field_name, maximum=2**40), tz=UTC)
+    return unix_time(integer(value, field_name), field_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,7 +271,7 @@ def parse_transaction(
                 owner = _pubkey(owner_raw, f"{label}[{j}].owner") if owner_raw is not None else None
                 ui = obj(t.get("uiTokenAmount"), f"{label}[{j}].uiTokenAmount")
                 amount_text = text(ui.get("amount"), f"{label}[{j}].amount", max_len=80)
-                if not amount_text.isdigit():
+                if not (amount_text.isascii() and amount_text.isdigit()):
                     raise ParseError(f"{label}[{j}].amount", "expected a decimal integer string")
                 decimals = integer(ui.get("decimals"), f"{label}[{j}].decimals", maximum=255)
                 target[(idx, mint)] = int(amount_text)
@@ -321,10 +321,20 @@ def parse_transaction(
         else:
             transfers.append(decoded)
 
-    for i, ix in enumerate(outer):
-        handle(ix, (i,))
-        for j, inner in enumerate(inner_map.get(i, [])):
-            handle(inner, (i, j))
+    if status is TxStatus.FAILED:
+        # A failed transaction's instructions were not applied: count them, decode nothing.
+        issues.append("failed transaction: instructions were not applied, no transfers decoded")
+        for i, ix in enumerate(outer):
+            instruction_count += 1 + len(inner_map.get(i, []))
+            unknown += 1 + len(inner_map.get(i, []))
+            program = key_at(obj(ix, f"ix{i}").get("programIdIndex"), f"ix{i}.programIdIndex")
+            if program is not None and program not in program_ids:
+                program_ids.append(program)
+    else:
+        for i, ix in enumerate(outer):
+            handle(ix, (i,))
+            for j, inner in enumerate(inner_map.get(i, [])):
+                handle(inner, (i, j))
 
     parsed = ParsedSolanaTx(
         tx=tx,

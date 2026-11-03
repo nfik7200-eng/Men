@@ -22,7 +22,7 @@ _Last updated: 2026-11-03 (Stage 2)_
 | Migration v2 (in place, preserves v1 data) | Implemented and tested | v1 fixture upgrade test |
 | API: providers, health check, chain network and latest block, wallet transactions/transfers/balance changes, ingestion jobs | Implemented and tested (offline transport) | API tests |
 | Dashboard: Providers (health check, details, enable/disable), Chains (fetch head), Wallet retrieval and observations, Overview metrics | Implemented and tested | Vitest, plus e2e Phase B on fixture data |
-| Live smoke command (`make live-smoke`) | Implemented. **Run: 0/2 keyless providers reachable** (DNS blocked direct; proxy CONNECT refused, 403) | 2026-11-03 run |
+| Live smoke command (`make live-smoke`) | Implemented. **Runs: 0/2 keyless providers reachable** (DNS blocked direct; proxy CONNECT refused, 403) | 2026-11-03 runs, latest 16:59 UTC |
 | Capital Flows, Opportunities, AI research | Planned (placeholders only) | — |
 | Cross-provider verification, historical crawler, live followers, Parquet lake | Planned | — |
 

@@ -2,6 +2,22 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-03 — Stage 2 follow-up: independent review fixes and live retry
+
+Each of these review findings was first reproduced by a failing test in `tests/stage2/test_review_regressions.py`, then fixed.
+
+1. **Solana cursor could skip signatures.** This happened when more new signatures than `limit` arrived, or a run was interrupted mid-batch. Now the cursor's `newest` moves only after a whole batch is ingested. A batch that fills the limit resets the range (no false contiguity), and older history advances per transaction.
+2. **Ethereum cursor advanced before ingestion.** Windows were marked scanned even when transactions were truncated or failed. Now the cursor is computed after ingestion, in a `finally`, and never moves past the newest unfinished transaction's block.
+3. **Failed transactions produced transfers.** Failed Solana transactions no longer decode transfer instructions (counted and flagged instead). Failed EVM transactions yield no native-value transfer.
+4. **Out-of-range RPC values crashed instead of being rejected.** Timestamps are bounded (≤ 9999-12-31), positions ≤ 2^63−1 (SQLite INTEGER), and token amounts must be ASCII digits. `run()` now always finishes a run, recording `internal_error`. The API maps malformed provider data to 502 `upstream_invalid`.
+5. **Migration v2 was not crash-safe.** pysqlite auto-commits DDL. Each step is now idempotent (`PRAGMA table_info` check, `checkfirst`, `IF NOT EXISTS`), and is tested by migrating a database with a half-applied v2.
+- Hardening: stored ingestion error text is redacted, and the transport has a total read deadline (3× the timeout).
+
+**Verification (actual output):**
+- ruff clean; pyright strict 0 errors; pytest **357 passed**.
+- Vitest 30 passed; build OK; e2e 21/21.
+- **Live retry 2026-11-03T16:59Z: 0/2 providers reachable.** Direct mode fails DNS; proxy mode is refused with 403. This is unchanged: the sandbox network policy still denies RPC hosts.
+
 ## 2026-11-03 — Stage 2: Provider registry and read-only data engine
 
 **Scope.**

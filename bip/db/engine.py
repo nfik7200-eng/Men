@@ -73,14 +73,22 @@ _V2_COLUMNS: tuple[tuple[str, str], ...] = (
 def _provider_registry_and_ingestion(conn: Connection) -> None:
     """v2: provider health, network observations, blocks, balance changes, raw payloads,
     ingestion runs/errors/cursors; new columns on transactions, transfers, provider_checks."""
+    # Idempotent: SQLite auto-commits DDL under pysqlite, so a crash midway can leave some
+    # columns/tables in place with the version still at 1. Each step checks before acting.
     for table, column_ddl in _V2_COLUMNS:
-        conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column_ddl}")
+        column = column_ddl.split()[0]
+        existing = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column_ddl}")
     for table in schema.V2_TABLES:
-        table.create(conn)
+        table.create(conn, checkfirst=True)
     conn.exec_driver_sql(
-        "CREATE INDEX ix_transactions_chain_block_time ON transactions (chain, block_time)"
+        "CREATE INDEX IF NOT EXISTS ix_transactions_chain_block_time "
+        "ON transactions (chain, block_time)"
     )
-    conn.exec_driver_sql("CREATE INDEX ix_transfers_chain_tx_id ON transfers (chain, tx_id)")
+    conn.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_transfers_chain_tx_id ON transfers (chain, tx_id)"
+    )
 
 
 MIGRATIONS: tuple[Migration, ...] = (

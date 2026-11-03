@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 
 from pydantic import ValidationError
 
-from bip.chains.common import ParseError, SourceInfo, arr, obj
+from bip.chains.common import SQL_INT_MAX, ParseError, SourceInfo, arr, obj, unix_time
 from bip.contracts.blockchain import AddressRef, BlockPosition
 from bip.contracts.blocks import EvmBlock
 from bip.contracts.events import EvmLog
@@ -37,10 +37,18 @@ _HASH = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _ADDR = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 
-def quantity(value: object, field: str) -> int:
+def quantity(value: object, field: str, *, maximum: int | None = None) -> int:
     if not isinstance(value, str) or not _QTY.fullmatch(value):
         raise ParseError(field, "expected a 0x-hex quantity")
-    return int(value, 16)
+    n = int(value, 16)
+    if maximum is not None and n > maximum:
+        raise ParseError(field, "quantity out of range")
+    return n
+
+
+def position(value: object, field: str) -> int:
+    """Block numbers, indexes and nonces: bounded to what SQLite INTEGER can store."""
+    return quantity(value, field, maximum=SQL_INT_MAX)
 
 
 def opt_quantity(value: object, field: str) -> int | None:
@@ -102,10 +110,10 @@ def parse_block_header(raw: object) -> BlockHeader:
     b = obj(raw, "block")
     txs = b.get("transactions")
     return BlockHeader(
-        number=quantity(b.get("number"), "block.number"),
+        number=position(b.get("number"), "block.number"),
         hash=hash32(b.get("hash"), "block.hash"),
         parent_hash=hash32(b.get("parentHash"), "block.parentHash"),
-        timestamp=datetime.fromtimestamp(quantity(b.get("timestamp"), "block.timestamp"), tz=UTC),
+        timestamp=unix_time(position(b.get("timestamp"), "block.timestamp"), "block.timestamp"),
         tx_count=len(arr(txs, "block.transactions")) if txs is not None else None,
     )
 
@@ -147,7 +155,11 @@ def parse_transaction(
 ) -> ParsedTransaction:
     t = obj(raw_tx, "tx")
     tx_hash = hash32(t.get("hash"), "tx.hash")
-    block_number = opt_quantity(t.get("blockNumber"), "tx.blockNumber")
+    block_number = (
+        position(t.get("blockNumber"), "tx.blockNumber")
+        if t.get("blockNumber") is not None
+        else None
+    )
     block_hash = t.get("blockHash")
     if block_number is None or block_hash is None:
         raise ParseError("tx.blockNumber", "transaction is pending (no block); not stored")
@@ -176,11 +188,11 @@ def parse_transaction(
             tx_hash=tx_hash,
             block_number=block_number,
             block_hash=bhash,
-            tx_index=quantity(t.get("transactionIndex"), "tx.transactionIndex"),
+            tx_index=position(t.get("transactionIndex"), "tx.transactionIndex"),
             from_address=address(t.get("from"), "tx.from"),
             to_address=address(to_raw, "tx.to") if to_raw is not None else None,
             value_wei=value,
-            nonce=quantity(t.get("nonce"), "tx.nonce"),
+            nonce=position(t.get("nonce"), "tx.nonce"),
             status=status,
             gas_used=gas_used,
             created_contract=created,
@@ -203,7 +215,7 @@ def parse_log(
     raw: object, src: SourceInfo, *, block_time: datetime | None, finality: Finality
 ) -> EvmLog:
     lg = obj(raw, "log")
-    block_number = quantity(lg.get("blockNumber"), "log.blockNumber")
+    block_number = position(lg.get("blockNumber"), "log.blockNumber")
     bhash = hash32(lg.get("blockHash"), "log.blockHash")
     tx_hash = hash32(lg.get("transactionHash"), "log.transactionHash")
     topics = tuple(
@@ -220,8 +232,8 @@ def parse_log(
         block_number=block_number,
         block_hash=bhash,
         tx_hash=tx_hash,
-        tx_index=quantity(lg.get("transactionIndex"), "log.transactionIndex"),
-        log_index=quantity(lg.get("logIndex"), "log.logIndex"),
+        tx_index=position(lg.get("transactionIndex"), "log.transactionIndex"),
+        log_index=position(lg.get("logIndex"), "log.logIndex"),
         address=address(lg.get("address"), "log.address"),
         topics=topics,
         data=data.lower(),
@@ -299,8 +311,8 @@ def decode_transfer_log(log: EvmLog) -> tuple[TokenTransfer | None, str | None]:
 def native_transfer(parsed: ParsedTransaction) -> TokenTransfer | None:
     """Top-level ETH value transfer. Internal (contract-initiated) transfers are not visible."""
     tx = parsed.tx
-    if parsed.value_wei == 0 or tx.to_address is None:
-        return None
+    if parsed.value_wei == 0 or tx.to_address is None or tx.status is TxStatus.FAILED:
+        return None  # a reverted transaction moved no value
     return TokenTransfer(
         chain=CHAIN,
         tx=EvmTxRef(tx_hash=tx.tx_hash),

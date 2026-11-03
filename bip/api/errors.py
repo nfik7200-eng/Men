@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from bip.chains.common import ParseError
 from bip.core.exceptions import StorageLimitError
 from bip.core.logging import get_logger
 from bip.db.errors import (
@@ -79,6 +80,15 @@ def install_error_handlers(app: FastAPI) -> None:
             "upstream_failed",
             "Every provider attempt failed.",
             [redact_text(a)[:300] for a in exc.attempts],
+        )
+
+    @app.exception_handler(ParseError)
+    async def _upstream_invalid(_: Request, exc: ParseError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        log.warning("provider returned malformed data: %s", exc)
+        return error_response(
+            502,
+            "upstream_invalid",
+            "A provider returned data that failed validation; nothing was stored.",
         )
 
     @app.exception_handler(ProviderNotFoundError)

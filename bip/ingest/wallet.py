@@ -95,6 +95,9 @@ class WalletIngestor:
             self._error(run_id, stats, "rpc", type(exc).__name__, str(exc))
         except ParseError as exc:
             self._error(run_id, stats, "parse", "parse_error", str(exc))
+        except Exception as exc:
+            log.exception("ingestion run %s failed unexpectedly", run_id)
+            self._error(run_id, stats, "run", "internal_error", f"unexpected {type(exc).__name__}")
         stored_any = (
             stats.transactions_stored + stats.transfers_stored + stats.balance_changes_stored
         ) > 0
@@ -199,8 +202,8 @@ class WalletIngestor:
 
         logs: dict[tuple[str, int], tuple[object, SourceInfo]] = {}
         tx_order: list[str] = []
-        scanned_from = cur.scanned_from_block
-        scanned_to = cur.scanned_to_block
+        tx_block: dict[str, int] = {}
+        scanned: list[tuple[int, int]] = []  # windows fully queried in both directions
         notes: list[str] = []
         for bottom, top in windows:
             for direction in ("from", "to"):
@@ -213,51 +216,67 @@ class WalletIngestor:
                         o = eth.obj(raw, "log")
                         key = (
                             str(o.get("blockHash")),
-                            eth.quantity(o.get("logIndex"), "log.logIndex"),
+                            eth.position(o.get("logIndex"), "log.logIndex"),
                         )
                         txh = eth.hash32(o.get("transactionHash"), "log.transactionHash")
+                        number = eth.position(o.get("blockNumber"), "log.blockNumber")
                     except ParseError as exc:
                         self._error(run_id, stats, "eth_logs", "parse_error", str(exc))
                         continue
                     logs.setdefault(key, (raw, src))
-                    if txh not in tx_order:
+                    if txh not in tx_block:
                         tx_order.append(txh)
-            scanned_from = bottom if scanned_from is None else min(scanned_from, bottom)
-            scanned_to = top if scanned_to is None else max(scanned_to, top)
-            self._store.save_cursor(
-                "ethereum",
-                wallet,
-                Cursor(scanned_from_block=scanned_from, scanned_to_block=scanned_to),
-                run_id,
-            )
+                        tx_block[txh] = number
+            scanned.append((bottom, top))
             if len(tx_order) >= limit:
                 break
-        stats.coverage.update(
-            {
-                "scanned_from_block": scanned_from,
-                "scanned_to_block": scanned_to,
-                "range_notes": notes[:10],
-            }
-        )
         stats.coverage["activity_found"] = bool(tx_order)
 
-        # Newest transactions first: logs come in block order within each window.
-        def block_of(txh: str) -> int:
-            for (_, _), (raw, _) in logs.items():
-                o = eth.obj(raw, "log")
-                if o.get("transactionHash") == txh:
-                    return eth.quantity(o.get("blockNumber"), "log.blockNumber")
-            return -1
-
-        selected = sorted(tx_order, key=block_of, reverse=True)[:limit]
+        # Newest transactions first. The cursor is advanced only over blocks whose matching
+        # transactions were all ingested, so truncated or failed ones are retried next run.
+        selected = sorted(tx_order, key=lambda h: tx_block[h], reverse=True)[:limit]
+        done: set[str] = set()
         block_cache: dict[int, tuple[eth.BlockHeader, SourceInfo]] = {}
-        for txh in selected:
-            stats.transactions_seen += 1
-            self._store.link_wallet_activity("ethereum", wallet, txh, "transfer_log", run_id)
-            try:
-                self._ingest_eth_tx(run_id, a, wallet, txh, logs, block_cache, finalized, stats)
-            except (RpcError, RoutingFailedError, TransportError) as exc:
-                self._error(run_id, stats, "eth_tx", type(exc).__name__, str(exc), txh)
+        try:
+            for txh in selected:
+                stats.transactions_seen += 1
+                self._store.link_wallet_activity("ethereum", wallet, txh, "transfer_log", run_id)
+                try:
+                    if self._ingest_eth_tx(
+                        run_id, a, wallet, txh, logs, block_cache, finalized, stats
+                    ):
+                        done.add(txh)
+                except (RpcError, RoutingFailedError, TransportError) as exc:
+                    self._error(run_id, stats, "eth_tx", type(exc).__name__, str(exc), txh)
+        finally:
+            pending = [tx_block[h] for h in tx_order if h not in done]
+            ceiling = max(pending) if pending else None  # blocks <= ceiling must be rescanned
+            safe = [
+                (max(lo, ceiling + 1) if ceiling is not None else lo, hi)
+                for lo, hi in scanned
+                if ceiling is None or hi > ceiling
+            ]
+            interval = _merge_top(
+                safe,
+                (cur.scanned_from_block, cur.scanned_to_block)
+                if cur.scanned_from_block is not None and cur.scanned_to_block is not None
+                else None,
+            )
+            if interval is not None:
+                self._store.save_cursor(
+                    "ethereum",
+                    wallet,
+                    Cursor(scanned_from_block=interval[0], scanned_to_block=interval[1]),
+                    run_id,
+                )
+            stats.coverage.update(
+                {
+                    "scanned_from_block": interval[0] if interval else None,
+                    "scanned_to_block": interval[1] if interval else None,
+                    "pending_transactions": len(pending),
+                    "range_notes": notes[:10],
+                }
+            )
 
     def _ingest_eth_tx(
         self,
@@ -269,14 +288,15 @@ class WalletIngestor:
         block_cache: dict[int, tuple[eth.BlockHeader, SourceInfo]],
         finalized: int | None,
         stats: RunStats,
-    ) -> None:
+    ) -> bool:
+        """Ingest one transaction; True only if it was stored without a blocking problem."""
         raw_tx, tx_src = a.transaction(txh)
         raw_receipt, _ = a.receipt(txh)
         if raw_tx is None:
             self._error(
                 run_id, stats, "eth_tx", "not_found", "provider returned null for transaction", txh
             )
-            return
+            return False
         try:
             number = eth.quantity(eth.obj(raw_tx, "tx").get("blockNumber"), "tx.blockNumber")
             if number not in block_cache:
@@ -296,7 +316,7 @@ class WalletIngestor:
         except ParseError as exc:
             code = "reorg_detected" if exc.field == "receipt.blockHash" else "parse_error"
             self._error(run_id, stats, "eth_tx", code, str(exc), txh)
-            return
+            return False
         if parsed.tx.block_hash != header.hash:
             self._error(
                 run_id,
@@ -306,7 +326,7 @@ class WalletIngestor:
                 f"tx block hash differs from block {header.number} hash; not stored",
                 txh,
             )
-            return
+            return False
         self._store_eth_block(header, bsrc, finalized)
         tx = parsed.tx
         if self._repo.store_transaction(
@@ -385,6 +405,7 @@ class WalletIngestor:
             ):
                 stats.transfers_stored += 1
         self._repo.observe_wallet("ethereum", wallet, header.timestamp, tx.provenance)
+        return raw_receipt is not None
 
     def _store_eth_block(self, h: eth.BlockHeader, src: SourceInfo, finalized: int | None) -> None:
         finality = (
@@ -436,24 +457,10 @@ class WalletIngestor:
             }
         )
         cur = self._store.cursor("solana", wallet)
-        sigs = a.signatures(wallet, limit=limit, commitment=commitment, until=cur.newest_tx_id)
-        if len(sigs) < limit and cur.oldest_tx_id is not None:
-            sigs += a.signatures(
-                wallet, limit=limit - len(sigs), commitment=commitment, before=cur.oldest_tx_id
-            )
-        stats.coverage["activity_found"] = bool(sigs)
-        newest = cur.newest_tx_id, cur.newest_position
-        oldest = cur.oldest_tx_id, cur.oldest_position
-        for info in sigs:
-            stats.transactions_seen += 1
-            self._store.link_wallet_activity(
-                "solana", wallet, info.signature, "signature_list", run_id
-            )
-            self._ingest_sol_tx(run_id, a, wallet, info, commitment, stats)
-            if newest[1] is None or info.slot > newest[1]:
-                newest = (info.signature, info.slot)
-            if oldest[1] is None or info.slot < oldest[1]:
-                oldest = (info.signature, info.slot)
+
+        def save(
+            newest: tuple[str | None, int | None], oldest: tuple[str | None, int | None]
+        ) -> None:
             self._store.save_cursor(
                 "solana",
                 wallet,
@@ -465,6 +472,40 @@ class WalletIngestor:
                 ),
                 run_id,
             )
+
+        def ingest(info: sol.SignatureInfo) -> None:
+            stats.transactions_seen += 1
+            self._store.link_wallet_activity(
+                "solana", wallet, info.signature, "signature_list", run_id
+            )
+            self._ingest_sol_tx(run_id, a, wallet, info, commitment, stats)
+
+        # 1) Newer than the cursor. The cursor's `newest` moves only after the WHOLE batch is
+        #    ingested; if the batch filled the limit, a gap may exist below it, so the cursor is
+        #    reset to this batch (older ranges are re-walked later; storage dedupes).
+        new = a.signatures(wallet, limit=limit, commitment=commitment, until=cur.newest_tx_id)
+        stats.coverage["activity_found"] = bool(new) or cur.newest_tx_id is not None
+        for info in new:
+            ingest(info)
+        newest = (cur.newest_tx_id, cur.newest_position)
+        oldest = (cur.oldest_tx_id, cur.oldest_position)
+        if new:
+            top = (new[0].signature, new[0].slot)
+            bottom = (new[-1].signature, new[-1].slot)
+            if cur.newest_tx_id is None or len(new) >= limit:
+                newest, oldest = top, bottom  # fresh range (or possible gap: restart range)
+            else:
+                newest = top  # contiguous with the previous range
+            save(newest, oldest)
+        # 2) Older than the cursor, walking backwards; `oldest` advances per ingested tx.
+        remaining = limit - len(new)
+        if remaining > 0 and oldest[0] is not None:
+            for info in a.signatures(
+                wallet, limit=remaining, commitment=commitment, before=oldest[0]
+            ):
+                ingest(info)
+                oldest = (info.signature, info.slot)
+                save(newest, oldest)
 
     def _ingest_sol_tx(
         self,
@@ -601,6 +642,25 @@ class WalletIngestor:
                 )
             )
         return True
+
+
+def _merge_top(
+    intervals: list[tuple[int, int]], previous: tuple[int, int] | None
+) -> tuple[int, int] | None:
+    """Merge contiguous/overlapping block intervals; return the highest merged one.
+
+    The cursor stores a single contiguous interval, so knowledge of lower, disconnected
+    intervals is dropped (those blocks are simply rescanned later; storage dedupes)."""
+    items: list[tuple[int, int]] = sorted([*intervals, *([previous] if previous else [])])
+    merged: list[tuple[int, int]] = []
+    for lo, hi in items:
+        if lo > hi:
+            continue
+        if merged and lo <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+        else:
+            merged.append((lo, hi))
+    return merged[-1] if merged else None
 
 
 def _subtract(windows: list[tuple[int, int]], lo: int, hi: int) -> list[tuple[int, int]]:

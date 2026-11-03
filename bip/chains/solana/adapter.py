@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from bip.chains.base import ChainAdapter
-from bip.chains.common import ParseError, SourceInfo, integer, obj, text
+from bip.chains.common import ParseError, SourceInfo, integer, obj, text, unix_time
 from bip.chains.solana.parse import Commitment, SignatureInfo, parse_signatures
 from bip.rpc.jsonrpc import RpcError
 
@@ -59,7 +57,7 @@ class SolanaAdapter(ChainAdapter):
                 b.get("previousBlockhash"), "getBlock.previousBlockhash", max_len=44
             ),
             "parent_slot": integer(b.get("parentSlot"), "getBlock.parentSlot"),
-            "block_time": datetime.fromtimestamp(integer(bt, "getBlock.blockTime"), tz=UTC)
+            "block_time": unix_time(integer(bt, "getBlock.blockTime"), "getBlock.blockTime")
             if bt is not None
             else None,
             "block_height": integer(b["blockHeight"], "getBlock.blockHeight")

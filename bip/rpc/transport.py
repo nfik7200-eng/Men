@@ -169,7 +169,10 @@ class HttpsTransport:
                 raise TransportError("too_large", host, "response exceeds the size limit")
             chunks: list[bytes] = []
             total = 0
+            deadline = started + timeout_s * 3  # total budget, not just per-read
             while True:
+                if time.monotonic() > deadline:
+                    raise TransportError("timeout", host, "response took too long overall")
                 chunk = resp.read(65536)
                 if not chunk:
                     break
