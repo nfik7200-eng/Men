@@ -68,7 +68,7 @@ Also fixed:
 uv run ruff check . / format --check   -> All checks passed / 155 files already formatted
 uv run pyright (strict; bip/ml/backend.py basic) -> 0 errors, 0 warnings, 0 informations
 uv run pytest -q                       -> 498 passed (Python 3.13)
-venv312 python -m pytest -q            -> see below (Python 3.12)
+venv312 python -m pytest -q            -> 498 passed (Python 3.12)
 frontend: eslint, tsc                  -> clean
 npx vitest run                         -> 49 passed
 make e2e                               -> 45/45 (7 new AI Research checks on the offline fixture backend)
