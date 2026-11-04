@@ -207,3 +207,31 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - There is no score and no ranking.
 - Consistency checks are stored separately from evidence verification and never change it. Independence follows ADR-021.
 **When to revisit.** When real observations exist, calibrate the 0.95 / 0.80 thresholds and decide whether routing should consume these states (Stage 5).
+
+## ADR-027 scikit-learn for wallet classification; rules baseline always on (Proposed)
+**Decision.**
+- Add `scikit-learn` and `numpy` (CPU-only; about 125 MB in the venv including SciPy) for Random Forest, Isolation Forest, HDBSCAN and calibration.
+- Not added: LightGBM, XGBoost, CatBoost or deep learning. These are heavier, and there is no labelled data that could show they add value.
+- The deterministic `bip-rules` baseline always runs.
+- Models are trained only on request, only past an honest data gate, and are versioned with dataset hashes.
+- Synthetic training is opt-in (`BIP_ML__ALLOW_SYNTHETIC_TRAINING`), and its models are always labelled `experimental_synthetic`.
+**Risk.**
+- Model artifacts are joblib (pickle). They are written and read only inside `<data_root>/ml/models`, and loaded only when the sha256 matches the registry. Files from elsewhere are never loaded.
+- scikit-learn has no type stubs, so `bip/ml/backend.py` runs in pyright `basic` mode. All other code stays strict.
+
+## ADR-028 Deterministic research planner; LLM only synthesizes over curated claims (Proposed)
+**Decision.**
+- Investigations use a fixed (specialist, tool) plan and typed read-only tools scoped to the subject wallet.
+- The LLM receives claims as data and may only return interpretations or hypotheses that cite existing claim ids. These pass a screen for instructions, verification claims, identity and financial advice.
+- Statuses are assigned by BIP and never by the model.
+- Ollama is loopback-only. An OpenAI-compatible provider is optional, and none is the default.
+**Consequences.**
+- The design is strongly resistant to prompt injection.
+- The AI cannot ask for more data mid-run. LLM-driven tool selection would need a new ADR.
+
+## ADR-029 Asynchronous, bounded research runs in-process (Proposed)
+**Decision.**
+- At most 2 concurrent investigations run in a thread pool inside the API process.
+- Every state change is persisted, and cancellation is checked between steps.
+- Runs left unfinished at restart are marked failed.
+- No queue service is used (ADR-006 still governs any future queue).

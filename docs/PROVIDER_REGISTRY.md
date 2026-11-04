@@ -2,6 +2,10 @@
 
 Status: **Research snapshot, 2026-11-03.**
 
+## Stage 5 note (2026-11-04)
+
+AI research reads provider state only through the `provider_status` tool, which reports Stage 4 probe connectivity and reliability and whether the data are offline fixtures. Research never calls providers. With no live probe, reports state that provider capabilities are unverified. A blocked development environment is never presented as a provider verdict.
+
 ## Stage 4 status (2026-11-04)
 
 - **Probing.** The capability prober (`docs/PROVIDER_CAPABILITY_METHODOLOGY.md`) can now test each provider's capabilities within a hard budget. **No live probe result exists yet.** The sandbox's egress gateway still denies the RPC hosts. That is an environment restriction, so provider availability remains unknown. The table below is unchanged.

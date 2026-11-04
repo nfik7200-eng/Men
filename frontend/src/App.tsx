@@ -9,6 +9,7 @@ import Investigations, { InvestigationDetail } from "./pages/Investigations";
 import Opportunities from "./pages/Opportunities";
 import Overview from "./pages/Overview";
 import Providers from "./pages/Providers";
+import Research from "./pages/Research";
 import Settings from "./pages/Settings";
 import Wallets, { WalletProfilePage } from "./pages/Wallets";
 import Watchlists from "./pages/Watchlists";
@@ -21,6 +22,7 @@ export const NAV = [
   { to: "/flows", label: "Capital Flows" },
   { to: "/graph", label: "Relationship Graph" },
   { to: "/opportunities", label: "Opportunities" },
+  { to: "/research", label: "AI Research" },
   { to: "/investigations", label: "Investigations" },
   { to: "/providers", label: "Providers" },
   { to: "/watchlists", label: "Watchlists" },
@@ -65,7 +67,7 @@ export default function App() {
             <span className="brand-mark" aria-hidden="true" />
             <div>
               <strong>BIP</strong>
-              <span>Blockchain Intelligence · 0.3</span>
+              <span>Blockchain Intelligence · 0.5</span>
             </div>
           </div>
           <button
@@ -99,6 +101,7 @@ export default function App() {
           <Route path="/flows" element={<CapitalFlows />} />
           <Route path="/graph" element={<GraphPage />} />
           <Route path="/opportunities" element={<Opportunities />} />
+          <Route path="/research" element={<Research />} />
           <Route path="/investigations" element={<Investigations />} />
           <Route path="/investigations/:id" element={<InvestigationDetail />} />
           <Route path="/providers" element={<Providers />} />

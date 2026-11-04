@@ -597,3 +597,84 @@ export type ProbeRun = IntelEnvelopeLite & {
 };
 
 export type ProbeRunPage = IntelEnvelopeLite & { total: number; limit: number; offset: number; items: ProbeRun[] };
+
+// ---------------------------------------------------------------- Stage 5: ML classification + AI research
+
+export type LabelStatusML = "high_confidence" | "moderate_confidence" | "low_confidence" | "rule_based" | "insufficient_evidence";
+
+export type LabelResult = {
+  label: string; status: LabelStatusML; confidence: number | null; source: string;
+  model_status: string | null; calibrated: boolean | null; explanation: string;
+  evidence: { type: string; ref: string; note?: string }[];
+  supporting_features: { feature: string; importance: number; value: number | null; availability: string }[];
+  caveat: string | null;
+};
+
+export type ModelRef = { name: string; version: string; feature_version: string; status: string; data_kind: string };
+
+export type Classification = {
+  classification_id: string; wallet_address: string; chain: string; classification_timestamp: string; as_of: string;
+  status: "classified" | "classified_with_limitations" | "insufficient_evidence";
+  taxonomy_version: string; feature_version: string; feature_digest: string;
+  rules: ModelRef; model: ModelRef | null; account_type: LabelResult; behavioural_roles: LabelResult[];
+  not_assigned: { label: string; score: number }[];
+  contradictions: { between: string[]; note: string }[];
+  anomaly: { status: string; score?: number; training_percentile?: number | null; outlier?: boolean; note?: string; reason?: string };
+  coverage: Record<string, unknown>; supporting_evidence_refs: string[]; limitations: string[]; data_origin: string;
+};
+
+export type MLModel = {
+  name: string; version: string; kind: string; chain: string; status: string; feature_version: string;
+  taxonomy_version: string; dataset_version: string | null; data_kind: string; artifact_sha256: string | null;
+  params: Record<string, unknown>;
+  labels: { modelled: string[]; skipped: Record<string, string>; summary?: Record<string, { macro_f1: number | null; weighted_f1: number | null; labels_evaluated: number }> };
+  thresholds: Record<string, { high: number | null; moderate: number | null; basis: string }>;
+  training_run_id: number | null; created_at: string; note: string | null;
+  evaluation?: { split: string; label: string; data_kind: string; metrics: { precision: number | null; recall: number | null; f1: number | null; support: number; n: number; brier: number | null;
+    at_high_threshold: { threshold: number | null; predicted: number; precision: number | null } } }[];
+};
+
+export type TrainingRun = { training_run_id: number; model_name: string; chain: string; started_at: string; status: string; data_kind: string; message: string | null };
+
+export type ResearchClaim = {
+  claim_key: string; specialist: string; kind: string; status: string; statement: string;
+  confidence: string | null; evidence: { type: string; ref: string }[]; contradicts: string[];
+};
+
+export type ResearchRun = {
+  run_id: string; parent_run_id: string | null; chain: string; address: string; question: string;
+  request: { focus: string[]; use_llm: boolean }; state: string;
+  progress: { step: number; of: number; tool: string } | null;
+  budget: Record<string, number>; usage: { tool_calls: number; model_calls: number } | null;
+  data_origin: string; cancel_requested: boolean; created_at: string; finished_at: string | null;
+  error: string | null; limitations: string[];
+  plan?: { focus: string[]; steps: { seq: number; specialist: string; tool: string }[]; skipped_over_budget: unknown[] } | null;
+  tool_calls?: { seq: number; specialist: string; tool: string; status: string; output_bytes: number | null; truncated: boolean; duration_ms: number | null }[];
+  claims?: ResearchClaim[];
+  model_usage?: { provider: string; model: string | null; status: string; prompt_bytes: number; output_bytes: number | null; error: string | null }[];
+};
+
+export type ResearchPreview = {
+  request: { chain: string; address: string; question: string; focus: string[] };
+  plan: { focus: string[]; steps: { seq: number; specialist: string; tool: string }[]; skipped_over_budget: unknown[]; synthesis: string };
+  budget: Record<string, number>;
+  llm: { provider: string; model: string | null; available: boolean; reason: string };
+};
+
+export type ResearchReport = {
+  report: {
+    executive_summary: string; summary_source: string; question: string;
+    subject: { chain: string; address: string };
+    classification: { account_type: LabelResult | null; behavioural_roles: LabelResult[]; model: ModelRef | null; status: string | null };
+    sections: Record<string, ResearchClaim[]>; contradictions: ResearchClaim[];
+    claim_status_counts: Record<string, number>; next_steps: string[]; limitations: string[];
+    legend: Record<string, string>; disclaimer: string; evidence_references: string[]; truncated?: boolean;
+  };
+  markdown: string; bytes: number;
+};
+
+export type ResearchConfig = {
+  provider: { name: string; model: string | null; available: boolean; reason: string };
+  configured: Record<string, string | null>; how_to_configure: string; budget: Record<string, number>;
+  focus_areas: string[]; tools: { name: string; description: string; specialists: string[] }[];
+};

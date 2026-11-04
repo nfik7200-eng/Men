@@ -74,7 +74,7 @@ bip/
     contracts.py            ContractDeployment
     findings.py             Finding, Claim, EvidenceRef, Attribution
   db/
-    schema.py               SQLAlchemy Core tables (schema version 4)
+    schema.py               SQLAlchemy Core tables (schema version 5)
     engine.py               DB location, engine, versioned migrations, connectivity check
     repository.py           All reads/writes; maps failures to typed errors
     records.py              Read models (also used as API response bodies)
@@ -83,6 +83,8 @@ bip/
   router/ rpc/ chains/ ingest/  Router, hardened transport, chain adapters, bounded wallet ingestion
   providers/capabilities.py prober.py intelligence.py  Stage 4 capability catalogue, budgeted prober, probe storage / reliability / consistency
   tools/probe.py            `make probe`: opt-in live run of the same prober (BIP_LIVE_RPC=1)
+  ml/                       Stage 5 classification: taxonomy, features, rules, backend (sklearn), labels, training, service
+  research/                 Stage 5 AI research: llm (providers), tools (typed, read-only), engine (plan, claims, report)
   intel/                    Stage 3 intelligence (stored data only; see INTELLIGENCE_METHODOLOGY.md)
     dataset.py              Load one wallet's stored records as a scoped, hashable dataset
     profile.py behaviour.py anomaly.py flows.py graph.py opportunities.py
@@ -184,6 +186,24 @@ curl -X POST "http://127.0.0.1:8000/api/v1/ingestion/wallet/solana/<ADDRESS>?lim
 | GET | `/ingestion/jobs`, `/ingestion/jobs/{id}` | Run records with counts, coverage notes and errors |
 | POST | `/investigations/{id}/findings` | Attach a `Finding`. The contract's evidence rules are enforced, and evidence claiming verified provenance must be a transaction stored in the database (self-asserted verification is rejected with 422) |
 
+### ML classification and AI research endpoints (Stage 5)
+
+Neither group makes provider calls. Classification is local; research reads stored data through typed tools. Methodology: [`ML_WALLET_CLASSIFICATION.md`](ML_WALLET_CLASSIFICATION.md), [`AI_RESEARCH_METHODOLOGY.md`](AI_RESEARCH_METHODOLOGY.md).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/ml/taxonomy` | Labels, features and statuses |
+| POST | `/ml/classify/{chain}/{address}` | Classify (rules plus active model); appended to history |
+| GET | `/ml/classifications/{chain}/{address}` · `/ml/classifications/{id}` · `/ml/features/{chain}/{address}` | History · one result · feature snapshot |
+| GET | `/ml/models` · `/ml/models/{name}/{version}` | Registry · evaluation |
+| GET, POST | `/ml/training-runs` | History · train (`stored_labels`, or `synthetic` if enabled); 409 `training_busy` |
+| GET, POST | `/ml/labels` · POST `/ml/labels/{id}/reviews` | Labels with provenance · append-only reviews |
+| GET | `/research/config` | Provider status, budgets, tools |
+| POST | `/research/preview` | Interpreted request, fixed plan, budget, LLM availability |
+| POST | `/research/runs` | Start (202); 409 `research_busy` |
+| GET | `/research/runs` · `/research/runs/{id}` · `/research/runs/{id}/report` | History · progress, plan, tool calls, claims, model usage · report |
+| POST | `/research/runs/{id}/cancel` · `/research/runs/{id}/rerun` | Cancel · new run linked to the original |
+
 ### Provider intelligence endpoints (Stage 4)
 
 Only `POST /providers/probe-runs` contacts providers, within the server-side budget. Methodology: [`PROVIDER_CAPABILITY_METHODOLOGY.md`](PROVIDER_CAPABILITY_METHODOLOGY.md).
@@ -276,6 +296,15 @@ All settings are environment variables with the `BIP_` prefix. Nested groups use
 | `BIP_PROBE__RETRIES` | 0 | Must be 0 |
 | `BIP_PROBE__MIN_INTERVAL_S` | 1.0 | Per-provider spacing floor (may only be raised) |
 | `BIP_PROBE__ETHEREUM_HISTORY_LOOKBACK_BLOCKS` / `__SOLANA_HISTORY_LOOKBACK_SLOTS` | 100000 / 1000000 | Distance of the single historical sample |
+| `BIP_ML__MIN_LABELLED_WALLETS` / `__MIN_POSITIVES_PER_LABEL` / `__MIN_TX_FOR_CLASSIFICATION` | 30 / 5 / 3 | Training data gate · per-label minimum · abstention |
+| `BIP_ML__HIGH_PRECISION_TARGET` / `__MODERATE_PRECISION_TARGET` / `__MIN_THRESHOLD_SUPPORT` | 0.95 / 0.80 / 10 | Threshold validation |
+| `BIP_ML__ALLOW_SYNTHETIC_TRAINING` | false | Allows the labelled synthetic demo dataset (the offline fixture backend enables it) |
+| `BIP_ML__MAX_ARTIFACT_BYTES` / `__MAX_LABEL_IMPORT` | 64 MiB / 5000 | Storage and import limits |
+| `BIP_AI__PROVIDER` | `none` | `none`, `ollama` (loopback only) or `openai_compatible` (https) |
+| `BIP_AI__OLLAMA_URL` / `__OLLAMA_MODEL` | `http://127.0.0.1:11434` / unset | Must be an already-installed model; never pulled |
+| `BIP_AI__API_BASE_URL` / `__API_MODEL` / `__API_KEY_ENV` | unset / unset / `BIP_AI_API_KEY` | Optional OpenAI-compatible API; the key comes from the named environment variable |
+| `BIP_AI__MAX_SECONDS` / `__MAX_TOOL_CALLS` / `__MAX_MODEL_CALLS` | 120 / 20 / 8 | Ceilings (can only be lowered) |
+| `BIP_AI__MAX_TOOL_OUTPUT_BYTES` / `__MAX_REPORT_BYTES` / `__MAX_CONCURRENT` | 100 KiB / 30 KiB / 2 | Ceilings |
 | `BIP_POSTGRES_DSN` | unset | Secret. Must start with `postgresql://`. Not used (SQLite is the operational store in BIP 0.1) |
 | `BIP_REDIS_URL` | unset | Secret. Must start with `redis://` or `rediss://` |
 

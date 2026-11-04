@@ -2,6 +2,79 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-04 — Stage 5 (Build Prompt 06): ML wallet classification and AI research
+
+**Starting point:** `4894453`, clean tree, same commit on the remote.
+
+**Environment:** this development sandbox has 4 CPUs, 15 GB RAM and 29 GB free disk. The owner's VPS was not touched.
+
+**Done**
+- **Dependencies.** Added `scikit-learn==1.9.1` and `numpy==2.5.4` (uv lock; CPU only; ADR-027). No LightGBM, XGBoost, CatBoost or deep learning. No model downloads.
+- **`bip/ml/`:**
+  - taxonomy: 10 account types, 25 roles, sensitive-label caveats;
+  - features: 27 features, version 1.0.0, availability per feature, as-of leakage control, coverage;
+  - `bip-rules` baseline: account type and 4 roles with evidence;
+  - label store: statuses and provenance, append-only reviews, no self-training;
+  - training:
+    - gate on distinct wallets;
+    - explicit examples only; conflicting labels dropped;
+    - wallet-grouped out-of-time split;
+    - Random Forest per label with balanced weights;
+    - sigmoid calibration only with ≥ 10 positives and ≥ 10 negatives;
+    - thresholds validated on measured precision, never below 0.5;
+    - Isolation Forest and an HDBSCAN summary;
+    - dataset hash; sha256-verified artifacts kept in the data directory;
+  - classification service: strict output contract, abstention, contradictions, append-only history.
+- **`bip/research/`:**
+  - LLM providers: none by default; loopback-only Ollama that never pulls models; optional https OpenAI-compatible provider with a connect-time peer check;
+  - 10 typed, read-only tools with per-specialist permissions;
+  - engine: deterministic interpreter and planner, 8 specialists, claims with statuses, LLM synthesis validated against existing claims and screened, budgets, cancellation, restart recovery, reruns, 30 KB reports.
+- **Migration v5.** Additive: 13 tables.
+- **API.** 11 `/api/v1/ml/*` routes and 8 `/api/v1/research/*` routes.
+- **Frontend.** AI Research page:
+  - classification with status pills, "model score … (not certainty)" and synthetic warnings;
+  - research plan preview, progress, cancel, and a report grouped by claim kind;
+  - model registry and evaluation;
+  - AI provider status.
+- **Docs.** `docs/ML_WALLET_CLASSIFICATION.md`, `docs/AI_RESEARCH_METHODOLOGY.md`, ADR-027 to 029; README, CURRENT_STATE, DEVELOPMENT, roadmap, SECURITY, RISK (R26–R28) and PROVIDER_REGISTRY updated.
+
+**Honest results**
+- **Real labelled wallets: 0.** Training on stored labels returns `insufficient_data`. **No real model was trained.**
+- **Synthetic demo** (240 generated wallets, 6 roles, seed 7):
+  - test-split F1 is about 0.78–1.0 per label;
+  - these numbers measure recovery of the generator's own rules, not real-world performance;
+  - the model is registered as `experimental_synthetic`, and its predictions are capped at `low_confidence`.
+- **LLM:** none configured. LLM synthesis is tested only with a deterministic fake provider, including prompt-injection attempts.
+
+**Independent review (code-review agent): 6 defects plus 3 lower-severity items, each fixed with a regression test**
+1. Duplicate AI statements failed the run. Claims are now deduplicated after synthesis.
+2. Failed or truncated tools vanished silently. Each now adds a limitation and a `missing_information` claim.
+3. The 30 KB report cap was not guaranteed. A staged trim now re-measures after every step and falls back to a summary-only report.
+4. A failed start leaked a concurrency slot. The slot is released on any error.
+5. The training gate counted snapshots, and a wallet could appear in two splits. The gate now counts distinct wallets, the split is grouped by wallet, and conflicting labels are dropped.
+6. The OpenAI-compatible host was not resolution-checked. It is now resolved at configuration time, and the peer address is re-checked after connecting.
+
+Lower-severity items fixed:
+- feature importances were missing for uncalibrated models;
+- synthetic models could report high confidence; they are now capped at low;
+- LLM reads had no total deadline.
+
+Also fixed:
+- research state transitions can no longer leave a terminal state;
+- a time-dependent pipeline test was made deterministic.
+
+**Verification (actual output)**
+```
+uv run ruff check . / format --check   -> All checks passed / 155 files already formatted
+uv run pyright (strict; bip/ml/backend.py basic) -> 0 errors, 0 warnings, 0 informations
+uv run pytest -q                       -> 498 passed (Python 3.13)
+venv312 python -m pytest -q            -> see below (Python 3.12)
+frontend: eslint, tsc                  -> clean
+npx vitest run                         -> 49 passed
+make e2e                               -> 45/45 (7 new AI Research checks on the offline fixture backend)
+gitleaks dir .                         -> no leaks found
+```
+
 ## 2026-11-04 — Stage 4 (Build Prompt 05): budgeted provider capability prober and reliability intelligence
 
 **Network check first (no provider contacted).**

@@ -31,7 +31,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 metadata = MetaData(
     naming_convention={
@@ -674,4 +674,311 @@ V4_TABLES = (
     provider_capability_observations,
     provider_reliability_observations,
     provider_consistency_checks,
+)
+
+
+# ============================================================================ v5 tables
+# Stage 5: ML wallet classification and AI research. Derived data only: these tables never
+# modify chain observations, evidence verifications or provider observations.
+
+LABEL_STATUSES = (
+    "verified",  # strongly attributed by an independently verifiable public source
+    "corroborated",  # independently corroborated by two or more sources
+    "analyst_reviewed",  # accepted by a human reviewer
+    "inferred",  # derived by a deterministic rule from stored evidence
+    "weak",  # weak or noisy label (heuristic, third-party list of unknown quality)
+    "unknown",
+)
+
+wallet_features = Table(
+    "wallet_features",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("address", String(64), nullable=False),
+    Column("feature_version", String(16), nullable=False),
+    Column("as_of", UTCDateTime, nullable=False),
+    Column("digest", String(64), nullable=False),
+    Column("data_kind", String(24), nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    UniqueConstraint("chain", "address", "feature_version", "digest"),
+    Index(None, "chain", "address", "as_of"),
+)
+"""A feature vector snapshot (values, availability, window, coverage)."""
+
+wallet_labels = Table(
+    "wallet_labels",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("address", String(64), nullable=False),
+    Column("dimension", String(24), nullable=False),
+    Column("label", String(48), nullable=False),
+    # value: True = the wallet has the label; False = it is a confirmed negative example
+    Column("value", Boolean, nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("source", String(120), nullable=False),
+    Column("source_ref", String(500), nullable=True),
+    # observed_at: when the label applies (training features use it as as_of: no leakage)
+    Column("observed_at", UTCDateTime, nullable=False),
+    Column("data_kind", String(24), nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("note", String(500), nullable=True),
+    CheckConstraint(_in("status", LABEL_STATUSES), name="status"),
+    CheckConstraint(_in("dimension", ("account_type", "behavioural_role")), name="dimension"),
+    CheckConstraint(_in("data_kind", ("real", "synthetic")), name="data_kind"),
+    UniqueConstraint("chain", "address", "label", "source", "observed_at"),
+    Index(None, "chain", "label"),
+)
+"""Training/evaluation labels with provenance. Model predictions are never written here."""
+
+wallet_label_reviews = Table(
+    "wallet_label_reviews",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("label_id", Integer, ForeignKey("wallet_labels.id", ondelete="CASCADE"), nullable=False),
+    Column("decision", String(16), nullable=False),
+    Column("reviewer", String(80), nullable=False),
+    Column("note", String(500), nullable=True),
+    Column("reviewed_at", UTCDateTime, nullable=False),
+    CheckConstraint(_in("decision", ("accepted", "rejected", "needs_evidence")), name="decision"),
+)
+"""Append-only reviewer decisions; the original label row is never edited."""
+
+ml_models = Table(
+    "ml_models",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("name", String(64), nullable=False),
+    Column("version", String(32), nullable=False),
+    Column("kind", String(24), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("feature_version", String(16), nullable=False),
+    Column("taxonomy_version", String(16), nullable=False),
+    Column("dataset_version", String(64), nullable=True),
+    Column("data_kind", String(24), nullable=False),
+    Column("artifact_path", String(300), nullable=True),
+    Column("artifact_sha256", String(64), nullable=True),
+    Column("params_json", Text, nullable=False),
+    Column("labels_json", Text, nullable=False),
+    Column("thresholds_json", Text, nullable=False),
+    Column("training_run_id", Integer, nullable=True),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("note", String(500), nullable=True),
+    UniqueConstraint("name", "version"),
+    CheckConstraint(
+        _in(
+            "status",
+            ("trained", "experimental_synthetic", "rule_based", "insufficient_data", "retired"),
+        ),
+        name="status",
+    ),
+)
+"""Model registry: every version, with artifact integrity hash and provenance."""
+
+ml_training_runs = Table(
+    "ml_training_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("model_name", String(64), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("started_at", UTCDateTime, nullable=False),
+    Column("finished_at", UTCDateTime, nullable=True),
+    Column("status", String(24), nullable=False),
+    Column("data_kind", String(24), nullable=False),
+    Column("dataset_version", String(64), nullable=True),
+    Column("dataset_json", Text, nullable=True),
+    Column("params_json", Text, nullable=False),
+    Column("message", String(500), nullable=True),
+    CheckConstraint(
+        _in("status", ("running", "succeeded", "insufficient_data", "failed")), name="status"
+    ),
+)
+
+ml_evaluation_results = Table(
+    "ml_evaluation_results",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "training_run_id",
+        Integer,
+        ForeignKey("ml_training_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("model_name", String(64), nullable=False),
+    Column("model_version", String(32), nullable=True),
+    Column("split", String(24), nullable=False),
+    Column("label", String(48), nullable=False),
+    Column("data_kind", String(24), nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Index(None, "model_name", "model_version"),
+)
+"""Per-label metrics for one split (precision, recall, F1, confusion, calibration)."""
+
+wallet_classifications = Table(
+    "wallet_classifications",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("classification_key", String(36), nullable=False, unique=True),
+    Column("chain", String(32), nullable=False),
+    Column("address", String(64), nullable=False),
+    Column("classified_at", UTCDateTime, nullable=False),
+    Column("as_of", UTCDateTime, nullable=False),
+    Column("feature_version", String(16), nullable=False),
+    Column("feature_digest", String(64), nullable=False),
+    Column("models_json", Text, nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("data_origin", String(32), nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Index(None, "chain", "address", "classified_at"),
+)
+"""Every classification result (append-only history)."""
+
+RESEARCH_STATES = (
+    "queued",
+    "planning",
+    "collecting_evidence",
+    "classifying",
+    "analysing",
+    "synthesizing",
+    "completed",
+    "completed_with_limitations",
+    "failed",
+    "cancelled",
+)
+
+research_runs = Table(
+    "research_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_key", String(36), nullable=False, unique=True),
+    Column("parent_run_key", String(36), nullable=True),
+    Column("chain", String(32), nullable=False),
+    Column("address", String(64), nullable=False),
+    Column("question", String(1000), nullable=False),
+    Column("request_json", Text, nullable=False),
+    Column("state", String(32), nullable=False),
+    Column("progress_json", Text, nullable=True),
+    Column("budget_json", Text, nullable=False),
+    Column("usage_json", Text, nullable=True),
+    Column("data_origin", String(32), nullable=False),
+    Column("cancel_requested", Boolean, nullable=False, server_default="0"),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("started_at", UTCDateTime, nullable=True),
+    Column("finished_at", UTCDateTime, nullable=True),
+    Column("error", String(500), nullable=True),
+    Column("limitations_json", Text, nullable=True),
+    CheckConstraint(_in("state", RESEARCH_STATES), name="state"),
+    Index(None, "created_at"),
+)
+
+research_plans = Table(
+    "research_plans",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_id", Integer, ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False),
+    Column("plan_json", Text, nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+)
+
+research_tool_calls = Table(
+    "research_tool_calls",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_id", Integer, ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False),
+    Column("seq", Integer, nullable=False),
+    Column("specialist", String(48), nullable=False),
+    Column("tool", String(64), nullable=False),
+    Column("args_json", Text, nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("output_json", Text, nullable=True),
+    Column("output_bytes", Integer, nullable=True),
+    Column("truncated", Boolean, nullable=False, server_default="0"),
+    Column("duration_ms", Integer, nullable=True),
+    Column("error", String(300), nullable=True),
+    Column("created_at", UTCDateTime, nullable=False),
+    UniqueConstraint("run_id", "seq"),
+)
+
+research_claims = Table(
+    "research_claims",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_id", Integer, ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False),
+    Column("claim_key", String(24), nullable=False),
+    Column("specialist", String(48), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("statement", String(1000), nullable=False),
+    Column("confidence", String(8), nullable=True),
+    Column("evidence_json", Text, nullable=False),
+    Column("contradicts_json", Text, nullable=False),
+    CheckConstraint(
+        _in(
+            "status",
+            (
+                "verified",
+                "corroborated",
+                "unverified",
+                "inferred",
+                "conflicted",
+                "invalidated",
+                "insufficient_evidence",
+            ),
+        ),
+        name="status",
+    ),
+    UniqueConstraint("run_id", "claim_key"),
+)
+
+research_reports = Table(
+    "research_reports",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "run_id",
+        Integer,
+        ForeignKey("research_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    ),
+    Column("report_json", Text, nullable=False),
+    Column("markdown", Text, nullable=False),
+    Column("bytes", Integer, nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+)
+
+research_model_usage = Table(
+    "research_model_usage",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_id", Integer, ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False),
+    Column("provider", String(32), nullable=False),
+    Column("model", String(100), nullable=True),
+    Column("purpose", String(48), nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("prompt_bytes", Integer, nullable=False),
+    Column("output_bytes", Integer, nullable=True),
+    Column("duration_ms", Integer, nullable=True),
+    Column("error", String(300), nullable=True),
+    Column("created_at", UTCDateTime, nullable=False),
+)
+"""LLM call metadata only (sizes, timing, outcome); prompts and outputs are not logged here."""
+
+V5_TABLES = (
+    wallet_features,
+    wallet_labels,
+    wallet_label_reviews,
+    ml_models,
+    ml_training_runs,
+    ml_evaluation_results,
+    wallet_classifications,
+    research_runs,
+    research_plans,
+    research_tool_calls,
+    research_claims,
+    research_reports,
+    research_model_usage,
 )

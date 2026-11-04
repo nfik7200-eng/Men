@@ -299,6 +299,37 @@ try {
   check("[offline fixture] reliability shows insufficient data after one run",
     (await page.getByText(/Insufficient data/).count()) > 0);
   await page.screenshot({ path: join(dataRoot, "fixture-providers.png"), fullPage: true });
+  // ---------- Stage 5 ML classification + AI research on the fixture backend ----------
+  await page.goto(`${WEB}/research`);
+  await page.getByRole("tab", { name: "Models and AI provider" }).click();
+  await page.getByText("No model trained").waitFor();
+  check("[offline fixture] model registry starts empty (rules only)", true);
+  await page.getByRole("button", { name: "Train Ethereum on reviewed labels" }).click();
+  const refusal = (await page.getByText(/insufficient data: \d+ distinct labelled wallet/).textContent({ timeout: 30000 })) ?? "";
+  check("[offline fixture] training on real labels refuses without enough reviewed labels", /No model was trained/.test(refusal), refusal.slice(0, 80));
+  await page.getByRole("button", { name: "Train synthetic demo (Ethereum)" }).click();
+  await page.getByRole("table", { name: "Model registry" }).waitFor({ timeout: 60000 });
+  check("[offline fixture] synthetic demo model is labelled experimental, not real-world",
+    (await page.getByText("experimental synthetic").count()) > 0 && (await page.getByText("not real-world performance").count()) > 0);
+  await page.getByText(/No AI provider is configured/).first().waitFor();
+  check("[offline fixture] AI provider absence is stated (deterministic mode)", true);
+  await page.goto(`${WEB}/research?chain=solana&address=${wallets?.[2]}`);
+  await page.getByRole("button", { name: "Classify wallet" }).click();
+  const cls = page.getByLabel("Classification result");
+  await cls.waitFor({ timeout: 30000 });
+  const clsText = (await cls.textContent()) ?? "";
+  check("[offline fixture] wallet classified with rules and labelled limitations",
+    /wallet account/.test(clsText) && /Demo data: offline fixtures/.test(clsText), clsText.slice(0, 60));
+  await page.getByRole("button", { name: "Preview research plan" }).click();
+  await page.getByLabel("Research plan").waitFor();
+  await page.getByRole("button", { name: "Start investigation" }).click();
+  const report = page.getByLabel("Research report");
+  await report.waitFor({ timeout: 90000 });
+  const reportText = (await report.textContent()) ?? "";
+  check("[offline fixture] investigation completes with an evidence-labelled report",
+    /Observed blockchain data/.test(reportText) && /No AI model available/.test(reportText), reportText.slice(0, 80));
+  check("[offline fixture] report never presents predictions as verified facts", !/\bverified fact\b(?! )/.test(reportText.replace(/not a verified fact/g, "")));
+  await page.screenshot({ path: join(dataRoot, "fixture-research.png"), fullPage: true });
   void preview2;
   await browser.close();
 } catch (err) {

@@ -27,6 +27,8 @@ def main() -> None:
         min_free_bytes=0,
         min_free_ratio=0,
         api={"port": port, "cors_origins": ("http://127.0.0.1:4173",)},
+        # fixture backend only: lets the UI demonstrate training on the labelled synthetic set
+        ml={"allow_synthetic_training": True},
     )
     app = create_app(
         settings,

@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
+from typing import cast
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,27 +27,37 @@ from bip.api.routes import (
     ingestion,
     intelligence,
     investigations,
+    ml,
     provider_intel,
     providers,
+    research,
     settings_route,
     wallets,
     watchlists,
 )
 from bip.config.settings import Settings, load_settings
+from bip.core.logging import get_logger
 from bip.db.engine import create_db_engine
+from bip.db.errors import DatabaseError
 from bip.db.repository import Repository
 from bip.ingest.wallet import WalletIngestor
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
+from bip.ml.labels import LabelStore
+from bip.ml.service import ClassificationService
+from bip.ml.training import Trainer
 from bip.providers.intelligence import ProbeStore
 from bip.providers.prober import Prober
 from bip.providers.registry import Registry, default_registry
 from bip.providers.state import ProviderStateStore
+from bip.research.engine import ResearchManager
+from bip.research.llm import LLMProvider, build_provider
 from bip.router.router import ProviderRouter
 from bip.rpc.transport import HttpsTransport, Transport
 from bip.storage.disk_guard import DiskGuard, guard_from_settings
 
 API_PREFIX = "/api/v1"
+log = get_logger("bip.api")
 
 
 def create_app(
@@ -59,6 +70,7 @@ def create_app(
     environ: Mapping[str, str] | None = None,
     rpc_sleep: Callable[[float], None] | None = None,
     data_origin: str | None = None,
+    llm_provider: LLMProvider | None = None,
 ) -> FastAPI:
     """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport`` and ``environ``;
     in normal use the transport is the real hardened HTTPS client."""
@@ -100,10 +112,22 @@ def create_app(
             prober=Prober(reg, router, cfg.probe, states=state.states),
             probe_store=ProbeStore(repo, reg),
             probe_lock=threading.Lock(),
+            classifier=ClassificationService(repo, cfg),
+            labels=LabelStore(repo),
+            trainer=Trainer(repo, cfg),
+            research=cast(ResearchManager, None),  # set below (needs the context)
+            train_lock=threading.Lock(),
         )
+        ctx = app.state.bip
+        ctx.research = ResearchManager(ctx, llm_provider or build_provider(cfg.ai, environ))
+        try:  # runs interrupted by a restart are marked failed, never resumed silently
+            ctx.research.recover()
+        except DatabaseError as exc:  # the API must still start and report the database state
+            log.warning("could not recover research runs at startup: %s", exc)
         try:
             yield
         finally:
+            ctx.research.shutdown()
             if engine is None:
                 db.dispose()
 
@@ -128,6 +152,8 @@ def create_app(
         settings_route,
         ingestion,
         intelligence,
+        ml,
+        research,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

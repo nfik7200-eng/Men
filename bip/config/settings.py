@@ -186,6 +186,58 @@ class ProbeSettings(BaseModel):
     """Distance below the finalized slot for the single historical-block sample."""
 
 
+class MLSettings(BaseModel):
+    """Wallet classification (``BIP_ML__*``). Models are trained only on request."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    min_labelled_wallets: Annotated[int, Field(ge=10, le=100_000)] = 30
+    """Minimum labelled wallets (real labels) before any supervised model is trained."""
+    min_positives_per_label: Annotated[int, Field(ge=3, le=10_000)] = 5
+    """Labels with fewer positive examples are not modelled (reported as insufficient)."""
+    min_tx_for_classification: Annotated[int, Field(ge=1, le=1000)] = 3
+    """Below this many observed transactions behavioural roles are 'insufficient_evidence'."""
+    high_precision_target: Annotated[float, Field(ge=0.8, le=1.0)] = 0.95
+    moderate_precision_target: Annotated[float, Field(ge=0.5, le=0.99)] = 0.80
+    min_threshold_support: Annotated[int, Field(ge=3, le=10_000)] = 10
+    """Validation predictions needed at a threshold before it may be used."""
+    allow_synthetic_training: bool = False
+    """Allow training on the built-in synthetic dataset (pipeline demonstration only)."""
+    max_artifact_bytes: Annotated[int, Field(ge=1024, le=512 * 1024 * 1024)] = 64 * 1024 * 1024
+    max_label_import: Annotated[int, Field(ge=1, le=100_000)] = 5_000
+
+
+class AISettings(BaseModel):
+    """AI research (``BIP_AI__*``). No provider is used unless explicitly configured.
+
+    Budget fields are hard ceilings: configuration can only lower them, requests cannot raise
+    them.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    provider: Literal["none", "ollama", "openai_compatible"] = "none"
+    ollama_url: str = "http://127.0.0.1:11434"
+    """Must be a loopback http(s) URL: BIP only talks to a local Ollama."""
+    ollama_model: Annotated[str, Field(max_length=100, pattern=r"^[A-Za-z0-9._:\-/]+$")] | None = (
+        None
+    )
+    """An already-installed model tag. BIP never pulls or modifies Ollama models."""
+    api_base_url: str | None = None
+    """OpenAI-compatible endpoint (https). Optional; never required."""
+    api_model: Annotated[str, Field(max_length=100)] | None = None
+    api_key_env: Annotated[str, Field(pattern=r"^BIP_AI_[A-Z0-9_]+$")] = "BIP_AI_API_KEY"
+    """Name of the environment variable holding the key (the key itself is never a setting)."""
+    request_timeout_s: Annotated[float, Field(gt=0, le=60)] = 45.0
+    max_seconds: Annotated[float, Field(gt=0, le=120)] = 120.0
+    max_tool_calls: Annotated[int, Field(ge=1, le=20)] = 20
+    max_model_calls: Annotated[int, Field(ge=0, le=8)] = 8
+    max_tool_output_bytes: Annotated[int, Field(ge=1024, le=100 * 1024)] = 100 * 1024
+    max_report_bytes: Annotated[int, Field(ge=1024, le=30 * 1024)] = 30 * 1024
+    max_concurrent: Annotated[int, Field(ge=1, le=2)] = 2
+    max_model_output_bytes: Annotated[int, Field(ge=1024, le=64 * 1024)] = 16 * 1024
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BIP_",
@@ -220,6 +272,8 @@ class Settings(BaseSettings):
     ingest: IngestSettings = IngestSettings()
     intel: IntelSettings = IntelSettings()
     probe: ProbeSettings = ProbeSettings()
+    ml: MLSettings = MLSettings()
+    ai: AISettings = AISettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""

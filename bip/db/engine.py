@@ -108,6 +108,13 @@ def _provider_probing(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _ml_and_research(conn: Connection) -> None:
+    """v5: features, labels, reviews, model registry, training/evaluation, classifications,
+    research runs/plans/tool calls/claims/reports/model usage. Additive, idempotent."""
+    for table in schema.V5_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -115,6 +122,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     ),
     Migration(3, "verification and wallet intelligence", _intelligence),
     Migration(4, "provider capability probing and reliability", _provider_probing),
+    Migration(5, "ML wallet classification and AI research", _ml_and_research),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

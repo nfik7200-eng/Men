@@ -1,5 +1,12 @@
 import type {
   AnalysisRun,
+  Classification,
+  MLModel,
+  ResearchConfig,
+  ResearchPreview,
+  ResearchReport,
+  ResearchRun,
+  TrainingRun,
   ProbePreview,
   ProbeRun,
   ProbeRunPage,
@@ -146,6 +153,26 @@ export const api = {
   }) => request<Investigation>("/investigations", { method: "POST", ...json(body) }),
   updateInvestigation: (id: number, status: InvestigationStatus) =>
     request<Investigation>(`/investigations/${id}`, { method: "PATCH", ...json({ status }) }),
+  // ---- ML classification + AI research (Stage 5)
+  classify: (chain: string, address: string) =>
+    request<Classification>(`/ml/classify/${enc(chain)}/${enc(address)}`, { method: "POST" }),
+  classifications: (chain: string, address: string) =>
+    request<{ items: Classification[]; total: number }>(`/ml/classifications/${enc(chain)}/${enc(address)}?limit=10`),
+  mlModels: () => request<{ items: MLModel[]; active: Record<string, MLModel | null> }>("/ml/models"),
+  mlModel: (name: string, version: string) => request<MLModel>(`/ml/models/${enc(name)}/${enc(version)}`),
+  trainingRuns: () => request<{ items: TrainingRun[] }>("/ml/training-runs?limit=10"),
+  train: (chain: string, source: "stored_labels" | "synthetic") =>
+    request<{ status: string; message: string }>("/ml/training-runs", { method: "POST", ...json({ chain, source }) }),
+  researchConfig: () => request<ResearchConfig>("/research/config"),
+  researchPreview: (body: { chain: string; address: string; question: string; focus?: string[] }) =>
+    request<ResearchPreview>("/research/preview", { method: "POST", ...json(body) }),
+  researchStart: (body: { chain: string; address: string; question: string; focus?: string[] }) =>
+    request<ResearchRun>("/research/runs", { method: "POST", ...json(body) }),
+  researchRun: (id: string) => request<ResearchRun>(`/research/runs/${enc(id)}`),
+  researchRuns: (chain: string, address: string) =>
+    request<{ items: ResearchRun[]; total: number }>(`/research/runs?limit=10&chain=${enc(chain)}&address=${enc(address)}`),
+  researchCancel: (id: string) => request<{ cancel_requested: boolean }>(`/research/runs/${enc(id)}/cancel`, { method: "POST" }),
+  researchReport: (id: string) => request<ResearchReport>(`/research/runs/${enc(id)}/report`),
   // ---- provider intelligence (Stage 4). Only probeRun() contacts providers (server-bounded).
   providerProfiles: () => request<ProviderProfiles>("/providers/profiles"),
   providerProfile: (id: string) => request<ProviderProfileDetail>(`/providers/${enc(id)}/profile`),

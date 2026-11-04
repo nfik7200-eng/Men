@@ -8,8 +8,10 @@ license = { text = "Proprietary" }
 # Runtime dependencies are deliberately minimal (see IMPLEMENTATION_LOG.md, Stage 1).
 dependencies = [
     "fastapi>=0.115,<1",
+    "numpy>=2.0,<3",
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.7,<3",
+    "scikit-learn>=1.5,<2",
     "sqlalchemy>=2.0.36,<3",
     "uvicorn>=0.32,<1",
 ]

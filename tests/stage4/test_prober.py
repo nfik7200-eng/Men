@@ -760,9 +760,9 @@ def test_migration_v4_upgrades_a_v3_database(tmp_path: Path) -> None:
     settings = load_settings(data_root=tmp_path / "d", env="test")
     engine = create_db_engine(settings)
     with engine.begin() as conn:  # simulate a v3 database with Stage 3 evidence
-        for t in schema.V4_TABLES:
+        for t in (*reversed(schema.V5_TABLES), *schema.V4_TABLES):
             t.drop(conn)
-        conn.exec_driver_sql("DELETE FROM schema_migrations WHERE version = 4")
+        conn.exec_driver_sql("DELETE FROM schema_migrations WHERE version >= 4")
         conn.exec_driver_sql(
             "INSERT INTO evidence_verifications (chain, tx_id, checked_at, outcome, "
             "independent_providers, providers_json, differences_json) VALUES "
@@ -774,7 +774,7 @@ def test_migration_v4_upgrades_a_v3_database(tmp_path: Path) -> None:
     assert [r[0] for r in con.execute("SELECT version FROM schema_migrations")] == [1, 2, 3]
     con.close()
     engine = create_db_engine(settings)
-    assert migrate(engine) == 4
+    assert migrate(engine) == schema.SCHEMA_VERSION
     with engine.connect() as conn:
         tables = {r[0] for r in conn.exec_driver_sql("SELECT name FROM sqlite_master")}
         kept = conn.exec_driver_sql("SELECT outcome FROM evidence_verifications").scalar_one()

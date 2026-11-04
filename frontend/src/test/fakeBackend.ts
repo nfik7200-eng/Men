@@ -195,7 +195,82 @@ export function intelResponse(path: string, method: string, opts: IntelOptions):
   return null;
 }
 
-export function installFakeBackend(intel: IntelOptions = {}) {
+export type ResearchOptions = { llm?: boolean; models?: boolean };
+
+const lr = (label: string, status: string, confidence: number | null, source: string, extra: Json = {}) => ({
+  label, status, confidence, source, model_status: source.startsWith("wallet-classifier") ? "experimental_synthetic" : null,
+  calibrated: source.startsWith("wallet-classifier") ? true : null, explanation: `${label} explanation`,
+  evidence: [{ type: "transaction", ref: TX, note: "stored" }], supporting_features: [], caveat: null, ...extra,
+});
+
+export function classificationFixture(): Json {
+  return {
+    classification_id: "c1c1c1c1-0000-0000-0000-000000000001", wallet_address: ETH_WALLET, chain: "ethereum",
+    classification_timestamp: now, as_of: now, status: "classified_with_limitations", taxonomy_version: "1.0.0",
+    feature_version: "1.0.0", feature_digest: "d".repeat(64),
+    rules: { name: "bip-rules", version: "1.0.0", feature_version: "1.0.0", status: "rule_based", data_kind: "stored_observations" },
+    model: { name: "wallet-classifier-ethereum", version: "1.0.0", feature_version: "1.0.0", status: "experimental_synthetic", data_kind: "synthetic" },
+    account_type: lr("externally_owned_account", "rule_based", null, "bip-rules@1.0.0"),
+    behavioural_roles: [lr("high_frequency_activity", "low_confidence", 0.93, "wallet-classifier-ethereum@1.0.0"),
+      lr("automated_bot", "low_confidence", 0.55, "wallet-classifier-ethereum@1.0.0")],
+    not_assigned: [], contradictions: [{ between: ["bip-rules:low_activity_or_new", "wallet-classifier-ethereum@1.0.0:high_frequency_activity"], note: "both are kept and neither is preferred automatically." }],
+    anomaly: { status: "not_available", reason: "no trained anomaly model" },
+    coverage: { transactions_observed: 12, counterparties_observed: 3, observation_period_days: 2, data_completeness: "partial" },
+    supporting_evidence_refs: [TX],
+    limitations: ["The active model was trained on SYNTHETIC data. Its predictions demonstrate the pipeline only and are not evidence about this wallet."],
+    data_origin: "stored_observations",
+  };
+}
+
+export function researchResponse(path: string, method: string, opts: ResearchOptions, state: { started: boolean; polls: number; cancelled: boolean }): Json | null {
+  const llm = opts.llm ?? false;
+  if (path.startsWith("/ml/classify/") && method === "POST") return classificationFixture();
+  if (path.startsWith("/ml/classifications/")) return { items: [classificationFixture()], total: 1 };
+  const model = { name: "wallet-classifier-ethereum", version: "1.0.0", kind: "multilabel_random_forest", chain: "ethereum", status: "experimental_synthetic",
+    feature_version: "1.0.0", taxonomy_version: "1.0.0", dataset_version: "e".repeat(64), data_kind: "synthetic", artifact_sha256: "f".repeat(64), params: {},
+    labels: { modelled: ["automated_bot"], skipped: {}, summary: { test: { macro_f1: 0.91, weighted_f1: 0.9, labels_evaluated: 1 } } },
+    thresholds: { automated_bot: { high: 0.7, moderate: 0.6, basis: "validation split" } }, training_run_id: 1, created_at: now,
+    note: "Trained on SYNTHETIC data: demonstrates the pipeline only; metrics are not real-world performance." };
+  if (path === "/ml/models") return { items: opts.models ? [model] : [], active: { ethereum: opts.models ? model : null, solana: null } };
+  if (path.startsWith("/ml/models/")) return { ...model, evaluation: [{ split: "test", label: "automated_bot", data_kind: "synthetic",
+    metrics: { precision: 0.95, recall: 0.9, f1: 0.92, support: 10, n: 48, brier: 0.04, at_high_threshold: { threshold: 0.7, predicted: 9, precision: 1 } } }] };
+  if (path.startsWith("/ml/training-runs") && method === "POST") return { status: "insufficient_data", message: "0 labelled wallet snapshot(s) with trainable labels; at least 30 are needed. No model was trained." };
+  if (path.startsWith("/ml/training-runs")) return { items: [] };
+  if (path === "/research/config")
+    return { provider: { name: llm ? "ollama" : "none", model: llm ? "llama3:8b" : null, available: llm, reason: llm ? "Local Ollama model available." : "No AI provider is configured (BIP_AI__PROVIDER=none). Deterministic analysis and ML classification still run." },
+      configured: {}, how_to_configure: "Set BIP_AI__PROVIDER=ollama", budget: { max_tool_calls: 20 }, focus_areas: [], tools: [] };
+  const budget = { max_seconds: 120, max_tool_calls: 20, max_model_calls: 8, max_tool_output_bytes: 102400, max_report_bytes: 30720, max_concurrent: 2 };
+  if (path === "/research/preview")
+    return { request: {}, plan: { focus: ["classification", "evidence"], steps: [{ seq: 1, specialist: "classification_analyst", tool: "wallet_classification" },
+      { seq: 2, specialist: "evidence_reviewer", tool: "transaction_evidence" }], skipped_over_budget: [], synthesis: "x" }, budget,
+      llm: { provider: llm ? "ollama" : "none", model: llm ? "llama3:8b" : null, available: llm, reason: llm ? "ok" : "No AI provider is configured." } };
+  const run = (st: string) => ({ run_id: "aaaaaaaa-0000-0000-0000-000000000001", parent_run_id: null, chain: "ethereum", address: ETH_WALLET, question: "q",
+    request: { focus: ["classification"], use_llm: true }, state: st, progress: st === "collecting_evidence" ? { step: 1, of: 2, tool: "wallet_classification" } : null,
+    budget, usage: st.startsWith("completed") ? { tool_calls: 2, model_calls: llm ? 1 : 0 } : null, data_origin: "stored_observations",
+    cancel_requested: state.cancelled, created_at: now, finished_at: null, error: null, limitations: [] });
+  if (path === "/research/runs" && method === "POST") { state.started = true; state.polls = 0; return run("queued"); }
+  if (path.endsWith("/cancel")) { state.cancelled = true; return { cancel_requested: true }; }
+  if (path.endsWith("/report"))
+    return { bytes: 1200, markdown: "# report", report: {
+      executive_summary: "Deterministic summary: model predictions are inferences.", summary_source: "deterministic", question: "q",
+      subject: { chain: "ethereum", address: ETH_WALLET }, classification: { account_type: null, behavioural_roles: [], model: null, status: null },
+      sections: {
+        observations: [{ claim_key: "c-1", specialist: "flow_analyst", kind: "blockchain_observation", status: "unverified", statement: "Asset native: in 2, out 0.", confidence: null, evidence: [{ type: "transaction", ref: TX }], contradicts: [] }],
+        classification: [{ claim_key: "c-2", specialist: "classification_analyst", kind: "model_prediction", status: "inferred", statement: "Behavioural role 'automated_bot' — model prediction, not a verified fact.", confidence: "low", evidence: [{ type: "classification", ref: "c1" }], contradicts: [] }],
+        ai_interpretations: [], hypotheses: [{ claim_key: "c-3", specialist: "behaviour_analyst", kind: "hypothesis", status: "insufficient_evidence", statement: "Possible service-like pattern.", confidence: null, evidence: [{ type: "rule", ref: "x" }], contradicts: [] }],
+        missing_information: [], signals: [] },
+      contradictions: [], claim_status_counts: { unverified: 1, inferred: 1, insufficient_evidence: 1 }, next_steps: ["Corroborate key transactions."],
+      limitations: ["No AI model available (No AI provider is configured.). The report contains deterministic analysis and ML classification only."],
+      legend: {}, disclaimer: "No identity attribution and no financial advice. Predictions and interpretations are not facts.", evidence_references: ["transaction:" + TX] } };
+  if (path.startsWith("/research/runs/")) {
+    state.polls += 1;
+    if (state.cancelled) return run("cancelled");
+    return run(state.polls < 2 ? "collecting_evidence" : "completed_with_limitations");
+  }
+  return null;
+}
+
+export function installFakeBackend(intel: IntelOptions = {}, research: ResearchOptions = {}) {
   let nextId = 1;
   let ethObserved = false;
   let healthy = false;
@@ -209,11 +284,16 @@ export function installFakeBackend(intel: IntelOptions = {}) {
   });
 
   const probeState = { probed: false };
+  const researchState = { started: false, polls: 0, cancelled: false };
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const path = url.replace(/^\/api\/v1/, "");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
+    if (path.startsWith("/ml/") || path.startsWith("/research/")) {
+      const r = researchResponse(path, method, research, researchState);
+      return r ? json(method === "POST" && (path.startsWith("/research/runs") && !path.includes("/cancel") || path.startsWith("/ml/classify")) ? (path === "/research/runs" ? 202 : 201) : 200, r) : err(404, "not_found", "Not Found");
+    }
     if (path.startsWith("/providers/profiles") || path.startsWith("/providers/probe") || /^\/providers\/[a-z0-9-]+\/profile$/.test(path)) {
       const r = providerIntelResponse(path, method, intel, probeState);
       return r ? json(path === "/providers/probe-runs" && method === "POST" ? 201 : 200, r) : err(404, "not_found", "Not Found");

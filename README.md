@@ -19,6 +19,13 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 See [`docs/INTELLIGENCE_METHODOLOGY.md`](docs/INTELLIGENCE_METHODOLOGY.md).
 
+**Stage 5, ML classification and AI research.**
+- **Classification:** a hierarchical, multi-label wallet classifier combines a deterministic, evidence-backed rules baseline with scikit-learn models. Models are trained only on provenance-backed labels and their thresholds are validated against measured precision. **No real model exists yet, because no real labels exist**; a labelled synthetic dataset exercises the pipeline.
+- **Investigations:** bounded investigations use typed read-only tools, and record ML predictions, observations, AI interpretations and hypotheses as separately labelled claims.
+- **LLM:** an optional local Ollama model only synthesizes over these claims.
+
+See [`docs/ML_WALLET_CLASSIFICATION.md`](docs/ML_WALLET_CLASSIFICATION.md) and [`docs/AI_RESEARCH_METHODOLOGY.md`](docs/AI_RESEARCH_METHODOLOGY.md).
+
 **Stage 4, provider intelligence.** A budgeted, manually started capability prober records, per provider and capability, what was tested and with what result. It keeps documented, configured, supported, unsupported, inconclusive and untested capabilities apart, and separates local network restrictions from provider failures. It also produces reliability observations with sample-size rules, and cross-provider consistency checks. See [`docs/PROVIDER_CAPABILITY_METHODOLOGY.md`](docs/PROVIDER_CAPABILITY_METHODOLOGY.md). To probe real providers from a machine with internet access:
 
 ```bash
@@ -49,12 +56,14 @@ See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 | [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | Staged build plan (I) |
 | [docs/RISK_REGISTER.md](docs/RISK_REGISTER.md) | Risks and mitigations |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer setup, commands, configuration, security rules |
+| [docs/ML_WALLET_CLASSIFICATION.md](docs/ML_WALLET_CLASSIFICATION.md) | Taxonomy, features, labels, training, calibration, abstention |
+| [docs/AI_RESEARCH_METHODOLOGY.md](docs/AI_RESEARCH_METHODOLOGY.md) | Orchestration, tools, claims, LLM safety, budgets |
 | [docs/PROVIDER_CAPABILITY_METHODOLOGY.md](docs/PROVIDER_CAPABILITY_METHODOLOGY.md) | Capability probing, budgets, failure classification, reliability, consistency |
 | [docs/INTELLIGENCE_METHODOLOGY.md](docs/INTELLIGENCE_METHODOLOGY.md) | How profiles, rules, detectors, flows, graphs, leads and verification are computed |
 
 ## Proposed stack (awaiting approval — see DECISIONS.md)
 
-**In use:** Python 3.12, uv, pydantic, FastAPI, SQLAlchemy Core with SQLite, stdlib HTTPS JSON-RPC client, React, TypeScript, Vite.
+**In use:** Python 3.12, uv, pydantic, FastAPI, SQLAlchemy Core with SQLite, stdlib HTTPS JSON-RPC client, scikit-learn (CPU), React, TypeScript, Vite. Ollama is optional and local-only.
 
 **Planned:**
 - Analytics: Apache Parquet (zstd), DuckDB, Polars.

@@ -220,3 +220,7 @@ tr:last-child td { border-bottom: 0; }
 .probe-select legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
 .nowrap { white-space: nowrap; }
+
+/* ---------------------------------------------------------------- Stage 5: AI research */
+.tabs { margin-bottom: 14px; }
+.field textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 7px 10px; width: 100%; resize: vertical; }

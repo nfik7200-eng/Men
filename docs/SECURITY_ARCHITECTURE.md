@@ -66,6 +66,14 @@ Version 0.1 (2026-11-03). Status: **Draft, awaiting approval.**
 - **Rate limits.** `Retry-After` is honoured, and a rate-limited provider is stopped for the run. There is no burst-based limit discovery and no background probing.
 - **Secrets.** Neither provider error text nor response bodies are stored. Configured endpoint URLs are redaction-registered. Tests check that a configured key never appears in API output, the database or logs.
 
+### 8b. ML and AI research (Stage 5, implemented)
+- **Model artifacts.** joblib files are written and read only inside `<data_root>/ml/models`. They are loaded only when the sha256 matches the registry, and are size-capped. Uploaded or imported data is labels only (validated JSON); model files are never imported.
+- **No self-training.** Predictions are never written as labels, and there is no automatic retraining. Reviews are append-only.
+- **LLM providers.** Ollama is loopback-only, and BIP never pulls models. The OpenAI-compatible provider requires https and an SSRF-checked host, reads its key from an environment variable that is redaction-registered, refuses redirects and caps response size. Prompts and outputs are not logged.
+- **Research tools.** Tools are typed, read-only and scoped to the subject wallet, with per-specialist permissions in code. There is no SQL, shell, HTTP or RPC access, and the LLM gets no tool access.
+- **Prompt injection.** Claims are passed as data, the output schema is validated, and a screen rejects instruction-like text, verification claims, identity attribution and financial advice. Statuses are assigned by BIP only.
+- **Budgets.** Ceilings on time, tool calls, model calls, output sizes and concurrency are enforced on the server.
+
 ## 9. Resource protection on the shared VPS
 - Container CPU and memory limits. `ionice`/`nice` for batch jobs.
 - **Disk guard:** before any write batch, check free space on `BIP_DATA_ROOT`'s filesystem. Pause ingestion when free space < max(5 GB, 5%) or when BIP's usage exceeds its configured quota (`BIP_MAX_DATA_BYTES`). Raise an alert at 80% of the BIP quota.
