@@ -210,7 +210,7 @@ def test_bounded_run_records_capabilities_profile_and_reliability(
     # selecting fewer capabilities tests the rest
     r2 = run(client, providers=["publicnode-eth"], capabilities=["block_number", "contract_code"])
     assert obs(r2, "publicnode-eth", "contract_code")["status"] == "supported"
-    assert r2["requests_used"] == 2
+    assert r2["requests_used"] == 3  # identity is always tested first
     hist = client.get(
         f"{API}/providers/publicnode-eth/capabilities/history?capability=contract_code"
     ).json()
@@ -786,13 +786,15 @@ def test_migration_v4_upgrades_a_v3_database(tmp_path: Path) -> None:
 def test_solana_rate_limit_rpc_error_and_unhealthy_node(env: Env, client: TestClient) -> None:
     router = env.app.state.bip.router
     nxt = router._next_id + 1  # pyright: ignore[reportPrivateUsage]
+    genesis = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
     env.transport.script(
         SOL_HOST,
+        Scripted(body=json.dumps({"jsonrpc": "2.0", "id": nxt, "result": genesis}).encode()),
         Scripted(
             body=json.dumps(
                 {
                     "jsonrpc": "2.0",
-                    "id": nxt,
+                    "id": nxt + 1,
                     "error": {"code": -32005, "message": "Node is behind by 90 slots"},
                 }
             ).encode()
@@ -817,7 +819,7 @@ def test_solana_rate_limit_rpc_error_and_unhealthy_node(env: Env, client: TestCl
     r2 = run(client, providers=["solana-public"])
     first = obs(r2, "solana-public", "network_identity")
     assert first["connectivity"] == "rate_limited"
-    assert len([m for h, m in env.transport.requests if h == SOL_HOST]) == 2  # 1 + 1, no storm
+    assert len([m for h, m in env.transport.requests if h == SOL_HOST]) == 3  # 2 + 1, no storm
 
 
 def test_live_probe_cli_requires_explicit_opt_in(
@@ -828,3 +830,85 @@ def test_live_probe_cli_requires_explicit_opt_in(
     monkeypatch.delenv("BIP_LIVE_RPC", raising=False)
     assert probe.main([]) == 2
     assert "Refusing to run" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- review regressions
+
+
+def test_capability_filter_always_checks_network_identity_first(
+    env: Env, client: TestClient
+) -> None:
+    env.eth.chain_id = "0xaa36a7"  # Sepolia
+    r = run(client, providers=["publicnode-eth"], capabilities=["latest_block"])
+    assert obs(r, "publicnode-eth", "chain_id")["connectivity"] == "wrong_network"
+    assert obs(r, "publicnode-eth", "latest_block")["status"] == "not_tested"
+    assert r["requests_used"] == 1
+
+
+def test_later_partial_runs_do_not_hide_earlier_evidence(env: Env, client: TestClient) -> None:
+    run(client, providers=["publicnode-eth"])
+    run(client, providers=["publicnode-eth"], capabilities=["chain_id"])  # skips the rest
+    prof = client.get(f"{API}/providers/publicnode-eth/profile").json()
+    matrix = {c["id"]: c["observation"] for c in prof["capabilities"]}
+    assert matrix["historical_block"]["status"] == "supported"
+    assert prof["historical_coverage"]["label"] == "historical_sample_observed"
+    assert prof["coverage"]["supported"] >= 8
+
+
+def test_environment_block_banner_clears_after_a_later_success(
+    env: Env, client: TestClient
+) -> None:
+    env.transport.script(
+        ETH_HOST, Scripted(error=TransportError("connection", ETH_HOST, "DNS resolution failed"))
+    )
+    run(client, providers=["publicnode-eth"])
+    assert client.get(f"{API}/providers/profiles").json()["last_environment_block"] is not None
+    run(client, providers=["publicnode-eth"])
+    assert client.get(f"{API}/providers/profiles").json()["last_environment_block"] is None
+    assert client.get(f"{API}/providers/probe/preview").json()["network_note"] is None
+
+
+def test_rejected_finalized_block_never_feeds_consistency(tmp_path: Path) -> None:
+    e = Env(tmp_path)
+    try:
+        with TestClient(e.app) as c:
+            n = e.eth2.head - 64
+            e.eth2.blocks[n] = {**e.eth2.blocks[n], "number": hex(e.eth2.head + 5)}
+            r = run(c, providers=["publicnode-eth", "infura-eth"])
+            assert obs(r, "infura-eth", "finalized_block")["connectivity"] == "invalid_response"
+            assert not [
+                x for x in r["consistency_checks"] if x["comparison"] == "finalized_block_hash"
+            ]
+    finally:
+        e.engine.dispose()
+
+
+def test_preview_rejects_malformed_query_with_422(client: TestClient) -> None:
+    for q in ("provider=Bad_ID", "capability=X", "provider="):
+        r = client.get(f"{API}/providers/probe/preview?{q}")
+        assert r.status_code == 422, (q, r.status_code)
+
+
+def test_rejected_parameters_are_not_historical_access_failure(
+    env: Env, client: TestClient
+) -> None:
+    router = env.app.state.bip.router
+    nxt = router._next_id + 1  # pyright: ignore[reportPrivateUsage]
+    head = env.eth.blocks[env.eth.head]
+    env.transport.script(
+        ETH_HOST,
+        Scripted(body=json.dumps({"jsonrpc": "2.0", "id": nxt, "result": "0x1"}).encode()),
+        Scripted(body=json.dumps({"jsonrpc": "2.0", "id": nxt + 1, "result": head}).encode()),
+        Scripted(
+            body=json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": nxt + 2,
+                    "error": {"code": -32602, "message": "invalid argument"},
+                }
+            ).encode()
+        ),
+    )
+    run(client, providers=["publicnode-eth"], capabilities=["latest_block", "historical_block"])
+    prof = client.get(f"{API}/providers/publicnode-eth/profile").json()
+    assert prof["historical_coverage"]["label"] == "insufficient_evidence"

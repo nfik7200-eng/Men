@@ -52,6 +52,16 @@ gitleaks dir .                         -> no leaks found
   - the capability matrix opens under its row;
   - the never-probed providers show "No observations" rather than a reliability state.
 
+**Independent review (code-review agent): 6 defects, each fixed with a regression test (follow-up commit)**
+1. A capability filter could skip the identity check, so data from another network could be recorded as "supported". Identity is now always tested first.
+2. Later runs' `not_tested` rows hid earlier evidence in the profile. The profile now uses the latest *tested* observation per capability.
+3. The environment-restriction banner stayed after connectivity recovered. It is now shown only while no later observation reached a provider.
+4. A finalized block that failed validation still fed consistency checks. Context values are now written only after validation.
+5. Malformed preview queries returned 500. They now return 422.
+6. `historical_access_failed` was applied to rejected parameters and oversized responses. It now applies only to null or not-available answers (skipped slots excluded).
+
+After the fixes: pytest 460 passed (3.13 and 3.12), Vitest 44, e2e 38/38, ruff and pyright clean, gitleaks clean.
+
 **Live validation:** none. Providers reached live: 0. The cause is the environment's egress restriction, not any observed provider failure.
 
 ## 2026-11-03 — Stage 3 (Build Prompt 04): wallet intelligence, cross-provider verification, relationship graphs

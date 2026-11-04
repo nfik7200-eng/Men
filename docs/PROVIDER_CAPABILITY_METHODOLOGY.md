@@ -56,6 +56,10 @@ The catalogue is ordered by priority. A capability is either requestable (one re
 
 With the default cap of 8 requests per provider, the lowest-priority items are recorded as `not_tested` with the reason. A later run that selects only those capabilities tests them.
 
+The identity capability (`chain_id` / `network_identity`) is **always** tested first, even when other capabilities are selected, and it counts against the cap. Without it, data from another network could be recorded as supported.
+
+The profile shows the latest *tested* observation per capability. A later run that merely skipped a capability (not selected, over budget, stopped) never hides earlier evidence; the full per-run record stays in the history.
+
 **Safe samples only.**
 - Balance, code and history reads use public protocol addresses: the zero address on Ethereum, the System Program on Solana.
 - Transaction hashes and signatures always come from the provider's **own live answer in the same run**. They are never invented, and never taken from stored records, so offline-fixture identifiers can never reach a real provider.
@@ -100,6 +104,10 @@ The UI can therefore show "reachable, but method X unsupported" as well as "unkn
 
 None of these is ever reported as a provider outage, and none makes a capability `unsupported`. After the first such failure, that provider is not probed further in the run, so the same failure is never repeated.
 
+The dashboard's "environment restriction" notice reflects the latest restricted observation only while no later observation has reached a provider. It disappears once connectivity is observed again.
+
+Only validated values feed cross-provider comparisons. A response that failed validation (for example a finalized block above the latest block) is never compared.
+
 ## 5. Budget and rate-limit policy
 
 Budgets are enforced on the server (`BIP_PROBE__*`). The values below are hard ceilings: configuration can only make probing more conservative, and API callers can only lower the per-provider cap.
@@ -139,8 +147,8 @@ Each provider gets a coverage label from its latest `historical_block` observati
 |---|---|
 | `historical_sample_observed` | One historical block, at a recorded block or slot and distance from the head, was returned |
 | `recent_only_observed` | Recent blocks worked; no historical sample has been tested |
-| `historical_access_failed` | The provider answered but did not serve the sample (null or not available) |
-| `insufficient_evidence` | Nothing established, e.g. a skipped Solana slot (−32007, never a failure) or an incomplete request |
+| `historical_access_failed` | The provider answered but did not serve the sample: a null result, or "data not available" other than a skipped slot |
+| `insufficient_evidence` | Nothing established: a skipped Solana slot (−32007, never a failure), rejected parameters, an oversized response or an incomplete request |
 
 The archive label is always `archive_capability_unverified`: one sample never proves full archive access.
 

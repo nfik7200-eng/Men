@@ -46,6 +46,8 @@ from bip.router.router import ProbeResponse, ProviderRouter
 
 J = dict[str, Any]
 
+IDENTITY_CAPABILITY = {"ethereum": "chain_id", "solana": "network_identity"}
+
 ENVIRONMENT_RESTRICTION = (
     "Live verification could not be completed because of an environment network restriction. "
     "Provider availability remains unknown."
@@ -223,6 +225,9 @@ class Prober:
             unknown = sorted(wanted_caps - known)
             if unknown:
                 raise InvalidRecordError(f"unknown capability identifiers: {unknown}")
+            # Identity is always tested first: without it, data from another network could be
+            # recorded as "supported" (the probe path makes no identity side-call).
+            wanted_caps |= set(IDENTITY_CAPABILITY.values())
         explicit = provider_ids is not None
         specs = (
             [self._registry.get(p) for p in dict.fromkeys(provider_ids or [])]
@@ -679,19 +684,20 @@ def _validate(o: Observation, cap: caps.Capability, result: object, ctx: J) -> O
             raise ValueError("returned block number differs from the requested one")
         ref: J = {"block": h.number, "hash": h.hash}
         if cap.id == "latest_block":
-            ctx["head_number"], ctx["head_hash"] = h.number, h.hash
             txs = obj(result, "block").get("transactions")
             hashes = [
                 t for t in arr(txs or [], "block.transactions", max_len=5000) if isinstance(t, str)
             ]
-            if hashes:
-                ctx["sample_tx"] = eth.hash32(hashes[0], "block.transactions[0]")
+            sample = eth.hash32(hashes[0], "block.transactions[0]") if hashes else None
+            ctx["head_number"], ctx["head_hash"] = h.number, h.hash
+            if sample:
+                ctx["sample_tx"] = sample
             return _ok(o, f"Block {h.number} header validated.", ref)
         if cap.id == "finalized_block":
-            ctx["finalized"] = (h.number, h.hash)
             head = ctx.get("head_number")
             if head is not None and h.number > head:
                 raise ValueError("finalized block is above the latest block")
+            ctx["finalized"] = (h.number, h.hash)  # only validated values feed comparisons
             return _ok(o, f"Finalized block {h.number} header validated.", ref)
         ctx["historical"] = (h.number, h.hash)
         ref["distance_from_head"] = _distance(ctx)

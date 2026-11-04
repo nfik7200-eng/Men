@@ -14,11 +14,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from bip.api.deps import AppContext, Context, WritableContext
 from bip.api.errors import error_response
 from bip.api.schemas import Body
+from bip.db.errors import InvalidRecordError
 from bip.db.types import utcnow
 from bip.providers import capabilities as caps
 from bip.providers.intelligence import coverage_counts, historical_coverage
@@ -292,9 +293,15 @@ def probe_preview(
     capability: Annotated[list[str] | None, Query(max_length=30)] = None,
     max_calls_per_provider: Annotated[int | None, Query(ge=1, le=8)] = None,
 ) -> J:
-    body = ProbeRequest(
-        providers=provider, capabilities=capability, max_calls_per_provider=max_calls_per_provider
-    )
+    try:
+        body = ProbeRequest(
+            providers=provider,
+            capabilities=capability,
+            max_calls_per_provider=max_calls_per_provider,
+        )
+    except ValidationError as exc:
+        err = exc.errors(include_input=False, include_url=False)[0]
+        raise InvalidRecordError(f"invalid query: {err['msg']}") from None
     return _env(ctx, _preview(ctx, body))
 
 

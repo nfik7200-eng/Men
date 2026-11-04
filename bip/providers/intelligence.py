@@ -223,16 +223,23 @@ class ProbeStore:
         return {"run_id": row[0], "finished_at": iso(row[1]), **entry}
 
     def last_environment_block(self) -> J | None:
+        """The latest environment-restricted observation, unless a later observation reached a
+        provider (then the restriction is no longer current and is not reported)."""
         o = schema.provider_capability_observations
         with self._repo.transaction() as conn:
             row = conn.execute(
-                select(o.c.provider_id, o.c.failure_kind, o.c.observed_at)
+                select(o.c.id, o.c.provider_id, o.c.failure_kind, o.c.observed_at)
                 .where(o.c.environment_restricted.is_(True))
                 .order_by(o.c.id.desc())
             ).first()
-        if row is None:
+            if row is None:
+                return None
+            later = conn.execute(
+                select(o.c.id).where(o.c.id > row[0], o.c.connectivity == "reachable")
+            ).first()
+        if later is not None:
             return None
-        return {"provider_id": row[0], "failure_kind": row[1], "observed_at": iso(row[2])}
+        return {"provider_id": row[1], "failure_kind": row[2], "observed_at": iso(row[3])}
 
     # ------------------------------------------------------------------ queries
 
@@ -251,16 +258,22 @@ class ProbeStore:
         return [_obs_out(r) for r in rows], total
 
     def latest_by_capability(self, provider_id: str) -> dict[str, J]:
+        """Latest *tested* observation per capability; a later run that merely skipped a
+        capability (not selected, over budget, stopped) never hides earlier evidence."""
         o = schema.provider_capability_observations
-        latest = (
-            select(o.c.capability, func.max(o.c.id).label("mid"))
-            .where(o.c.provider_id == provider_id)
-            .group_by(o.c.capability)
-            .subquery()
-        )
+        out: dict[str, J] = {}
         with self._repo.transaction() as conn:
-            rows = conn.execute(select(o).join(latest, o.c.id == latest.c.mid)).mappings().all()
-        return {r["capability"]: _obs_out(r) for r in rows}
+            for tested in (True, False):
+                cond = (o.c.status != "not_tested") if tested else (o.c.status == "not_tested")
+                latest = (
+                    select(o.c.capability, func.max(o.c.id).label("mid"))
+                    .where(o.c.provider_id == provider_id, cond)
+                    .group_by(o.c.capability)
+                    .subquery()
+                )
+                for r in conn.execute(select(o).join(latest, o.c.id == latest.c.mid)).mappings():
+                    out.setdefault(r["capability"], _obs_out(r))
+        return out
 
     def consistency(
         self, *, chain: str | None, provider_id: str | None, limit: int, offset: int
@@ -493,7 +506,9 @@ def historical_coverage(chain: str, latest: dict[str, J]) -> J:
     elif h["rpc_error_code"] == -32007:
         label = "insufficient_evidence"
         note = "The sampled slot was skipped (no block was produced); this is not a failure."
-    elif h["connectivity"] == "reachable":
+    elif h["failure_kind"] == "null_result" or (
+        h["failure_kind"] == "rpc_not_available" and h["rpc_error_code"] != -32007
+    ):
         label = "historical_access_failed"
         note = "The provider answered but did not return the historical sample."
     else:
