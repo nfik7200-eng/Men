@@ -1,9 +1,10 @@
 # Current State
 
-_Last updated: 2026-11-03 (Stage 3, Build Prompt 04)_
+_Last updated: 2026-11-04 (Stage 4, Build Prompt 05)_
 
 ## Phase
-**Stage 3: wallet intelligence, cross-provider verification, relationship graphs.** Built and verified offline.
+**Stage 4: budgeted provider capability prober and reliability intelligence**, on top of Stage 3 (wallet intelligence, cross-provider verification, relationship graphs). Built and verified offline.
+- **No live probe has been run.** On 2026-11-04 the proxy status showed the same egress policy that refused CONNECT to the RPC hosts on 2026-11-03, so, as instructed, no identical failing request was repeated. Every provider capability is therefore `not_tested` in a real database. Fixture runs exist only on the offline fixture backend and are labelled.
 - **Live provider verification is still blocked.** The bounded live retry on 2026-11-03 at 17:25Z reached 0 of 2 keyless providers (DNS fails direct; the proxy refuses CONNECT with 403). No real Ethereum or Solana provider has answered a BIP request yet.
 - **No evidence has been corroborated live.** Corroboration needs two providers on independent infrastructure. Only one keyless provider per chain is configured, so a corroboration request reports `could_not_run`.
 - BIP is a local prototype with **no authentication**.
@@ -28,10 +29,16 @@ _Last updated: 2026-11-03 (Stage 3, Build Prompt 04)_
 | Cross-provider corroboration (infrastructure groups, corroborated / conflicted / invalidated / unverified, per transaction) | Implemented, tested offline with a second fake provider. **Never run live** | `tests/stage3/test_intel_api.py` |
 | Wallet profile (scope-labelled), behaviour rules, anomaly detectors (5), flows, bounded graph, research leads, findings | Implemented and tested on synthetic data and fake-RPC ingestion | `tests/stage3/test_analytics.py`, API tests |
 | Dashboard: Wallet intelligence sections, Capital Flows, Relationship Graph (SVG: zoom, pan, details), Opportunities, Overview verification metrics, demo-data banner | Implemented and tested | Vitest, e2e Phase B on offline fixtures |
+| Migration v4 (probe runs, capability observations, reliability snapshots, consistency checks) | Implemented and tested (additive; v3 evidence survives) | `tests/stage4/test_prober.py` |
+| Capability prober: catalogue (Ethereum 12, Solana 14 capabilities), server-enforced budgets, environment/provider failure classification, historical coverage labels | Implemented, tested offline. **Never run against a real provider** | `tests/stage4/test_prober.py` |
+| Provider reliability (sample-size rules) and cross-provider consistency (like-for-like, independence-aware) | Implemented and tested | Same |
+| Provider intelligence console (profiles, capability matrix, preview, bounded run, results, history, reliability) | Implemented and tested | Vitest, e2e Phase B |
+| `make probe` (opt-in live probe CLI) | Implemented; not run here (network policy) | — |
 | Real-data intelligence output | **None yet**: every analysed record so far is an offline fixture (labelled "Demo data") | — |
 | AI research, historical crawler, live followers, Parquet lake | Planned | — |
 
 ## Blockers
+0. **Live provider capability evidence** needs `make probe` from a machine (or environment) whose network allows the RPC hosts.
 1. **Network policy (authoring sandbox):** `ethereum-rpc.publicnode.com`, `api.mainnet.solana.com` and other RPC hosts are denied. To verify live, run `make live-smoke` on a machine with internet access, or allow those hosts in the cloud environment's network settings.
 2. **Credentials:** Alchemy, Infura, Ankr, QuickNode and Helius need free accounts and keys (`BIP_PROVIDER_*_URL`). None are configured. No accounts were created.
 3. **Corroboration needs a second, independent provider per chain** (e.g. an Infura or Alchemy free account for Ethereum, Helius or Alchemy for Solana). This needs owner approval to create the account.
@@ -45,7 +52,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 - `claude/nifty-ptolemy-1emo3n`: separate Graphify developer tooling. Not merged, not part of BIP code.
 
 ## Awaiting owner approval
-1. ADRs 001–024 (all Proposed). ADR-021 to ADR-024 (provider independence groups, on-demand SQLite intelligence, reproducible runs, research leads not recommendations) are implemented provisionally. Already implemented provisionally: ADR-004, ADR-014 to ADR-016, and ADR-017 to ADR-020 (TOML registry, stdlib transport, synchronous bounded ingestion, log-based Ethereum discovery).
+1. ADRs 001–026 (all Proposed). ADR-025/026 (budgeted manual prober; reliability sample rules) are implemented provisionally. ADR-021 to ADR-024 (provider independence groups, on-demand SQLite intelligence, reproducible runs, research leads not recommendations) are implemented provisionally. Already implemented provisionally: ADR-004, ADR-014 to ADR-016, and ADR-017 to ADR-020 (TOML registry, stdlib transport, synchronous bounded ingestion, log-based Ethereum discovery).
 2. Storage target beyond the ~5 GB prototype cap.
 3. Free accounts: Alchemy, Infura, Chainstack, Helius, Etherscan, GitHub PAT, Google Cloud BigQuery sandbox.
 4. Where Postgres (and later Redis) run, and with what resource limits.

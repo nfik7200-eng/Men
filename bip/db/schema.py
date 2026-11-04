@@ -31,7 +31,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 metadata = MetaData(
     naming_convention={
@@ -533,4 +533,145 @@ V3_TABLES = (
     analysis_runs,
     anomaly_observations,
     opportunity_candidates,
+)
+
+
+# ============================================================================ v4 tables
+# Stage 4: provider capability probing and reliability intelligence. These are diagnostics about
+# providers; they never modify chain observations or evidence verification records.
+
+CAPABILITY_STATUSES = ("supported", "unsupported", "inconclusive", "not_tested")
+CONNECTIVITY_STATES = (
+    "reachable",
+    "network_blocked",
+    "authentication_required",
+    "unauthorized",
+    "rate_limited",
+    "timeout",
+    "tls_error",
+    "provider_error",
+    "invalid_response",
+    "wrong_network",
+    "not_tested",
+)
+
+
+def _in(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN ({', '.join(repr(v) for v in values)})"
+
+
+provider_probe_runs = Table(
+    "provider_probe_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("run_key", String(36), nullable=False, unique=True),
+    Column("started_at", UTCDateTime, nullable=False),
+    Column("finished_at", UTCDateTime, nullable=True),
+    Column("mode", String(16), nullable=False),
+    Column("data_origin", String(32), nullable=False),
+    Column("providers_json", Text, nullable=False),
+    Column("capabilities_json", Text, nullable=False),
+    Column("budget_json", Text, nullable=False),
+    Column("requests_used", Integer, nullable=False, server_default="0"),
+    Column("requests_skipped", Integer, nullable=False, server_default="0"),
+    Column("duration_ms", Integer, nullable=True),
+    Column("status", String(16), nullable=False),
+    Column("summary_json", Text, nullable=True),
+    Column("failure_summary", String(500), nullable=True),
+    CheckConstraint(_in("status", ("running", "completed", "partial", "failed")), name="status"),
+    Index(None, "started_at"),
+)
+"""One bounded, manually started probe run."""
+
+provider_capability_observations = Table(
+    "provider_capability_observations",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "run_id",
+        Integer,
+        ForeignKey("provider_probe_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("provider_id", String(64), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("network", String(32), nullable=True),
+    Column("infrastructure", String(40), nullable=True),
+    Column("capability", String(48), nullable=False),
+    Column("method", String(64), nullable=True),
+    Column("status", String(16), nullable=False),
+    Column("connectivity", String(32), nullable=False),
+    Column("failure_kind", String(40), nullable=True),
+    Column("environment_restricted", Boolean, nullable=False, server_default="0"),
+    Column("explanation", String(500), nullable=False),
+    Column("http_status", Integer, nullable=True),
+    Column("rpc_error_code", Integer, nullable=True),
+    Column("latency_ms", Integer, nullable=True),
+    Column("response_bytes", Integer, nullable=True),
+    Column("validation", String(16), nullable=False),
+    Column("reference_json", Text, nullable=True),
+    Column("observed_at", UTCDateTime, nullable=False),
+    CheckConstraint(_in("status", CAPABILITY_STATUSES), name="status"),
+    CheckConstraint(_in("connectivity", CONNECTIVITY_STATES), name="connectivity"),
+    CheckConstraint(_in("validation", ("passed", "failed", "not_applicable")), name="validation"),
+    UniqueConstraint("run_id", "provider_id", "capability"),
+    Index(None, "provider_id", "capability", "observed_at"),
+)
+"""What one probe request (or a deliberate skip) established about one capability."""
+
+provider_reliability_observations = Table(
+    "provider_reliability_observations",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "run_id",
+        Integer,
+        ForeignKey("provider_probe_runs.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    Column("provider_id", String(64), nullable=False),
+    Column("computed_at", UTCDateTime, nullable=False),
+    Column("method_version", String(16), nullable=False),
+    Column("window_start", UTCDateTime, nullable=True),
+    Column("window_end", UTCDateTime, nullable=True),
+    Column("state", String(24), nullable=False),
+    Column("sample_size", Integer, nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Index(None, "provider_id", "computed_at"),
+)
+"""Reliability snapshot computed from capability observations (method, window, sample size)."""
+
+provider_consistency_checks = Table(
+    "provider_consistency_checks",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "run_id",
+        Integer,
+        ForeignKey("provider_probe_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("chain", String(32), nullable=False),
+    Column("comparison", String(48), nullable=False),
+    Column("provider_a", String(64), nullable=False),
+    Column("provider_b", String(64), nullable=False),
+    Column("infrastructure_a", String(40), nullable=True),
+    Column("infrastructure_b", String(40), nullable=True),
+    Column("independent", Boolean, nullable=False),
+    Column("reference", String(100), nullable=True),
+    Column("value_a", String(200), nullable=True),
+    Column("value_b", String(200), nullable=True),
+    Column("outcome", String(16), nullable=False),
+    Column("note", String(300), nullable=False),
+    Column("checked_at", UTCDateTime, nullable=False),
+    CheckConstraint(_in("outcome", ("consistent", "conflict", "inconclusive")), name="outcome"),
+    Index(None, "chain", "checked_at"),
+)
+"""Like-for-like comparison of two providers within one probe run (provider diagnostics only)."""
+
+V4_TABLES = (
+    provider_probe_runs,
+    provider_capability_observations,
+    provider_reliability_observations,
+    provider_consistency_checks,
 )

@@ -2,6 +2,13 @@
 
 Status: **Research snapshot, 2026-11-03.**
 
+## Stage 4 status (2026-11-04)
+
+- **Probing.** The capability prober (`docs/PROVIDER_CAPABILITY_METHODOLOGY.md`) can now test each provider's capabilities within a hard budget. **No live probe result exists yet.** The sandbox's egress gateway still denies the RPC hosts. That is an environment restriction, so provider availability remains unknown. The table below is unchanged.
+- **New allow-listed read methods** (standard JSON-RPC, still untested against real providers): `eth_getCode`; Solana `getVersion`, `getBlockHeight` and `getLatestBlockhash`.
+- **Documentation fields.** Each registry entry now records `documentation_basis` and `documentation_checked`. All entries are `search_derived`, checked 2026-11-03.
+- **Configuration.** A provider needing credentials is probed only when its `BIP_PROVIDER_*_URL` is already set. Otherwise it is reported as "requires configuration".
+
 ## Stage 2 status (2026-11-03)
 
 The machine-readable registry now exists: `bip/providers/registry.toml`, loaded by `bip/providers/registry.py`. This table records what is *implemented* and what was *actually tested*.

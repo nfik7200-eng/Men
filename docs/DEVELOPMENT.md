@@ -74,13 +74,15 @@ bip/
     contracts.py            ContractDeployment
     findings.py             Finding, Claim, EvidenceRef, Attribution
   db/
-    schema.py               SQLAlchemy Core tables (schema version 3)
+    schema.py               SQLAlchemy Core tables (schema version 4)
     engine.py               DB location, engine, versioned migrations, connectivity check
     repository.py           All reads/writes; maps failures to typed errors
     records.py              Read models (also used as API response bodies)
     types.py                UTCDateTime column type
   providers/                Registry (registry.toml: methods, hosts, infrastructure groups), lifecycle
   router/ rpc/ chains/ ingest/  Router, hardened transport, chain adapters, bounded wallet ingestion
+  providers/capabilities.py prober.py intelligence.py  Stage 4 capability catalogue, budgeted prober, probe storage / reliability / consistency
+  tools/probe.py            `make probe`: opt-in live run of the same prober (BIP_LIVE_RPC=1)
   intel/                    Stage 3 intelligence (stored data only; see INTELLIGENCE_METHODOLOGY.md)
     dataset.py              Load one wallet's stored records as a scoped, hashable dataset
     profile.py behaviour.py anomaly.py flows.py graph.py opportunities.py
@@ -96,7 +98,7 @@ bip/
     schemas.py              Request bodies and API-only response models
 tests/unit/                 Offline unit tests (synthetic fixtures only)
 tests/api/                  API and database tests on temporary SQLite databases
-tests/stage2/ tests/stage3/ Offline fake-RPC integration and intelligence tests (no network)
+tests/stage2/ … stage4/      Offline fake-RPC integration and intelligence tests (no network)
 frontend/                   React + TypeScript + Vite dashboard
   src/api/                  Typed API client and response types
   src/pages/                One component per navigation section
@@ -182,6 +184,21 @@ curl -X POST "http://127.0.0.1:8000/api/v1/ingestion/wallet/solana/<ADDRESS>?lim
 | GET | `/ingestion/jobs`, `/ingestion/jobs/{id}` | Run records with counts, coverage notes and errors |
 | POST | `/investigations/{id}/findings` | Attach a `Finding`. The contract's evidence rules are enforced, and evidence claiming verified provenance must be a transaction stored in the database (self-asserted verification is rejected with 422) |
 
+### Provider intelligence endpoints (Stage 4)
+
+Only `POST /providers/probe-runs` contacts providers, within the server-side budget. Methodology: [`PROVIDER_CAPABILITY_METHODOLOGY.md`](PROVIDER_CAPABILITY_METHODOLOGY.md).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/providers/capabilities` | Capability catalogue per chain and status definitions |
+| GET | `/providers/profiles` | Every provider: configuration, connectivity, coverage, historical coverage, reliability state, documented limits |
+| GET | `/providers/{id}/profile` | Capability matrix (latest observation per capability), reliability, consistency |
+| GET | `/providers/{id}/capabilities/history?capability=&limit=&offset=` | Observation history |
+| GET | `/providers/{id}/reliability` · `/providers/{id}/consistency` | Reliability (sample sizes, window) · cross-provider checks |
+| GET | `/providers/probe/preview?provider=&capability=&max_calls_per_provider=` | What would be tested, the maximum requests and duration, ineligible providers with reasons. Sends nothing |
+| POST | `/providers/probe-runs` | Start one bounded run (`{"providers"?, "capabilities"?, "max_calls_per_provider"? ≤ 8}`). 409 `probe_busy` / `nothing_to_probe`; 422 for unknown capabilities, ineligible providers or extra fields |
+| GET | `/providers/probe-runs` · `/providers/probe-runs/{run_id}` | Run history · one run with all observations and consistency checks |
+
 ### Intelligence endpoints (Stage 3, `/api/v1/intelligence`)
 
 Every response includes `data_origin` (`offline_fixture` or `stored_observations`), `analyzer_version`, scope or coverage, and verification. Everything except the verification POSTs reads stored data only (no network). Methodology: [`INTELLIGENCE_METHODOLOGY.md`](INTELLIGENCE_METHODOLOGY.md).
@@ -254,6 +271,11 @@ All settings are environment variables with the `BIP_` prefix. Nested groups use
 | `BIP_INTEL__FLOW_MAX_WINDOW_DAYS` | 365 | Longest flow window |
 | `BIP_INTEL__NEWLY_OBSERVED_DAYS` / `__SPIKE_FACTOR` / `__LARGE_TRANSFER_MAD_Z` | 7 / 3.0 / 6.0 | Detector thresholds |
 | `BIP_INTEL__BURST_COUNT` / `__BURST_WINDOW_MINUTES` / `__CONCENTRATION_SHARE` | 5 / 10 / 0.5 | Rule thresholds |
+| `BIP_PROBE__MAX_CALLS_PER_PROVIDER` / `__MAX_CALLS_PER_RUN` / `__MAX_RUN_SECONDS` | 8 / 48 / 90 | Probe budgets. These are ceilings: values can only be lowered |
+| `BIP_PROBE__MAX_CONCURRENT_PROVIDERS` / `__REQUEST_TIMEOUT_S` / `__MAX_RESPONSE_BYTES` | 2 / 5 / 1 MiB | Ceilings |
+| `BIP_PROBE__RETRIES` | 0 | Must be 0 |
+| `BIP_PROBE__MIN_INTERVAL_S` | 1.0 | Per-provider spacing floor (may only be raised) |
+| `BIP_PROBE__ETHEREUM_HISTORY_LOOKBACK_BLOCKS` / `__SOLANA_HISTORY_LOOKBACK_SLOTS` | 100000 / 1000000 | Distance of the single historical sample |
 | `BIP_POSTGRES_DSN` | unset | Secret. Must start with `postgresql://`. Not used (SQLite is the operational store in BIP 0.1) |
 | `BIP_REDIS_URL` | unset | Secret. Must start with `redis://` or `rediss://` |
 

@@ -58,6 +58,8 @@ class FakeEthNode:
     break_receipt_for: str | None = None
     reorg_tx: str | None = None
     unsupported: set[str] = field(default_factory=set[str])
+    history_floor: int = 20_000_000 - 200_000
+    """Blocks below this number are 'not served' (null), like a pruned node."""
 
     def __post_init__(self) -> None:
         h = self.head
@@ -69,6 +71,8 @@ class FakeEthNode:
         self.txs = {
             self.txa: self._tx(self.txa, h - 10, 0, self.wallet, self.token, 0),
             self.txb: self._tx(self.txb, h - 5, 3, self.other, self.wallet, 2 * 10**18),
+            # unrelated head-block tx (listed in the head block; used by capability probes)
+            h32(h): self._tx(h32(h), h, 0, self.other, self.token, 0),
         }
         self.logs = [
             self._log(
@@ -77,6 +81,8 @@ class FakeEthNode:
             self._log(
                 self.txb, h - 5, 3, 2, [TRANSFER, topic(self.other), topic(self.wallet)], 3_000_000
             ),
+            # head block: other -> token contract (not involving the wallet)
+            self._log(h32(h), h, 0, 0, [TRANSFER, topic(self.other), topic(self.token)], 7),
         ]
 
     def _block(self, n: int) -> dict[str, object]:
@@ -135,7 +141,11 @@ class FakeEthNode:
                 if tag == "finalized"
                 else int(str(tag), 16)
             )
+            if n not in self.blocks and self.history_floor <= n <= self.head:
+                return self._block(n)  # synthesized historical header
             return self.blocks.get(n)
+        if method == "eth_getCode":
+            return "0x"
         if method == "eth_getBalance":
             return hex(5 * 10**18)
         if method == "eth_getTransactionCount":
@@ -326,6 +336,15 @@ class FakeSolNode:
             return self.genesis
         if method == "getHealth":
             return "ok"
+        if method == "getVersion":
+            return {"solana-core": "2.1.0-fake", "feature-set": 1}
+        if method == "getBlockHeight":
+            return 280_000_000
+        if method == "getLatestBlockhash":
+            return {
+                "context": {"slot": self.head_slot},
+                "value": {"blockhash": key(9), "lastValidBlockHeight": 1},
+            }
         if method == "getSlot":
             return self.head_slot
         if method == "getBlock":

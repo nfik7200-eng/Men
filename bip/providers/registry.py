@@ -16,6 +16,7 @@ Security rules enforced at load and resolution time:
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -47,6 +48,7 @@ EVM_READ_METHODS = frozenset(
         "eth_getTransactionReceipt",
         "eth_getLogs",
         "eth_getTransactionCount",
+        "eth_getCode",
     }
 )
 SOLANA_READ_METHODS = frozenset(
@@ -58,8 +60,26 @@ SOLANA_READ_METHODS = frozenset(
         "getBalance",
         "getSignaturesForAddress",
         "getTransaction",
+        "getVersion",
+        "getBlockHeight",
+        "getLatestBlockhash",
     }
 )
+WRITE_METHOD_PATTERN = re.compile(
+    r"^(eth_send|eth_sign|eth_submit|personal_|admin_|debug_|miner_|wallet_|engine_|txpool_)"
+    r"|^(sendTransaction|requestAirdrop|simulateTransaction|eth_accounts|eth_coinbase)$"
+)
+"""State-changing, signing, account or node-administration methods. Never permitted, even if a
+later edit adds one to an allow-list (checked at import and when a probe is planned)."""
+
+
+def is_write_capable(method: str) -> bool:
+    return bool(WRITE_METHOD_PATTERN.search(method))
+
+
+for _m in EVM_READ_METHODS | SOLANA_READ_METHODS:
+    if is_write_capable(_m):  # pragma: no cover - guards future edits
+        raise RuntimeError(f"write-capable method {_m!r} in the read-only allow-list")
 READ_ONLY_METHODS: Mapping[str, frozenset[str]] = {
     "evm-jsonrpc": EVM_READ_METHODS,
     "solana-jsonrpc": SOLANA_READ_METHODS,
@@ -106,6 +126,10 @@ class ProviderSpec(BaseModel):
     """``None`` means unknown."""
     max_log_block_range: Annotated[int, Field(ge=1)] | None = None
     """Documented eth_getLogs block-range limit. ``None`` means unknown."""
+    documentation_basis: Literal["official_docs", "search_derived", "unverified"] = "unverified"
+    """How the documented facts in this entry (limits, archive, methods) were obtained."""
+    documentation_checked: Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")] | None = None
+    """Date the documentation facts were last checked (YYYY-MM-DD)."""
     docs_url: str
     terms_url: str
     sources: tuple[str, ...] = ()

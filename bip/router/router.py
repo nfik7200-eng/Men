@@ -32,7 +32,7 @@ from bip.chains.identity import EXPECTED_IDENTITY, identity_matches
 from bip.config.settings import Settings
 from bip.core.exceptions import BIPError
 from bip.core.logging import get_logger
-from bip.providers.registry import ProviderSpec, Registry
+from bip.providers.registry import ProviderSpec, Registry, is_write_capable
 from bip.providers.state import ProviderState, ProviderStateStore
 from bip.providers.status import ProviderView, compute_view
 from bip.rpc.jsonrpc import RpcError, RpcRequest, classify_http_status, parse_response
@@ -95,6 +95,28 @@ class RpcOutcome:
     method: str
     latency_ms: int
     raw: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeResponse:
+    """Everything observed for one probe request. Never raises for provider-side failures."""
+
+    provider_id: str
+    method: str
+    sent: bool
+    """False when BIP refused to send (see ``refused``); no request left the process."""
+    refused: str | None = None
+    http_status: int | None = None
+    latency_ms: int | None = None
+    has_result: bool = False
+    result: object = None
+    rpc_error_class: str | None = None
+    rpc_error_code: int | None = None
+    rpc_error_message: str | None = None
+    transport_failure: str | None = None
+    transport_detail: str | None = None
+    retry_after_s: float | None = None
+    response_bytes: int | None = None
 
 
 @dataclass
@@ -322,6 +344,120 @@ class ProviderRouter:
             raise
         self._record(spec.id, ok=True, latency_ms=response.elapsed_ms, outcome="ok")
         return RpcOutcome(result, spec.id, method, response.elapsed_ms, response.body)
+
+    # ------------------------------------------------------------------ probing
+
+    def probe(
+        self,
+        spec: ProviderSpec,
+        method: str,
+        params: list[object] | dict[str, object],
+        *,
+        timeout_s: float,
+        max_bytes: int,
+        min_interval_s: float,
+    ) -> ProbeResponse:
+        """Send exactly one read-only request to ``spec`` (no retries, no failover, no identity
+        side-call) and return what happened. Used by the capability prober.
+
+        Refuses (without sending) methods outside the provider's read-only allow-list,
+        write-capable methods, disabled or unconfigured providers, and providers in a
+        rate-limit cooldown.
+        """
+        if is_write_capable(method) or method not in spec.methods:
+            return ProbeResponse(spec.id, method, False, refused="method not in allow-list")
+        view = self.view(spec, self._states())
+        if not view.enabled:
+            return ProbeResponse(spec.id, method, False, refused="provider disabled")
+        endpoint = view.resolution.endpoint
+        if not spec.has_adapter or endpoint is None:
+            return ProbeResponse(spec.id, method, False, refused="provider not configured")
+        rt = self._rt(spec.id)
+        interval = max(1.0 / spec.client_rps if spec.client_rps else 0.25, min_interval_s)
+        with self._lock:
+            now = self._clock()
+            if rt.cooldown_until > now:
+                return ProbeResponse(
+                    spec.id, method, False, refused="provider is in a rate-limit cooldown"
+                )
+            wait = rt.next_slot - now
+            rt.next_slot = max(now, rt.next_slot) + interval
+            self._next_id += 1
+            request = RpcRequest(self._next_id, method, params)
+        if wait > 0:
+            self._sleep(wait)
+        try:
+            response = self._transport.post_json(
+                endpoint, request.encode(), timeout_s=timeout_s, max_bytes=max_bytes
+            )
+        except TransportError as exc:
+            self._record(spec.id, ok=False, latency_ms=None, outcome=f"transport_{exc.kind}")
+            # the message after "(host): " never contains the URL; the host itself is dropped
+            detail = str(exc).split("): ", 1)[-1][:200]
+            return ProbeResponse(
+                spec.id, method, True, transport_failure=exc.kind, transport_detail=detail
+            )
+        status, elapsed, size = response.status, response.elapsed_ms, len(response.body)
+        http_class = classify_http_status(response.status)
+        if http_class is not None:
+            retry_after = response.retry_after_s
+            if http_class == "rate_limited":
+                cooldown = retry_after if retry_after is not None else 10.0
+                rt.cooldown_until = self._clock() + min(cooldown, self._cfg.max_retry_after_s)
+            else:  # a rate limit is a usage policy, not an outage: lifecycle stays unchanged
+                self._record(
+                    spec.id,
+                    ok=False,
+                    latency_ms=response.elapsed_ms,
+                    outcome=f"http_{response.status}",
+                )
+            return ProbeResponse(
+                spec.id,
+                method,
+                True,
+                http_status=status,
+                latency_ms=elapsed,
+                response_bytes=size,
+                rpc_error_class=http_class,
+                retry_after_s=retry_after,
+            )
+        try:
+            result = parse_response(response.body, request)
+        except RpcError as exc:
+            unhealthy = method == "getHealth" and any(
+                w in str(exc).lower() for w in ("behind", "unhealthy")
+            )  # Solana reports node lag on getHealth with -32005; that is not a rate limit
+            if exc.error_class == "rate_limited" and not unhealthy:
+                rt.cooldown_until = self._clock() + min(10.0, self._cfg.max_retry_after_s)
+            else:
+                self._record(
+                    spec.id,
+                    ok=not exc.counts_against_provider,
+                    latency_ms=response.elapsed_ms,
+                    outcome=f"rpc_{exc.error_class}",
+                )
+            return ProbeResponse(
+                spec.id,
+                method,
+                True,
+                http_status=status,
+                latency_ms=elapsed,
+                response_bytes=size,
+                rpc_error_class=exc.error_class,
+                rpc_error_code=exc.code,
+                rpc_error_message=str(exc)[:200],
+            )
+        self._record(spec.id, ok=True, latency_ms=response.elapsed_ms, outcome="ok")
+        return ProbeResponse(
+            spec.id,
+            method,
+            True,
+            http_status=status,
+            latency_ms=elapsed,
+            response_bytes=size,
+            has_result=True,
+            result=result,
+        )
 
     def _record(self, provider_id: str, *, ok: bool, latency_ms: int | None, outcome: str) -> None:
         if self._state is None:

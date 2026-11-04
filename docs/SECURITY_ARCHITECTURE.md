@@ -59,6 +59,13 @@ Version 0.1 (2026-11-03). Status: **Draft, awaiting approval.**
 - No multi-account or IP rotation to multiply free quotas. One account per provider unless the provider's terms explicitly permit more (e.g. dRPC allows up to 5 keys; their use is still bounded by account quota).
 - The web fetcher obeys robots.txt, has a per-domain rate limit and an identifying User-Agent (generic project name and contact URL configured by the owner, never the owner's personal email unless they choose it).
 
+### 8a. Capability probing (Stage 4, implemented)
+- **Targets.** Probes go to fixed registry endpoints only. The API has no URL field (extra fields are rejected), so there is no user-controlled RPC URL.
+- **Transport and methods.** All requests use the hardened transport (validated, pinned DNS answers; redirects refused; size cap). Methods are checked against the read-only allow-list, and write-capable patterns are rejected both at import and when a probe is sent.
+- **Hard budgets** (8/provider, 48/run, 90 s, 2 concurrent, 5 s timeout, 0 retries, 1 MB, ≥ 1 s spacing, one run at a time) are enforced on the server. Configuration and API callers can only lower them.
+- **Rate limits.** `Retry-After` is honoured, and a rate-limited provider is stopped for the run. There is no burst-based limit discovery and no background probing.
+- **Secrets.** Neither provider error text nor response bodies are stored. Configured endpoint URLs are redaction-registered. Tests check that a configured key never appears in API output, the database or logs.
+
 ## 9. Resource protection on the shared VPS
 - Container CPU and memory limits. `ionice`/`nice` for batch jobs.
 - **Disk guard:** before any write batch, check free space on `BIP_DATA_ROOT`'s filesystem. Pause ingestion when free space < max(5 GB, 5%) or when BIP's usage exceeds its configured quota (`BIP_MAX_DATA_BYTES`). Raise an alert at 80% of the BIP quota.

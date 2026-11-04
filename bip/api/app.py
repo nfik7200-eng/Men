@@ -26,6 +26,7 @@ from bip.api.routes import (
     ingestion,
     intelligence,
     investigations,
+    provider_intel,
     providers,
     settings_route,
     wallets,
@@ -37,6 +38,8 @@ from bip.db.repository import Repository
 from bip.ingest.wallet import WalletIngestor
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
+from bip.providers.intelligence import ProbeStore
+from bip.providers.prober import Prober
 from bip.providers.registry import Registry, default_registry
 from bip.providers.state import ProviderStateStore
 from bip.router.router import ProviderRouter
@@ -94,6 +97,9 @@ def create_app(
             corroborator=Corroborator(repo, reg, router),
             analysis_lock=threading.Lock(),
             verify_lock=threading.Lock(),
+            prober=Prober(reg, router, cfg.probe, states=state.states),
+            probe_store=ProbeStore(repo, reg),
+            probe_lock=threading.Lock(),
         )
         try:
             yield
@@ -111,6 +117,7 @@ def create_app(
     )
     install_error_handlers(app)
     for module in (
+        provider_intel,  # before `providers`: its static /providers/... paths must match first
         health,
         chains,
         dashboard,

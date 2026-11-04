@@ -161,6 +161,31 @@ class IntelSettings(BaseModel):
     concentration_share: Annotated[float, Field(gt=0.2, le=1.0)] = 0.5
 
 
+class ProbeSettings(BaseModel):
+    """Budgets for the provider capability prober (``BIP_PROBE__*``).
+
+    The ``le``/``ge`` bounds are hard safety ceilings: operators can only make probing *more*
+    conservative (fewer calls, shorter runs, longer spacing), never more aggressive.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_calls_per_provider: Annotated[int, Field(ge=1, le=8)] = 8
+    max_calls_per_run: Annotated[int, Field(ge=1, le=48)] = 48
+    max_run_seconds: Annotated[float, Field(gt=0, le=90)] = 90.0
+    max_concurrent_providers: Annotated[int, Field(ge=1, le=2)] = 2
+    request_timeout_s: Annotated[float, Field(gt=0, le=5)] = 5.0
+    retries: Annotated[int, Field(ge=0, le=0)] = 0
+    """Always 0: a failed probe request is recorded, never retried within a run."""
+    max_response_bytes: Annotated[int, Field(ge=1024, le=1024 * 1024)] = 1024 * 1024
+    min_interval_s: Annotated[float, Field(ge=1.0, le=60)] = 1.0
+    """Minimum spacing between two requests to one provider (a floor: only larger is allowed)."""
+    ethereum_history_lookback_blocks: Annotated[int, Field(ge=128, le=1_000_000)] = 100_000
+    """Distance below the head for the single historical-block sample (rounded down to 1,000)."""
+    solana_history_lookback_slots: Annotated[int, Field(ge=150, le=10_000_000)] = 1_000_000
+    """Distance below the finalized slot for the single historical-block sample."""
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="BIP_",
@@ -194,6 +219,7 @@ class Settings(BaseSettings):
     rpc: RpcSettings = RpcSettings()
     ingest: IngestSettings = IngestSettings()
     intel: IntelSettings = IntelSettings()
+    probe: ProbeSettings = ProbeSettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""

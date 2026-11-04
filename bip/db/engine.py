@@ -101,12 +101,20 @@ def _intelligence(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _provider_probing(conn: Connection) -> None:
+    """v4: probe runs, capability observations, reliability snapshots, consistency checks.
+    Additive only (new tables); idempotent like v2/v3."""
+    for table in schema.V4_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
         2, "provider registry state and read-only ingestion", _provider_registry_and_ingestion
     ),
     Migration(3, "verification and wallet intelligence", _intelligence),
+    Migration(4, "provider capability probing and reliability", _provider_probing),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

@@ -44,7 +44,99 @@ const scope = { kind: "retrieved_dataset", statement: "Computed only from record
 const verif = { overall: "unverified", total: 2, counts: { unverified: 2 }, corroborated_share: 0 };
 const ev = { tx_id: TX, block_number: 19999995, block_time: now, provider: "publicnode-eth", verification: "unverified" };
 
-export type IntelOptions = { origin?: "offline_fixture" | "stored_observations"; leads?: boolean };
+export type IntelOptions = {
+  origin?: "offline_fixture" | "stored_observations";
+  leads?: boolean;
+  /** Provider probe behaviour: "ok" (fake nodes answer) or "blocked" (environment DNS failure). */
+  probe?: "ok" | "blocked";
+};
+
+const ENV_NOTE = "Live verification could not be completed because of an environment network restriction. Provider availability remains unknown.";
+
+export function providerIntelResponse(path: string, method: string, opts: IntelOptions, state: { probed: boolean }): Json | null {
+  const origin = opts.origin ?? "stored_observations";
+  const blocked = opts.probe === "blocked";
+  const probedOk = state.probed && !blocked;
+  const obs = (cap: string, status: string, connectivity: string, explanation: string, envRestricted = false) => ({
+    provider_id: "publicnode-eth", chain: "ethereum", capability: cap, method: cap === "erc721_transfer_logs" ? null : "eth_x",
+    status, connectivity, explanation, validation: status === "supported" ? "passed" : "not_applicable",
+    failure_kind: envRestricted ? "dns_failure" : null, environment_restricted: envRestricted, http_status: null,
+    rpc_error_code: null, latency_ms: status === "supported" ? 120 : null, response_bytes: null, reference: null, observed_at: now,
+  });
+  const runObs = blocked
+    ? [obs("chain_id", "inconclusive", "network_blocked", `DNS resolution failed. ${ENV_NOTE}`, true),
+       obs("latest_block", "not_tested", "not_tested", "Not tested: the provider could not be reached from this environment.")]
+    : [obs("chain_id", "supported", "reachable", "Returned chain id 1 (Ethereum mainnet)."),
+       obs("historical_block", "inconclusive", "reachable", "The provider returned null for block 19900000; support is not established."),
+       obs("contract_code", "not_tested", "not_tested", "Not tested: per-provider request cap of 8 reached.")];
+  const profile = (id: string, chain: string, configured: boolean, auth: boolean) => ({
+    id, name: id, operator: "op", kind: "rpc", chain, network: chain === "ethereum" ? "mainnet" : "mainnet-beta",
+    infrastructure: id.startsWith("publicnode") ? "allnodes" : id === "infura-eth" ? "consensys" : "solana-labs",
+    access: auth ? "credentials" : "public", authentication_required: auth, endpoint_reference: auth ? "BIP_PROVIDER_INFURA_ETH_URL" : "built-in public endpoint",
+    enabled: true, configured, configuration_note: configured ? "Public endpoint; no credentials needed." : "Set BIP_PROVIDER_INFURA_ETH_URL to enable this provider.",
+    adapter_available: true, lifecycle: "untested", probe_eligible: configured, probe_ineligible_reason: configured ? null : "requires configuration",
+    connectivity: !configured ? "authentication_required" : state.probed && id === "publicnode-eth" ? (blocked ? "network_blocked" : "reachable") : "not_tested",
+    environment_restricted: state.probed && blocked && id === "publicnode-eth", environment_note: state.probed && blocked && id === "publicnode-eth" ? ENV_NOTE : null,
+    last_run: null, last_probe_at: state.probed && id === "publicnode-eth" ? now : null,
+    last_successful_probe_at: probedOk && id === "publicnode-eth" ? now : null, last_error: null,
+    coverage: { supported: probedOk && id === "publicnode-eth" ? 1 : 0, unsupported: 0, inconclusive: probedOk && id === "publicnode-eth" ? 1 : 0, not_tested: 10, total: 12 },
+    historical_coverage: { label: probedOk && id === "publicnode-eth" ? "historical_access_failed" : "insufficient_evidence", archive: "archive_capability_unverified",
+      note: "No historical sample has been tested.", sample: null, observed_at: null },
+    reliability_state: !(state.probed && id === "publicnode-eth") ? null : blocked ? "unknown" : "insufficient_data",
+    advertised_methods: ["eth_chainId"],
+    documented: { rate_limit: "unknown", archive: "unknown", max_log_block_range: null, client_rps: 4, client_rps_note: "BIP policy",
+      basis: "search_derived", checked: "2026-11-03", sources: [], docs_url: "https://example.org", note: "Documented facts are not verified operational capabilities." },
+  });
+  const profiles = [profile("publicnode-eth", "ethereum", true, false), profile("solana-public", "solana", true, false), profile("infura-eth", "ethereum", false, true)];
+  const run = () => ({
+    data_origin: origin, run_id: "11111111-1111-1111-1111-111111111111", started_at: now, finished_at: now, mode: "manual",
+    providers: ["publicnode-eth"], capabilities: null, budget: budget(), requests_used: blocked ? 1 : 2, requests_skipped: blocked ? 7 : 0,
+    duration_ms: 1200, status: blocked ? "partial" : "completed", failure_summary: blocked ? "the provider could not be reached from this environment" : null,
+    summary: { providers: { "publicnode-eth": { chain: "ethereum", connectivity: blocked ? "network_blocked" : "reachable", requests_used: blocked ? 1 : 2,
+      stop_reason: blocked ? "the provider could not be reached from this environment" : null, statuses: {}, environment_restricted: blocked } },
+      rate_limit_events: 0, statuses: {} },
+    observations: runObs, consistency_checks: [],
+  });
+  const budget = () => ({ max_calls_per_provider: 8, max_calls_per_run: 48, max_run_seconds: 90, max_concurrent_providers: 2,
+    request_timeout_s: 5, retries: 0, max_response_bytes: 1048576, min_interval_s: 1 });
+  if (path === "/providers/profiles")
+    return { data_origin: origin, items: profiles, generated_at: now,
+      last_environment_block: state.probed && blocked ? { provider_id: "publicnode-eth", failure_kind: "dns_failure", observed_at: now } : null };
+  const m = /^\/providers\/([a-z0-9-]+)\/profile$/.exec(path);
+  if (m) {
+    const p = profiles.find((x) => x.id === m[1]);
+    if (!p) return null;
+    return { ...p, data_origin: origin,
+      capabilities: [
+        { id: "chain_id", label: "Chain identification", method: "eth_chainId", description: "", requires: null, derived_from: null,
+          observation: state.probed ? runObs[0] : null },
+        { id: "historical_block", label: "Historical block sample", method: "eth_getBlockByNumber", description: "", requires: null, derived_from: null,
+          observation: probedOk ? runObs[1] : null },
+        { id: "contract_code", label: "Contract bytecode", method: "eth_getCode", description: "", requires: null, derived_from: null, observation: null },
+      ],
+      reliability: { provider_id: p.id, method: "reliability@1.0.0", state: p.reliability_state ?? "insufficient_data", sample_size: probedOk ? 2 : 0,
+        environment_blocked: state.probed && blocked ? 1 : 0, runs: state.probed ? 1 : 0, successes: probedOk ? 2 : 0, failures: 0,
+        success_rate: null, rate_limit_events: 0, timeouts: 0, invalid_responses: 0, provider_errors: 0, unauthorized: 0,
+        latency: { samples: probedOk ? 1 : 0, median_ms: null, p95_ms: null }, last_success_at: null, last_failure_at: null,
+        window: { start: now, end: now, first_observation: null, last_observation: null },
+        rules: { min_attempts: 20, min_runs: 3 }, limitations: ["Needs at least 20 attempts across 3 runs."] },
+      consistency_checks: [] };
+  }
+  if (path.startsWith("/providers/probe/preview"))
+    return { data_origin: origin, budget: budget(), max_requests: 16, max_duration_s: 90,
+      providers: [{ provider_id: "publicnode-eth", chain: "ethereum", infrastructure: "allnodes", authentication_required: false,
+        planned: [{ capability: "chain_id", method: "eth_chainId", derived: [] }, { capability: "latest_block", method: "eth_getBlockByNumber", derived: [] }],
+        over_budget: ["block_number", "contract_code"], max_requests: 8 }],
+      ineligible: [{ provider_id: "infura-eth", reason: "requires configuration: Set BIP_PROVIDER_INFURA_ETH_URL to enable this provider." }],
+      known_network_restriction: null, network_note: null, notes: [] };
+  if (path === "/providers/probe-runs" && method === "POST") {
+    state.probed = true;
+    return run();
+  }
+  if (path.startsWith("/providers/probe-runs"))
+    return { data_origin: origin, total: state.probed ? 1 : 0, limit: 10, offset: 0, items: state.probed ? [run()] : [] };
+  return null;
+}
 
 export function intelResponse(path: string, method: string, opts: IntelOptions): Json | null {
   const env = { data_origin: opts.origin ?? "stored_observations", analyzer_version: "3.0.0" };
@@ -116,11 +208,16 @@ export function installFakeBackend(intel: IntelOptions = {}) {
     id: w.id, name: w.name, description: w.description, entry_count: w.entries.length, created_at: now, updated_at: now,
   });
 
+  const probeState = { probed: false };
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const path = url.replace(/^\/api\/v1/, "");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
+    if (path.startsWith("/providers/profiles") || path.startsWith("/providers/probe") || /^\/providers\/[a-z0-9-]+\/profile$/.test(path)) {
+      const r = providerIntelResponse(path, method, intel, probeState);
+      return r ? json(path === "/providers/probe-runs" && method === "POST" ? 201 : 200, r) : err(404, "not_found", "Not Found");
+    }
     if (path.startsWith("/intelligence/")) {
       const r = intelResponse(path, method, intel);
       return r ? json(method === "POST" && path.includes("/analyze/") ? 201 : 200, r) : err(404, "not_found", "Not Found");

@@ -13,6 +13,8 @@ from bip.db.repository import Repository
 from bip.ingest.wallet import WalletIngestor
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
+from bip.providers.intelligence import ProbeStore
+from bip.providers.prober import Prober
 from bip.providers.registry import Registry
 from bip.providers.state import ProviderStateStore
 from bip.router.router import ProviderRouter
@@ -40,6 +42,9 @@ class AppContext:
     corroborator: Corroborator
     analysis_lock: threading.Lock
     verify_lock: threading.Lock
+    prober: Prober
+    probe_store: ProbeStore
+    probe_lock: threading.Lock
 
 
 def get_context(request: Request) -> AppContext:

@@ -495,3 +495,105 @@ export type IntelStatus = IntelEnvelope & {
   verification: { stored_transactions: number; checked: number; corroborated: number; conflicted: number; invalidated: number; unverified: number; provider_observations: number };
   analysis_runs: number; analysed_wallets: number; anomalies: number; findings: number; opportunity_candidates: number;
 };
+
+// ---------------------------------------------------------------- Stage 4: provider intelligence
+
+export type CapabilityStatus = "supported" | "unsupported" | "inconclusive" | "not_tested";
+export type Connectivity =
+  | "reachable" | "network_blocked" | "authentication_required" | "unauthorized" | "rate_limited"
+  | "timeout" | "tls_error" | "provider_error" | "invalid_response" | "wrong_network" | "not_tested";
+
+export type CapabilityObservation = {
+  provider_id: string; chain: string; capability: string; method: string | null;
+  status: CapabilityStatus; connectivity: Connectivity; explanation: string; validation: string;
+  failure_kind: string | null; environment_restricted: boolean; http_status: number | null;
+  rpc_error_code: number | null; latency_ms: number | null; response_bytes: number | null;
+  reference: Record<string, unknown> | null; observed_at: string; run_id?: number;
+};
+
+export type CapabilityDef = {
+  id: string; label: string; method: string | null; description: string;
+  requires: string | null; derived_from: string | null;
+};
+
+export type Reliability = {
+  provider_id: string; method: string;
+  state: "unknown" | "insufficient_data" | "observed_reliable" | "observed_degraded" | "observed_unreliable";
+  sample_size: number; environment_blocked: number; runs: number; successes: number; failures: number;
+  success_rate: number | null; rate_limit_events: number; timeouts: number; invalid_responses: number;
+  provider_errors: number; unauthorized: number;
+  latency: { samples: number; median_ms: number | null; p95_ms: number | null };
+  last_success_at: string | null; last_failure_at: string | null;
+  window: { start: string | null; end: string | null; first_observation: string | null; last_observation: string | null };
+  rules: Record<string, number>; limitations: string[];
+};
+
+export type HistoricalCoverage = {
+  label: string; archive: string; note: string; sample: Record<string, unknown> | null; observed_at: string | null;
+};
+
+export type ConsistencyCheck = {
+  chain: string; comparison: string; provider_a: string; provider_b: string;
+  infrastructure_a: string | null; infrastructure_b: string | null; independent: boolean;
+  reference: string | null; value_a: string | null; value_b: string | null;
+  outcome: "consistent" | "conflict" | "inconclusive"; note: string; checked_at: string;
+};
+
+export type ProviderProfile = {
+  id: string; name: string; operator: string; kind: string; chain: string; network: string | null;
+  infrastructure: string | null; access: string; authentication_required: boolean;
+  endpoint_reference: string | null; enabled: boolean; configured: boolean; configuration_note: string;
+  adapter_available: boolean; lifecycle: string; probe_eligible: boolean; probe_ineligible_reason: string | null;
+  connectivity: Connectivity; environment_restricted: boolean; environment_note: string | null;
+  last_run: { run_id: string; finished_at: string | null; connectivity: string; requests_used: number; stop_reason: string | null } | null;
+  last_probe_at: string | null; last_successful_probe_at: string | null;
+  last_error: { capability: string; connectivity: string; failure_kind: string | null; explanation: string; observed_at: string } | null;
+  coverage: Record<CapabilityStatus | "total", number> | null;
+  historical_coverage: HistoricalCoverage | null;
+  reliability_state: Reliability["state"] | null;
+  advertised_methods: string[];
+  documented: { rate_limit: string; archive: string; max_log_block_range: number | null; client_rps: number | null;
+    client_rps_note: string; basis: string; checked: string | null; sources: string[]; docs_url: string; note: string };
+};
+
+export type ProviderProfileDetail = ProviderProfile & IntelEnvelopeLite & {
+  capabilities: (CapabilityDef & { observation: CapabilityObservation | null })[];
+  reliability: Reliability | null;
+  consistency_checks: ConsistencyCheck[];
+};
+
+export type IntelEnvelopeLite = { data_origin: string };
+
+export type ProviderProfiles = IntelEnvelopeLite & {
+  items: ProviderProfile[]; generated_at: string;
+  last_environment_block: { provider_id: string; failure_kind: string | null; observed_at: string } | null;
+};
+
+export type ProbeBudget = {
+  max_calls_per_provider: number; max_calls_per_run: number; max_run_seconds: number;
+  max_concurrent_providers: number; request_timeout_s: number; retries: number;
+  max_response_bytes: number; min_interval_s: number;
+};
+
+export type ProbePreview = IntelEnvelopeLite & {
+  budget: ProbeBudget; max_requests: number; max_duration_s: number;
+  providers: { provider_id: string; chain: string; infrastructure: string | null; authentication_required: boolean;
+    planned: { capability: string; method: string | null; derived: string[] }[]; over_budget: string[]; max_requests: number }[];
+  ineligible: { provider_id: string; reason: string }[];
+  known_network_restriction: { provider_id: string; failure_kind: string | null; observed_at: string } | null;
+  network_note: string | null; notes: string[];
+};
+
+export type ProbeRun = IntelEnvelopeLite & {
+  run_id: string; started_at: string; finished_at: string | null; mode: string;
+  providers: string[]; capabilities: string[] | null; budget: ProbeBudget;
+  requests_used: number; requests_skipped: number; duration_ms: number | null;
+  status: "running" | "completed" | "partial" | "failed";
+  summary: { providers: Record<string, { chain: string; connectivity: string; requests_used: number; stop_reason: string | null;
+    statuses: Record<string, number>; environment_restricted: boolean }>; rate_limit_events: number; statuses: Record<string, number> } | null;
+  failure_summary: string | null;
+  observations?: CapabilityObservation[];
+  consistency_checks?: ConsistencyCheck[];
+};
+
+export type ProbeRunPage = IntelEnvelopeLite & { total: number; limit: number; offset: number; items: ProbeRun[] };

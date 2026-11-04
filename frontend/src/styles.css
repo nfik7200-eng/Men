@@ -213,3 +213,10 @@ tr:last-child td { border-bottom: 0; }
 .depth-field { margin-top: 8px; max-width: 120px; }
 .lead details { margin: 6px 0; }
 @media (max-width: 900px) { .graph-layout { grid-template-columns: minmax(0, 1fr); } .graph-svg { height: 380px; } }
+
+/* ---------------------------------------------------------------- Stage 4: provider intelligence */
+.section-title { font-size: 15px; margin: 18px 0 8px; }
+.probe-select { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.probe-select legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; cursor: pointer; }
+.nowrap { white-space: nowrap; }

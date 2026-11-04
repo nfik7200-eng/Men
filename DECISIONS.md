@@ -186,3 +186,24 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - They are labelled "unverified research lead" unless every evidence transaction is corroborated.
 - They always carry a "not investment advice" disclaimer.
 - No price, return or buy/sell signal is produced.
+
+## ADR-025 Budgeted, manual capability prober built on the router (Proposed)
+**Context.** BIP needs evidence about what each provider actually serves before routing work to it, without stressing providers, spending quota or creating accounts.
+**Decision.**
+- One prober (`bip/providers/prober.py`) reuses the registry, the router (`ProviderRouter.probe`: one request, pinned provider, no retries or failover) and the hardened transport.
+- Hard budget ceilings: 8 requests per provider, 48 per run, 90 s, 2 concurrent providers, 5 s timeout, 0 retries, 1 MB per response, ≥ 1 s spacing per provider, one run at a time. Configuration and API callers can only lower them.
+- Runs are manual only (API, dashboard button after a preview, `make probe`). There is no scheduler.
+- Lookups use hashes and signatures from the provider's own live answers.
+- Capability status (supported / unsupported / inconclusive / not_tested) is kept separate from connectivity. Only −32601 means "unsupported". DNS and proxy failures are environment restrictions.
+**Consequences.**
+- A run tests at most 8 of the 12–14 catalogue capabilities per provider. The rest are explicitly `not_tested` until a targeted run.
+- There is no automatic discovery of rate limits.
+
+## ADR-026 Provider reliability needs minimum samples and excludes environment failures (Proposed)
+**Decision.**
+- Reliability states require ≥ 20 attempts across ≥ 3 runs. Below that the state is `insufficient_data`.
+- Environment-blocked attempts are excluded, and a provider with only blocked attempts is `unknown`.
+- Median latency needs ≥ 5 samples and p95 needs ≥ 20.
+- There is no score and no ranking.
+- Consistency checks are stored separately from evidence verification and never change it. Independence follows ADR-021.
+**When to revisit.** When real observations exist, calibrate the 0.95 / 0.80 thresholds and decide whether routing should consume these states (Stage 5).

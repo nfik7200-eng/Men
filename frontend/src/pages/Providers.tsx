@@ -5,6 +5,7 @@ import { ErrorState, Loading, PageHeader, Pill, type Tone } from "../components/
 import { chainLabel } from "../lib/address";
 import { fmtTime, humanize } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import { ProviderIntelligence } from "./ProviderIntel";
 
 export const lifecycleTone: Record<Lifecycle, Tone> = {
   healthy: "ok",
@@ -151,13 +152,15 @@ export default function Providers() {
     <>
       <PageHeader
         title="Providers"
-        lede="Registered data sources and what BIP has actually observed from each. A provider is healthy only after a real, identity-verified request succeeded."
+        lede="Registered data sources, what each one advertises, and what BIP has actually observed. Documented limits, tested capabilities and untested ones are shown separately."
       />
+      <ProviderIntelligence />
+      <h2 className="section-title">Registry and health checks</h2>
       {providers.status === "loading" ? <Loading /> : null}
       {providers.status === "error" ? <ErrorState error={providers.error} onRetry={providers.reload} /> : null}
       {providers.status === "ready" ? (
         <div className="table-wrap">
-          <table>
+          <table aria-label="Provider registry">
             <thead>
               <tr>
                 <th>Provider</th>

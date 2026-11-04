@@ -276,8 +276,8 @@ def test_migration_v3_is_additive_and_idempotent(tmp_path: Path) -> None:
     con.commit()
     con.close()
     engine = create_db_engine(settings)
-    assert migrate(engine) == 3
-    assert migrate(engine) == 3
+    assert migrate(engine) == schema.SCHEMA_VERSION
+    assert migrate(engine) == schema.SCHEMA_VERSION
     with engine.connect() as conn:
         cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(transactions)")}
         tables = {r[0] for r in conn.exec_driver_sql("SELECT name FROM sqlite_master")}

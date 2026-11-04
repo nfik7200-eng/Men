@@ -19,6 +19,12 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 See [`docs/INTELLIGENCE_METHODOLOGY.md`](docs/INTELLIGENCE_METHODOLOGY.md).
 
+**Stage 4, provider intelligence.** A budgeted, manually started capability prober records, per provider and capability, what was tested and with what result. It keeps documented, configured, supported, unsupported, inconclusive and untested capabilities apart, and separates local network restrictions from provider failures. It also produces reliability observations with sample-size rules, and cross-provider consistency checks. See [`docs/PROVIDER_CAPABILITY_METHODOLOGY.md`](docs/PROVIDER_CAPABILITY_METHODOLOGY.md). To probe real providers from a machine with internet access:
+
+```bash
+make probe
+```
+
 Not yet proven:
 - **No real provider has answered a request yet.** The authoring sandbox's network policy blocks RPC hosts, so every live result so far is a failure to connect. Run `make live-smoke` where those hosts are reachable.
 - **No evidence has been corroborated live.** Corroboration needs two providers on independent infrastructure; only one keyless provider per chain is configured, and the sandbox cannot reach any.
@@ -43,6 +49,7 @@ See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 | [docs/IMPLEMENTATION_ROADMAP.md](docs/IMPLEMENTATION_ROADMAP.md) | Staged build plan (I) |
 | [docs/RISK_REGISTER.md](docs/RISK_REGISTER.md) | Risks and mitigations |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developer setup, commands, configuration, security rules |
+| [docs/PROVIDER_CAPABILITY_METHODOLOGY.md](docs/PROVIDER_CAPABILITY_METHODOLOGY.md) | Capability probing, budgets, failure classification, reliability, consistency |
 | [docs/INTELLIGENCE_METHODOLOGY.md](docs/INTELLIGENCE_METHODOLOGY.md) | How profiles, rules, detectors, flows, graphs, leads and verification are computed |
 
 ## Proposed stack (awaiting approval — see DECISIONS.md)

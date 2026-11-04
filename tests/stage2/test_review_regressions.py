@@ -17,6 +17,7 @@ from bip.chains.ethereum import parse as eth
 from bip.chains.solana import parse as sol
 from bip.config import load_settings
 from bip.contracts.provenance import Finality
+from bip.db import schema
 from bip.db.engine import create_db_engine, database_path, migrate
 from tests.stage2.fakes import FakeEthNode, FakeSolNode, h32, sig
 from tests.stage2.test_ingestion_api import API, Env
@@ -175,7 +176,7 @@ def test_migration_v2_recovers_from_partial_application(tmp_path: Path) -> None:
     con.commit()
     con.close()
     engine = create_db_engine(settings)
-    assert migrate(engine) == 3
+    assert migrate(engine) == schema.SCHEMA_VERSION
     engine.dispose()
 
 

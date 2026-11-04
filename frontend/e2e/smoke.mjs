@@ -180,7 +180,7 @@ try {
   await verdict.waitFor({ timeout: 90000 });
   const outcome = (await verdict.textContent())?.trim();
   check("health-check result is shown in the UI (real network)", true, `observed: ${outcome}`);
-  const lifecycle = await page.locator("tbody tr").first().locator(".pill").first().textContent();
+  const lifecycle = await page.getByRole("table", { name: "Provider registry" }).locator("tbody tr").first().locator(".pill").first().textContent();
   check("provider status reflects the recorded outcome", /Healthy|Unavailable|Degraded/.test(lifecycle ?? ""), `status=${lifecycle}`);
   realNetwork.healthCheck = outcome ?? "unknown";
 
@@ -266,6 +266,39 @@ try {
   await page.getByText(/insufficient data|evaluated/).first().waitFor();
   check("[offline fixture] opportunity evaluation returns no candidate on insufficient data",
     (await page.getByText("No research leads").count()) === 1);
+  // ---------- Stage 4 provider intelligence on the fixture backend (fake RPC nodes) ----------
+  await page.goto(`${WEB}/providers`);
+  const profilesTable = page.getByRole("table", { name: "Provider capability profiles" });
+  await profilesTable.waitFor();
+  check("[offline fixture] provider intelligence page opens", true);
+  check("[offline fixture] provider page is labelled as fixture data",
+    (await page.getByText(/Demo data: offline fixtures/).count()) > 0);
+  const rowFor = (id) => profilesTable.locator("tr", { hasText: id }).first();
+  await rowFor("publicnode-eth").getByRole("button", { name: "Capabilities" }).click();
+  await page.getByRole("table", { name: /Capability matrix for PublicNode Ethereum/ }).waitFor();
+  check("[offline fixture] Ethereum provider capability matrix shown", true);
+  await rowFor("solana-public").getByRole("button", { name: "Capabilities" }).click();
+  const solMatrix = page.getByRole("table", { name: /Capability matrix for Solana/ });
+  await solMatrix.waitFor();
+  check("[offline fixture] Solana provider capability matrix shown, untested before any run",
+    (await solMatrix.getByText("Never probed.").count()) > 0);
+  await page.getByRole("button", { name: "Preview budget" }).click();
+  const previewBox = page.getByLabel("Probe preview");
+  await previewBox.waitFor();
+  const previewText = (await previewBox.textContent()) ?? "";
+  check("[offline fixture] probe budget preview shows bounded requests", /At most \d+ requests/.test(previewText) && /0 retries/.test(previewText), previewText.slice(0, 80));
+  await page.getByRole("button", { name: "Run bounded provider check" }).click();
+  const resultBox = page.getByLabel("Probe run result");
+  await resultBox.waitFor({ timeout: 90000 });
+  const resultText = (await resultBox.textContent()) ?? "";
+  check("[offline fixture] simulated probe run completed with results", /Run (completed|partial)/.test(resultText) && /requests sent/.test(resultText), resultText.slice(0, 90));
+  check("[offline fixture] probe results explain failures (skipped Solana slot)",
+    /does not have the requested data/.test(resultText));
+  await rowFor("publicnode-eth").getByRole("button", { name: "Capabilities" }).click();
+  await page.getByText("Reliability observations").first().waitFor();
+  check("[offline fixture] reliability shows insufficient data after one run",
+    (await page.getByText(/Insufficient data/).count()) > 0);
+  await page.screenshot({ path: join(dataRoot, "fixture-providers.png"), fullPage: true });
   void preview2;
   await browser.close();
 } catch (err) {

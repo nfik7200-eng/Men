@@ -2,6 +2,58 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-04 — Stage 4 (Build Prompt 05): budgeted provider capability prober and reliability intelligence
+
+**Network check first (no provider contacted).**
+- The agent-proxy status on 2026-11-04 showed the same egress policy that refused CONNECT to the RPC hosts on 2026-11-03.
+- As instructed, no live request was repeated just to reproduce that failure.
+- **No live probe was run, and no real provider capability has been observed.**
+
+**Done**
+- **Read-only allow-list.**
+  - Added `eth_getCode`, Solana `getVersion`, `getBlockHeight` and `getLatestBlockhash`.
+  - `is_write_capable` pattern guard, checked at import and when a probe is sent.
+  - Registry entries gained `documentation_basis` / `documentation_checked`.
+- **`ProviderRouter.probe`.**
+  - One request: pinned provider, no retries or failover, no identity side-call.
+  - Shared throttle, with spacing ≥ `min_interval_s`.
+  - Honours Retry-After cooldowns.
+  - Rate limits are not recorded as lifecycle failures.
+- **`bip/providers/`.**
+  - `capabilities.py`: catalogue, Ethereum 12 and Solana 14 capabilities, including derived ones.
+  - `prober.py`:
+    - planning and validation;
+    - budgets (ceilings 8/48/90 s/2/5 s/0/1 MB/≥ 1 s);
+    - concurrency with a thread pool of at most 2;
+    - classification: capability status separate from connectivity, environment restrictions explicit;
+    - response validation;
+    - stop rules;
+    - live-derived samples only.
+  - `intelligence.py`: run persistence, reliability (`reliability@1.0.0`), consistency checks, historical coverage labels.
+- **Migration v4.** Additive: four tables.
+- **API.** 9 routes under `/api/v1/providers/...` (profiles, profile, history, reliability, consistency, preview, start run, list runs, get run). They are registered before `/providers/{provider_id}`.
+- **Dashboard.** A provider intelligence console on the Providers page: capability profiles, a per-provider capability matrix, reliability and historical coverage, a budget preview required before "Run bounded provider check", results, history, environment-restriction notes and the fixture banner.
+- **CLI.** `make probe` (opt-in `BIP_LIVE_RPC=1`).
+- **Fakes.** Extended to answer the new methods: a head-block transaction and log, synthesized history, `eth_getCode`, Solana version, block height and blockhash.
+- **Docs.** `docs/PROVIDER_CAPABILITY_METHODOLOGY.md`, ADR-025/026; DEVELOPMENT, README, roadmap, PROVIDER_REGISTRY, SECURITY_ARCHITECTURE, RISK_REGISTER (R24–R25) and CURRENT_STATE updated.
+
+**Verification (actual output)**
+```
+uv run ruff check . / format --check   -> All checks passed / all files formatted
+uv run pyright (strict)                -> 0 errors, 0 warnings, 0 informations
+uv run pytest -q                       -> 454 passed (Python 3.13)
+venv312 python -m pytest -q            -> 454 passed (Python 3.12)
+frontend: eslint, tsc                  -> clean
+npx vitest run                         -> 44 passed
+make e2e                               -> 38/38 (8 new provider-console checks on the offline fixture backend)
+gitleaks dir .                         -> no leaks found
+```
+- Checked by screenshot (fixture backend):
+  - the capability matrix opens under its row;
+  - the never-probed providers show "No observations" rather than a reliability state.
+
+**Live validation:** none. Providers reached live: 0. The cause is the environment's egress restriction, not any observed provider failure.
+
 ## 2026-11-03 — Stage 3 (Build Prompt 04): wallet intelligence, cross-provider verification, relationship graphs
 
 **Live connectivity retry (one bounded attempt, as instructed).** `make live-smoke` at 2026-11-03T17:25:24Z reached 0 of 2 keyless providers. Direct mode fails DNS; proxy mode gets 403 on CONNECT. It was not retried again, no proxy bypass was attempted, and no alternative endpoint was used. **No live observation was retrieved in this stage, and no evidence was corroborated live.**

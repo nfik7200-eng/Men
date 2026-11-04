@@ -1,5 +1,10 @@
 import type {
   AnalysisRun,
+  ProbePreview,
+  ProbeRun,
+  ProbeRunPage,
+  ProviderProfileDetail,
+  ProviderProfiles,
   AnomalyPage,
   Behaviour,
   ChainStatus,
@@ -141,6 +146,14 @@ export const api = {
   }) => request<Investigation>("/investigations", { method: "POST", ...json(body) }),
   updateInvestigation: (id: number, status: InvestigationStatus) =>
     request<Investigation>(`/investigations/${id}`, { method: "PATCH", ...json({ status }) }),
+  // ---- provider intelligence (Stage 4). Only probeRun() contacts providers (server-bounded).
+  providerProfiles: () => request<ProviderProfiles>("/providers/profiles"),
+  providerProfile: (id: string) => request<ProviderProfileDetail>(`/providers/${enc(id)}/profile`),
+  probePreview: (providers: string[]) =>
+    request<ProbePreview>(`/providers/probe/preview${providers.length ? "?" + providers.map((p) => `provider=${enc(p)}`).join("&") : ""}`),
+  probeRun: (providers: string[]) =>
+    request<ProbeRun>("/providers/probe-runs", { method: "POST", ...json(providers.length ? { providers } : {}) }),
+  probeRuns: () => request<ProbeRunPage>("/providers/probe-runs?limit=10"),
   // ---- intelligence (Stage 3): computed from stored observations only
   intelStatus: () => request<IntelStatus>("/intelligence/status"),
   intelProfile: (chain: string, address: string) =>
