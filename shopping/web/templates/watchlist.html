@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Watchlist{% endblock %}
+{% block body %}
+<h1>Watchlist</h1>
+<p class="muted">{{ plan.key|capitalize }} plan: up to {{ plan.watch_limit }} items. Status is evaluated against the latest collection; push/email delivery is not built yet.</p>
+{% if msg %}<div class="banner">{{ msg }}</div>{% endif %}
+{% for st in items %}{% set w = st.watch %}{% set l = w.listing %}
+<article class="card" style="margin-bottom:12px">
+  <h3 style="margin:0"><a href="/listing/{{ l.id }}">{{ l.title }}</a> {% if st.triggered %}<span class="badge ok">Alert</span>{% endif %}</h3>
+  <div class="price">{{ l.price_minor | money(l.currency) }}</div>
+  <p class="muted">{{ l.source.name }} · target {{ w.target_price_minor | money(l.currency) if w.target_price_minor else 'none' }} · observed {{ l.last_observed_at | dt }}</p>
+  {% for r in st.reasons %}<p>• {{ r }}</p>{% endfor %}
+  <form method="post" action="/watch/{{ l.id }}/remove"><button class="secondary">Remove</button></form>
+</article>
+{% else %}<div class="card">Nothing watched yet. Open a product and press “Watch”.</div>{% endfor %}
+{% endblock %}

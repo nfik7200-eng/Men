@@ -1,0 +1,8 @@
+{
+  "DEFAULT": {
+    "duty_pct": 10,
+    "vat_pct": 15,
+    "verified": false,
+    "note": "PLACEHOLDER ASSUMPTION - not verified tax law. Add a row per destination country (ISO code) after checking its customs authority, and set verified=true."
+  }
+}

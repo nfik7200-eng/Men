@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Sources{% endblock %}
+{% block body %}
+<h1>Sources &amp; collection</h1>
+<div class="scroll card"><table>
+<tr><th>Source</th><th>Kind</th><th>Last success</th><th>Last status</th><th>Terms / robots note</th><th></th></tr>
+{% for s in sources %}<tr><td>{{ s.name }}<div class="muted">{{ s.key }}</div></td><td>{{ s.kind }}</td><td>{{ s.last_success_at | dt }}</td>
+<td>{{ s.last_status or '—' }}{% if s.last_error %}<div class="bad-t muted">{{ s.last_error[:160] }}</div>{% endif %}</td><td class="muted">{{ s.terms_note }}</td>
+<td><form method="post" action="/admin/collect/{{ s.key }}"><input type="hidden" name="token" value="{{ token }}"><button {{ 'disabled' if s.key in running }}>{{ 'Running…' if s.key in running else 'Collect now' }}</button></form></td></tr>{% endfor %}</table></div>
+
+<h2>Recent runs</h2>
+<div class="scroll card"><table><tr><th>#</th><th>Started</th><th>Status</th><th>Pages</th><th>Seen</th><th>New</th><th>Invalid</th><th>Price changes</th><th>Complete</th></tr>
+{% for r in runs %}<tr><td>{{ r.id }}</td><td>{{ r.started_at | dt }}</td><td>{{ r.status }}</td><td>{{ r.pages_fetched }}</td><td>{{ r.items_seen }}</td><td>{{ r.items_new }}</td><td>{{ r.items_invalid }}</td><td>{{ r.price_changes }}</td><td>{{ 'yes' if r.complete else 'no (removals not inferred)' }}</td></tr>{% endfor %}</table></div>
+
+<h2>Match review queue</h2>
+{% for c in queue %}<div class="card" style="margin-bottom:10px">
+  <p><b>{{ c.listing.title }}</b> ({{ c.listing.source.name }}, {{ c.listing.price_minor | money(c.listing.currency) }})<br>
+  possibly the same as <b>{{ c.product.title }}</b> · confidence {{ '%.2f' % c.score }}</p>
+  <p class="muted">{{ c.reasons | join('; ') }}</p>
+  <form method="post" style="display:flex;gap:8px"><input type="hidden" name="token" value="{{ token }}">
+    <button formaction="/admin/match/{{ c.id }}/accept">Same product</button><button class="secondary" formaction="/admin/match/{{ c.id }}/reject">Different</button></form>
+</div>{% else %}<div class="card muted">No uncertain matches awaiting review.</div>{% endfor %}
+<p class="muted">Affiliate clicks recorded: {{ clicks }}</p>
+{% endblock %}

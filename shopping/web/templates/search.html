@@ -1,0 +1,16 @@
+{% extends "base.html" %}{% from "_macros.html" import card, filters %}
+{% block title %}Browse{% endblock %}
+{% block body %}
+<h1>Browse products</h1>
+{{ filters(f, facets) }}
+<p class="muted" style="margin-top:14px">{{ total }} listing{{ '' if total == 1 else 's' }}{% if f.q %} for “{{ f.q }}”{% endif %}. Prices in different currencies are never converted or mixed.</p>
+{% if items %}<div class="grid">{% for x in items %}{{ card(x) }}{% endfor %}</div>
+{% else %}<div class="card">No listings match. Try removing filters.</div>{% endif %}
+{% set pages = ((total + per_page - 1) // per_page) %}
+{% if pages > 1 %}<div class="pager">
+  {% set qs = request.query_params.multi_items() | rejectattr(0, 'equalto', 'page') | map('join', '=') | join('&') %}
+  {% if page > 1 %}<a class="btn secondary" href="/search?{{ qs }}&page={{ page - 1 }}">← Prev</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn secondary" href="/search?{{ qs }}&page={{ page + 1 }}">Next →</a>{% endif %}
+</div>{% endif %}
+{% endblock %}
