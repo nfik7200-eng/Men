@@ -39,7 +39,7 @@ class Adafruit(ProductPageAdapter):
                 tier = 0 if self._CORE.search(name) else (1 if self._BRAND.search(name) else 2)
                 cur = seen.get(u)
                 if cur is None or (name and tier < cur.priority):
-                    seen[u] = SitemapEntry(u, None, tier)
+                    seen[u] = SitemapEntry(u, None, tier, name or None)
         return list(seen.values())
 
     def required_urls(self):

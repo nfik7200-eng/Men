@@ -237,3 +237,11 @@ class CrawlUrl(Base):
     # ingest_invalid | alias | disallowed | fetch_error | gone | blocked. Discovery is not acquisition: only `ok`/`not_modified` count.
     last_outcome: Mapped[str | None] = mapped_column(String(24))
     last_outcome_detail: Mapped[str | None] = mapped_column(String(200))
+    # why this URL is (not) fetched next: set by acquisition.plan on every run that considers it
+    name_hint: Mapped[str | None] = mapped_column(String(200))  # words from the URL slug / listing-card name; priority evidence ONLY
+    priority_score: Mapped[float | None] = mapped_column(Float)
+    priority_reasons: Mapped[list | None] = mapped_column(JSON)  # [{"name", "points", "why"}] components of the score
+    selection_state: Mapped[str | None] = mapped_column(String(12))  # selected | deferred | rejected | skipped
+    selection_reason: Mapped[str | None] = mapped_column(String(120))
+    defer_count: Mapped[int | None] = mapped_column(Integer)  # consecutive runs this due URL lost to the budget (starvation guard)
+    last_considered_at: Mapped[datetime | None] = mapped_column(DateTime)

@@ -34,6 +34,7 @@ class SitemapEntry:
     loc: str
     lastmod: str | None = None
     priority: int = 9  # crawl order hint (lower = earlier); set by adapters that can tell which pages matter most
+    hint: str | None = None  # product NAME known before fetching (listing-card text); acquisition priority evidence only
 
 
 def parse_sitemap(xml: str) -> tuple[list[str], list[SitemapEntry]]:

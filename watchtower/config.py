@@ -33,6 +33,22 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 AFFILIATE_CONFIG = os.getenv("AFFILIATE_CONFIG", str(ROOT / "data" / "affiliate.json"))
 IMPORT_RULES = os.getenv("IMPORT_RULES", str(ROOT / "data" / "import_rules.json"))
 
+MAX_PAGE_BUDGET = 500  # hard ceiling on product pages per source per run, whatever the environment says
+
+
+def page_budget(source_key: str, default: int) -> int:
+    """Product pages fetched per run for one source: WATCHTOWER_BUDGET_<KEY> if it is a positive integer (capped at
+    MAX_PAGE_BUDGET), else the adapter default. An explicit `--max-pages` still wins in the collector. Delays and
+    concurrency are NOT configurable downwards here: pacing is per host (>= MIN_LIVE_DELAY_S, Crawl-delay honoured),
+    one request at a time."""
+    raw = os.getenv(f"WATCHTOWER_BUDGET_{source_key.upper()}")
+    try:
+        n = int(raw) if raw is not None else None
+    except ValueError:
+        n = None
+    return min(n, MAX_PAGE_BUDGET) if n and n > 0 else default
+
+
 MIN_LIVE_DELAY_S = 2.0  # floor for REAL merchants, whatever WATCHTOWER_MIN_DELAY says (crawl-delay can only raise it)
 
 _PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net", "localhost", "invalid", "test", "domain.com", "yourdomain.com", "email.com"}

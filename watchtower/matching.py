@@ -161,6 +161,22 @@ def mpn_of(l: Listing) -> str | None:
     return re.sub(r"[^0-9a-z]", "", m.lower()) if m else None
 
 
+def title_conflict(a: str, b: str) -> str | None:
+    """Hard-conflict vetoes that can be decided from two TITLES alone (variant words, product type, bundle/kit, generation,
+    colour, unit values). Used where only a name is known (e.g. a not-yet-fetched URL's name hint); `hard_conflict`
+    additionally knows condition and parsed specs. Never evidence FOR a match, only against."""
+    for label, fa, fb in (("variant", variant_set(a), variant_set(b)),
+                          ("product type", _words(a) & TYPE_WORDS, _words(b) & TYPE_WORDS),
+                          ("bundle", {bool(_BUNDLE.search(a.lower()))}, {bool(_BUNDLE.search(b.lower()))}),
+                          ("generation", generation_set(a), generation_set(b))):
+        if fa != fb:
+            return f"{label} differs ({sorted(fa, key=str)} vs {sorted(fb, key=str)})"
+    ca, cb = colour_set(a), colour_set(b)
+    if ca and cb and ca != cb:
+        return f"colour differs ({sorted(ca)} vs {sorted(cb)})"
+    return unit_conflict(a, b) and f"spec value {unit_conflict(a, b)}"
+
+
 def hard_conflict(a: Listing, b: Listing) -> str | None:
     """Differences that make two listings materially different products/offers. Checked even when identifiers agree,
     because merchants copy identifiers across variants."""

@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 
 from . import config, policy
 from .db import Database
+from . import acquisition
 from .fetcher import FetchBlocked, FetchDisallowed, FetchError, FetchGone, Fetcher
 from .ingest import _event, ingest_listing, mark_removed, reconfirm
 from .matching import demote_ambiguous
@@ -237,16 +238,14 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
         s.commit()
         discovered = {normalise_url(e.loc) for e in entries}
         prio = {normalise_url(e.loc): e.priority for e in entries}
-        # 2. due URLs: never-fetched first, then oldest-checked; this run's budget is `cap` product pages
-        due = [c for c in known.values() if c.url in discovered and not c.gone and (c.next_check_at is None or c.next_check_at <= now)]
-        fresh = sorted((c for c in due if c.last_fetched_at is None), key=lambda c: (prio.get(c.url, 9), c.url))
-        recheck = sorted((c for c in due if c.last_fetched_at is not None), key=lambda c: c.last_fetched_at)
-        # Budget split: price history is the core asset, so re-checks of known listings get most of the budget (60%),
-        # the rest discovers new pages; leftovers on either side flow to the other.
-        n_re = min(len(recheck), max(1, round(cap * RECHECK_SHARE)) if recheck else 0)
-        n_new = min(len(fresh), max(0, cap - n_re))
-        n_re = min(len(recheck), max(0, cap - n_new))
-        for crawl in recheck[:n_re] + fresh[:n_new]:
+        hints = {normalise_url(e.loc): (e.hint or acquisition.hint_from_url(e.loc)) for e in entries}
+        # 2. explainable selection: re-checks keep most of the budget; never-fetched URLs are ranked (acquisition.py) and
+        # every decision is recorded on the crawl_urls row
+        plan = acquisition.plan_run(s, src, known, discovered, prio, hints, cap, now, RECHECK_SHARE)
+        recheck, fresh = plan.recheck, plan.fresh
+        ex["plan"] = plan.counts
+        s.commit()
+        for crawl in recheck + fresh:
             try:
                 res = fetcher.get_ex(crawl.url, etag=crawl.etag, last_modified=crawl.last_modified)
             except FetchDisallowed as e:  # this URL only (robots/allowlist): record it, never hammer it, keep going
@@ -266,6 +265,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                 # gone answer (from a later run) marks the URL gone, and only the listing's own canonical URL can remove it.
                 was_gone = crawl.last_status in (404, 410)
                 crawl.last_status, crawl.last_fetched_at = 404, now_fn()
+                crawl.last_outcome, crawl.last_outcome_detail = "gone", "404/410 again: confirmed" if was_gone else "404/410: first answer, re-checked soon"
                 if was_gone:
                     crawl.gone = True
                     lst = s.get(Listing, crawl.listing_id) if crawl.listing_id else None
@@ -277,6 +277,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                 s.commit()
                 continue
             except FetchError as e:
+                crawl.last_outcome, crawl.last_outcome_detail = "fetch_error", str(e)[:200]
                 crawl.fail_count += 1
                 crawl.next_check_at = now_fn() + _backoff(crawl.fail_count)
                 run.pages_failed = (run.pages_failed or 0) + 1
@@ -291,6 +292,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
             crawl.next_check_at = now + timedelta(hours=adapter.check_interval_hours)
             lst = s.get(Listing, crawl.listing_id) if crawl.listing_id else None
             if res.status == 304:
+                crawl.last_outcome, crawl.last_outcome_detail = "not_modified", None
                 run.items_seen += 1
                 if lst is not None and reconfirm(s, lst, run, now):
                     ex["not_modified"] += 1
@@ -300,6 +302,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
             try:
                 raw = adapter.parse_product(res.text, crawl.url, now)
             except Exception as e:  # odd markup must not kill the run
+                crawl.last_outcome, crawl.last_outcome_detail = "parse_error", type(e).__name__
                 ex["failed"] += 1
                 run.pages_failed = (run.pages_failed or 0) + 1
                 errors.append(f"{crawl.url}: parse error {type(e).__name__}"[:160])
@@ -307,6 +310,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                 continue
             if raw is None:  # not a product page (category, info page, soft-block): remember, do not refetch for a month
                 ex["no_product"] += 1
+                crawl.last_outcome, crawl.last_outcome_detail = "no_product", "no schema.org Product data on the page"
                 crawl.next_check_at = now + NON_PRODUCT_RECHECK
                 s.commit()
                 continue
@@ -314,12 +318,14 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
             raw.http_status = res.status
             if not _listing_url_ok(raw.url, hosts):
                 run.items_invalid += 1
+                crawl.last_outcome, crawl.last_outcome_detail = "ingest_invalid", "listing URL outside allowed hosts"
                 errors.append(f"{raw.external_id}: listing URL outside allowed hosts")
                 s.commit()
                 continue
             listing, is_new, problems = ingest_listing(s, src, run, raw, now)
             if listing is None:
                 run.items_invalid += 1
+                crawl.last_outcome, crawl.last_outcome_detail = "ingest_invalid", "; ".join(problems)[:200]
                 errors.append(f"{raw.external_id or '?'}: {'; '.join(problems)}"[:160])
             else:
                 # Alias URL (a second URL for a listing we already track under another URL): keep the first URL as
@@ -330,8 +336,10 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                     listing.url = other.url
                     crawl.listing_id = None
                     crawl.next_check_at = now + NON_PRODUCT_RECHECK
+                    crawl.last_outcome, crawl.last_outcome_detail = "alias", f"second URL of listing #{listing.id}"
                 else:
                     crawl.listing_id = listing.id
+                    crawl.last_outcome, crawl.last_outcome_detail = "ok", raw.extraction_method
                 crawl.content_hash = raw.content_hash
                 crawl.etag, crawl.last_modified = res.etag or crawl.etag, res.last_modified or crawl.last_modified
                 run.items_new += int(is_new)
