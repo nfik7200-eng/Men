@@ -24,7 +24,7 @@ class Source(Base):
     base_url: Mapped[str] = mapped_column(String(300))
     country: Mapped[str | None] = mapped_column(String(2))
     currency: Mapped[str] = mapped_column(String(3))
-    kind: Mapped[str] = mapped_column(String(16), default="live")  # live | sandbox
+    kind: Mapped[str] = mapped_column(String(16), default="demo")  # demo | sandbox | live (live must be explicit)
     terms_note: Mapped[str] = mapped_column(Text, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     stale_after_hours: Mapped[int] = mapped_column(Integer, default=72)
@@ -48,6 +48,11 @@ class CollectionRun(Base):
     items_invalid: Mapped[int] = mapped_column(Integer, default=0)
     price_changes: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
+    duration_s: Mapped[float | None] = mapped_column(Float)
+    bytes_fetched: Mapped[int | None] = mapped_column(Integer)
+    pages_unchanged: Mapped[int | None] = mapped_column(Integer)  # answered 304 / identical offer
+    pages_failed: Mapped[int | None] = mapped_column(Integer)
+    extraction: Mapped[dict | None] = mapped_column(JSON)  # counts by method: jsonld|microdata|css|not_modified|failed
     source: Mapped[Source] = relationship()
 
 
@@ -80,6 +85,9 @@ class Listing(Base):
     rating: Mapped[float | None] = mapped_column(Float)
     review_count: Mapped[int | None] = mapped_column(Integer)
     desc_hash: Mapped[str | None] = mapped_column(String(40))
+    sku: Mapped[str | None] = mapped_column(String(64), index=True)  # MERCHANT-internal id; never a matching identifier
+    mpn: Mapped[str | None] = mapped_column(String(64), index=True)  # manufacturer part number, only if distinct from sku
+    gtin: Mapped[str | None] = mapped_column(String(14), index=True)  # validated, zero-padded to 14
     condition: Mapped[str | None] = mapped_column(String(20))  # new | used | refurbished (source-stated) or NULL
     ships_to: Mapped[list | None] = mapped_column(JSON)  # ISO country codes the seller ships to; NULL = unknown
     location_country: Mapped[str | None] = mapped_column(String(2))  # item location, ISO code; NULL = unknown
@@ -116,6 +124,9 @@ class Observation(Base):
     currency: Mapped[str] = mapped_column(String(3))
     availability: Mapped[str] = mapped_column(String(16), default="unknown")
     shipping_minor: Mapped[int | None] = mapped_column(Integer)  # tracked separately; NULL = unknown
+    extraction_method: Mapped[str | None] = mapped_column(String(16))  # jsonld | microdata | css | not_modified
+    content_hash: Mapped[str | None] = mapped_column(String(40))  # hash of the extracted offer tuple (not raw HTML)
+    http_status: Mapped[int | None] = mapped_column(Integer)
     listing: Mapped[Listing] = relationship(back_populates="observations")
 
 
@@ -182,3 +193,43 @@ class FxRate(Base):
     source: Mapped[str] = mapped_column(String(200))  # e.g. "ECB euro foreign exchange reference rates"
     source_url: Mapped[str | None] = mapped_column(String(500))
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class SourcePolicy(Base):
+    """Compliance record per source. Collection of non-demo sources requires status='approved'.
+    'approved' means "no prohibition found at review time", NOT "legally permitted" (see docs/SOURCE_DISCOVERY.md)."""
+    __tablename__ = "source_policies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"), unique=True)
+    status: Mapped[str] = mapped_column(String(12), default="unverified")  # approved | unverified | rejected
+    robots_sha: Mapped[str | None] = mapped_column(String(64))  # sha256 of robots.txt at review time
+    required_paths: Mapped[list | None] = mapped_column(JSON)  # URL path prefixes we need; re-checked against robots every run
+    tos_url: Mapped[str | None] = mapped_column(String(500))
+    tos_sha: Mapped[str | None] = mapped_column(String(64))
+    tos_finding: Mapped[str | None] = mapped_column(Text)  # what the terms say about automated access/reuse
+    crawl_delay_s: Mapped[float | None] = mapped_column(Float)
+    notes: Mapped[str | None] = mapped_column(Text)
+    reviewed_by: Mapped[str | None] = mapped_column(String(100))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    review_due_at: Mapped[datetime | None] = mapped_column(DateTime)
+    source: Mapped[Source] = relationship()
+
+
+class CrawlUrl(Base):
+    """Per-URL incremental-crawl state for product-page sources."""
+    __tablename__ = "crawl_urls"
+    __table_args__ = (UniqueConstraint("source_id", "url"), Index("ix_crawl_due", "source_id", "next_check_at"))
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"))
+    url: Mapped[str] = mapped_column(String(1000))
+    listing_id: Mapped[int | None] = mapped_column(ForeignKey("listings.id"))
+    etag: Mapped[str | None] = mapped_column(String(200))
+    last_modified: Mapped[str | None] = mapped_column(String(100))
+    lastmod_seen: Mapped[str | None] = mapped_column(String(40))  # sitemap <lastmod>
+    content_hash: Mapped[str | None] = mapped_column(String(40))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_status: Mapped[int | None] = mapped_column(Integer)
+    fail_count: Mapped[int] = mapped_column(Integer, default=0)
+    next_check_at: Mapped[datetime | None] = mapped_column(DateTime)
+    gone: Mapped[bool] = mapped_column(Boolean, default=False)  # 404/410 on its own URL

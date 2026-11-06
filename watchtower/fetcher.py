@@ -1,7 +1,9 @@
 """Polite, SSRF-safe HTTP fetching: host allowlist, robots.txt on every hop, per-host delay, retry/backoff.
 Never bypasses blocks; never follows a redirect to a host it was not allowed to start from."""
+import hashlib
 import ipaddress
 import time
+from dataclasses import dataclass
 import urllib.robotparser
 from urllib.parse import urljoin, urlparse
 
@@ -19,6 +21,22 @@ class FetchBlocked(Exception):
 
 class FetchError(Exception):
     pass
+
+
+class FetchGone(FetchError):
+    """404/410 for the URL itself: the page no longer exists (evidence of removal, unlike a missing sitemap entry)."""
+
+
+@dataclass
+class FetchResult:
+    status: int  # 200 or 304
+    text: str | None
+    etag: str | None = None
+    last_modified: str | None = None
+    nbytes: int = 0
+
+MAX_BYTES = 16 * 1024 * 1024
+_OK_TYPES = ("text/", "application/xml", "application/json", "application/xhtml", "application/rss", "application/atom", "application/ld+json")
 
 
 def _host_ok(host: str, allowed: set[str] | None) -> bool:
@@ -42,6 +60,8 @@ class Fetcher:
         # robots.txt governs crawlers. Official, authenticated APIs are governed by their API agreement instead.
         self.respect_robots = respect_robots
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        self._robots_sha: dict[str, str | None] = {}
+        self._crawl_delay: dict[str, float] = {}
         self._last: dict[str, float] = {}
 
     # -- safety checks -------------------------------------------------
@@ -74,14 +94,25 @@ class Fetcher:
                 if r.status_code == 200:
                     rp.parse(r.text.splitlines())
                     self._robots[origin] = rp
+                    self._robots_sha[origin] = hashlib.sha256(r.text.encode()).hexdigest()
+                    cd = rp.crawl_delay(config.USER_AGENT)
+                    if cd:
+                        self._crawl_delay[p.netloc] = float(cd)  # honour the site's own request pacing
                 elif r.status_code in (404, 410):
                     self._robots[origin] = None  # no robots.txt => no published restrictions
+                    self._robots_sha[origin] = None
                 else:  # 401/403/5xx/redirect: be conservative, treat as disallow-all
                     rp.parse(["User-agent: *", "Disallow: /"])
                     self._robots[origin] = rp
             except httpx.HTTPError as e:
                 raise FetchError(f"robots.txt unreachable for {origin}: {e}") from e
         return self._robots[origin]
+
+    def robots_info(self, url: str) -> tuple[str | None, float | None]:
+        """(sha256 of robots.txt or None if absent, Crawl-delay seconds or None). Fetches robots.txt if not cached."""
+        self._robots_for(url)
+        p = urlparse(url)
+        return self._robots_sha.get(f"{p.scheme}://{p.netloc}"), self._crawl_delay.get(p.netloc)
 
     def allowed(self, url: str) -> bool:
         rp = self._robots_for(url)
@@ -93,7 +124,8 @@ class Fetcher:
         host = urlparse(url).netloc
         delay, err = 0.0, "unknown"
         for attempt in range(self.max_retries + 1):
-            wait = self.min_delay - (time.monotonic() - self._last.get(host, 0)) + delay
+            spacing = max(self.min_delay, self._crawl_delay.get(host, 0.0))
+            wait = spacing - (time.monotonic() - self._last.get(host, 0)) + delay
             if wait > 0:
                 self._sleep(wait)
             self._last[host] = time.monotonic()
@@ -102,12 +134,12 @@ class Fetcher:
             except httpx.HTTPError as e:
                 err = f"network error: {type(e).__name__}"  # never echo request details (may contain credentials)
             else:
-                if r.status_code == 200 or r.status_code in _REDIRECT:
+                if r.status_code in (200, 304) or r.status_code in _REDIRECT:
                     return r
                 if r.status_code in (401, 403, 451):
                     raise FetchBlocked(f"{r.status_code} from {host}; not retrying or bypassing")
-                if r.status_code == 404:
-                    raise FetchError(f"404 for {url}")
+                if r.status_code in (404, 410):
+                    raise FetchGone(f"{r.status_code} for {url}")
                 err = f"HTTP {r.status_code}"
                 if r.status_code == 429 and r.headers.get("retry-after", "").isdigit():
                     delay = min(float(r.headers["retry-after"]), 60)
@@ -125,14 +157,31 @@ class Fetcher:
         except ValueError as e:
             raise FetchError("token endpoint returned non-JSON") from e
 
-    def get(self, url: str, headers: dict | None = None) -> str:
+    def get_ex(self, url: str, headers: dict | None = None, etag: str | None = None,
+               last_modified: str | None = None) -> FetchResult:
+        """GET with optional conditional headers. Returns status 304 (text None) when unchanged."""
+        hdrs = dict(headers or {})
+        if etag:
+            hdrs["If-None-Match"] = etag
+        if last_modified:
+            hdrs["If-Modified-Since"] = last_modified
         for _ in range(MAX_REDIRECTS + 1):
             self._check(url)
-            r = self._request(url, headers=headers)
+            r = self._request(url, headers=hdrs or None)
+            if r.status_code == 304:
+                return FetchResult(304, None, etag, last_modified, 0)
             if r.status_code == 200:
-                return r.text
+                ctype = r.headers.get("content-type", "text/html").lower()
+                if not ctype.startswith(_OK_TYPES):
+                    raise FetchError(f"unexpected content-type {ctype!r} for {url}")
+                if len(r.content) > MAX_BYTES:
+                    raise FetchError(f"response larger than {MAX_BYTES} bytes: {url}")
+                return FetchResult(200, r.text, r.headers.get("etag"), r.headers.get("last-modified"), len(r.content))
             loc = r.headers.get("location")
             if not loc:
                 raise FetchError(f"redirect without Location from {url}")
             url = urljoin(url, loc)
         raise FetchError("too many redirects")
+
+    def get(self, url: str, headers: dict | None = None) -> str:
+        return self.get_ex(url, headers).text or ""

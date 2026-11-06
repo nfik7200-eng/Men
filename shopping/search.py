@@ -11,8 +11,11 @@ SORTS = {
 
 def search_listings(s: Session, q: str | None = None, category: str | None = None, source: str | None = None,
                     currency: str | None = None, min_price: float | None = None, max_price: float | None = None,
-                    in_stock: bool = False, sort: str = "price_asc", page: int = 1, per_page: int = 24):
-    stmt = select(Listing).options(joinedload(Listing.source)).where(Listing.active.is_(True))
+                    in_stock: bool = False, sort: str = "price_asc", page: int = 1, per_page: int = 24,
+                    kinds: tuple[str, ...] | None = None):
+    stmt = select(Listing).options(joinedload(Listing.source)).join(Source, Source.id == Listing.source_id).where(Listing.active.is_(True))
+    if kinds is not None:
+        stmt = stmt.where(Source.kind.in_(kinds))
     for term in (q or "").lower().split()[:8]:
         esc = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")  # literal match, not wildcard
         like = f"%{esc}%"
@@ -22,7 +25,7 @@ def search_listings(s: Session, q: str | None = None, category: str | None = Non
     if category:
         stmt = stmt.where(Listing.category == category)
     if source:
-        stmt = stmt.join(Source).where(Source.key == source)
+        stmt = stmt.where(Source.key == source)
     if currency:
         stmt = stmt.where(Listing.currency == currency)
     if min_price is not None:

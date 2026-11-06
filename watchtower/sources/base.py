@@ -25,6 +25,13 @@ class RawListing:
     ships_to: list | None = None
     location_country: str | None = None
     affiliate_url: str | None = None
+    sku: str | None = None  # merchant-internal id; never used to match across merchants
+    mpn: str | None = None  # manufacturer part number (already cleaned: differs from sku)
+    gtin: str | None = None  # validated GTIN-14
+    desc_hash: str | None = None  # change-detection hash when we deliberately do not store the description
+    extraction_method: str | None = None  # jsonld | microdata | css | not_modified
+    content_hash: str | None = None  # hash of the extracted offer tuple
+    http_status: int | None = None
 
 
 class SourceAdapter(ABC):

@@ -50,6 +50,8 @@ class Database:
                     ddl = col.type.compile(dialect=self.engine.dialect)
                     conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl}'))
                     added.append(f"{table.name}.{col.name}")
+                    if col.index:  # sync_columns must also create the index the model declares
+                        conn.execute(text(f'CREATE INDEX IF NOT EXISTS "ix_{table.name}_{col.name}" ON "{table.name}" ("{col.name}")'))
         return added
 
     @contextmanager

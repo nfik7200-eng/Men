@@ -13,6 +13,7 @@ What counts as evidence (audit-hardened, see docs/AUDIT_REPORT.md):
   * Stale listings are labelled "Stale data" and excluded from rankings.
 """
 from bisect import bisect_left
+from statistics import median
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -20,7 +21,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from . import config
-from .models import Listing, Observation, utcnow
+from .models import Listing, Observation, Source, utcnow
+
+
+def data_class(kind: str | None) -> str:
+    """Peers/ranks are only compared within the same class: real retailer data never mixes with demo/sandbox data."""
+    return "live" if kind == "live" else "test"
 
 
 @dataclass
@@ -48,15 +54,17 @@ class PeerContext:
     (the listing's own price is excluded without rebuilding anything)."""
 
     def __init__(self, s: Session):
-        rows = s.execute(select(Listing.id, Listing.category, Listing.currency, Listing.price_minor, Listing.specs)
+        rows = s.execute(select(Listing.id, Listing.category, Listing.currency, Listing.price_minor, Listing.specs, Source.kind)
+                         .join(Source, Source.id == Listing.source_id)
                          .where(Listing.active.is_(True), Listing.price_minor.is_not(None))).all()
         self.group: dict[tuple, list[int]] = {}
         self.ram_group: dict[tuple, list[int]] = {}
-        for _, cat, cur, price, specs in rows:
-            self.group.setdefault((cat, cur), []).append(price)
+        for _, cat, cur, price, specs, kind in rows:
+            dc = data_class(kind)
+            self.group.setdefault((dc, cat, cur), []).append(price)
             ram = (specs or {}).get("ram_gb")
             if ram is not None:
-                self.ram_group.setdefault((cat, cur, ram), []).append(price)
+                self.ram_group.setdefault((dc, cat, cur, ram), []).append(price)
         for d in (self.group, self.ram_group):
             for v in d.values():
                 v.sort()
@@ -77,11 +85,12 @@ class PeerContext:
     def peers(self, l: Listing) -> tuple[int, float | None, str]:
         own = l.price_minor if l.active else None
         ram = (l.specs or {}).get("ram_gb")
+        dc = data_class(l.source.kind if l.source is not None else None)
         if ram is not None:
-            n, med = self._median_without(self.ram_group.get((l.category, l.currency, ram), []), own)
+            n, med = self._median_without(self.ram_group.get((dc, l.category, l.currency, ram), []), own)
             if n >= config.MIN_PEERS:
                 return n, med, f"{n} {l.category or 'similar'} listings with {ram}GB RAM"
-        n, med = self._median_without(self.group.get((l.category, l.currency), []), own)
+        n, med = self._median_without(self.group.get((dc, l.category, l.currency), []), own)
         return n, med, f"{n} {l.category or 'similar'} listings"
 
 
@@ -219,11 +228,14 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
     return ds
 
 
-def top_deals(s: Session, limit: int = 12, category: str | None = None, now: datetime | None = None
-              ) -> list[tuple[Listing, DealScore]]:
+def top_deals(s: Session, limit: int = 12, category: str | None = None, now: datetime | None = None,
+              kinds: tuple[str, ...] | None = ("live",)) -> list[tuple[Listing, DealScore]]:
+    """Commercial deal ranking: REAL (live) sources only by default. Pass kinds=None to include demo/sandbox data."""
     now = now or utcnow()
-    q = select(Listing).options(joinedload(Listing.source)).where(
-        Listing.active.is_(True), Listing.price_minor.is_not(None), Listing.availability != "out_of_stock")
+    q = select(Listing).options(joinedload(Listing.source)).join(Source, Source.id == Listing.source_id).where(
+        Listing.active.is_(True), Listing.price_minor.is_not(None), Listing.availability.notin_(("out_of_stock", "backorder", "preorder")))
+    if kinds is not None:
+        q = q.where(Source.kind.in_(kinds))
     if category:
         q = q.where(Listing.category == category)
     cands = [l for l in s.scalars(q).unique() if not is_stale(l, now)]
@@ -234,3 +246,47 @@ def top_deals(s: Session, limit: int = 12, category: str | None = None, now: dat
     scored = [x for x in scored if x[1].score is not None and x[1].score > 0]
     scored.sort(key=lambda x: x[1].score, reverse=True)
     return scored[:limit]
+
+
+@dataclass
+class PriceStats:
+    n_collections: int
+    currency: str | None
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+    span_days: float = 0.0
+    minimum: int | None = None
+    maximum: int | None = None
+    mean: float | None = None
+    median: float | None = None
+    volatility_pct: float | None = None  # coefficient of variation (stdev / mean), percent; needs >=3 collections
+    current_vs_min_pct: float | None = None
+    current_vs_median_pct: float | None = None
+    changes: int = 0  # number of price changes between consecutive collections
+    note: str = ""
+
+
+def price_stats(s: Session, listing: Listing, hist_ctx: HistoryContext | None = None) -> PriceStats:
+    """Historical min/max/mean/median/volatility over distinct collections (same currency only). Stats from fewer than
+    3 collections are shown but labelled, never presented as evidence."""
+    raw = hist_ctx.by_listing.get(listing.id, []) if hist_ctx else priced_history(s, listing)
+    hist = collapse([o for o in raw if o.currency == listing.currency])
+    st = PriceStats(len(hist), listing.currency)
+    if not hist:
+        st.note = "no priced observations yet"
+        return st
+    prices = [o.price_minor for o in hist]
+    st.first_at, st.last_at = hist[0].observed_at, hist[-1].observed_at
+    st.span_days = (st.last_at - st.first_at).total_seconds() / 86400
+    st.minimum, st.maximum, st.mean, st.median = min(prices), max(prices), sum(prices) / len(prices), median(prices)
+    st.changes = sum(1 for a, b in zip(prices, prices[1:]) if a != b)
+    cur = listing.price_minor if listing.price_minor is not None else prices[-1]
+    st.current_vs_min_pct = round((cur / st.minimum - 1) * 100, 1)
+    st.current_vs_median_pct = round((cur / st.median - 1) * 100, 1)
+    if len(prices) >= 3 and st.mean:
+        mu = st.mean
+        st.volatility_pct = round((sum((p - mu) ** 2 for p in prices) / (len(prices) - 1)) ** 0.5 / mu * 100, 2)
+    if len(prices) < config.MIN_HISTORY_OBS or st.span_days < config.MIN_HISTORY_SPAN_DAYS:
+        st.note = (f"only {len(prices)} collection(s) over {st.span_days:.1f} day(s): statistics are indicative, "
+                   f"not evidence (need {config.MIN_HISTORY_OBS}+ over {config.MIN_HISTORY_SPAN_DAYS}+ days)")
+    return st

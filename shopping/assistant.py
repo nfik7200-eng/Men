@@ -178,10 +178,13 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     intent = parse_query(question)
     caveats: list[str] = list(intent["assumptions"])
     stmt = select(Listing).options(joinedload(Listing.source)).where(
-        Listing.active.is_(True), Listing.price_minor.is_not(None), Listing.availability != "out_of_stock")
+        Listing.active.is_(True), Listing.price_minor.is_not(None), Listing.availability.notin_(("out_of_stock", "backorder", "preorder")))
     if intent["category"]:
         stmt = stmt.where(Listing.category == intent["category"])
     cands = list(s.scalars(stmt).unique())
+    live = [l for l in cands if l.source.kind == "live"]
+    if live:
+        cands = live  # real retailer data answers real questions; demo/sandbox rows are not mixed in
 
     # negation: "not apple" removes matching listings outright
     for bad in intent["excluded"]:
@@ -243,7 +246,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
                                                         shipping_minor)
             if not intent["destination"]:
                 caveats.append("No destination country recognised; used DEFAULT assumed import rates.")
-    if cands and all(p.listing.source.kind == "sandbox" for p in picks):
+    if cands and all(p.listing.source.kind != "live" for p in picks):
         caveats.append("All matching listings come from DEMO/sandbox catalogues, not real retailers — treat prices as test data.")
     if any(p.price_status == "stale" for p in top):
         caveats.append("Some prices are stale (older than the source's freshness window) — re-check before relying on them.")

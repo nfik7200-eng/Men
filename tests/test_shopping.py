@@ -36,7 +36,7 @@ def test_pages_render(client, path):
 
 def test_home_is_honest_about_demo_data_and_no_history(client):
     html = client.get("/").text
-    assert "Demo data" in html and "single observation" in html
+    assert "Demo / test data" in html and "single observation" in html
 
 
 def test_search_filters(client):
@@ -44,7 +44,7 @@ def test_search_filters(client):
     assert j["total"] > 0 and all(i["category"] == "laptop" and i["price_minor"] <= 50000 for i in j["items"])
     assert client.get("/api/v1/listings?q=zzzznotathing").json()["total"] == 0
     books = client.get("/api/v1/listings?category=book").json()["items"]
-    assert books and all(b["currency"] == "GBP" and b["source_kind"] == "sandbox" for b in books)
+    assert books and all(b["currency"] == "GBP" and b["source_kind"] == "demo" for b in books)
 
 
 def test_listing_detail_single_observation_has_no_fake_chart(client):

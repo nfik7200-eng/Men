@@ -11,9 +11,21 @@
 <td style="display:flex;gap:6px;flex-wrap:wrap"><form method="post" action="/admin/collect/{{ s.key }}"><button {{ 'disabled' if (s.key in running or not s.enabled or not ready[s.key][0]) }}>{{ 'Running…' if s.key in running else 'Collect now' }}</button></form>
 <form method="post" action="/admin/source/{{ s.key }}/{{ 'disable' if s.enabled else 'enable' }}" data-no-busy="1"><button class="secondary">{{ 'Disable' if s.enabled else 'Enable' }}</button></form></td></tr>{% endfor %}</table></div>
 
+<h2>Collection health &amp; compliance</h2>
+<div class="scroll card"><table>
+<tr><th>Source</th><th>State</th><th>Last 10 runs</th><th>Throughput</th><th>Listings / obs</th><th>Policy</th></tr>
+{% for s in sources %}{% set h = health[s.key] %}{% set p = policies.get(s.key) %}<tr>
+<td>{{ s.name }}</td>
+<td><span class="badge {{ 'ok' if h.state == 'healthy' else ('bad' if h.state in ('blocked',) else 'warn') }}">{{ h.state }}</span>{% if h.hours_since_success is not none %}<div class="muted">{{ '%.1f' % h.hours_since_success }} h since success</div>{% endif %}</td>
+<td>{{ h.runs }} runs · ok {{ ('%d%%' % (h.ok_rate * 100)) if h.ok_rate is not none else '—' }} · failed {{ h.failed }} · blocked {{ h.blocked }}</td>
+<td>{{ ('%.1f pages/min' % h.pages_per_min) if h.pages_per_min else '—' }}<div class="muted">{{ ('%.0f items/run' % h.items_per_run) if h.items_per_run else '' }}{% if h.invalid_rate %} · invalid {{ '%.1f' % (h.invalid_rate * 100) }}%{% endif %}</div></td>
+<td>{{ h.listings }} / {{ h.observations }}</td>
+<td>{% if s.kind in ('demo', 'sandbox') %}<span class="muted">not required ({{ s.kind }})</span>{% elif p %}<span class="badge {{ 'ok' if p.status == 'approved' else 'bad' }}">{{ p.status }}</span><div class="muted">reviewed {{ p.reviewed_at | dt }}{% if p.crawl_delay_s %} · crawl-delay {{ p.crawl_delay_s | int }}s{% endif %}</div>{% else %}<span class="badge bad">no policy</span>{% endif %}</td>
+</tr>{% endfor %}</table></div>
+
 <h2>Recent runs</h2>
-<div class="scroll card"><table><tr><th>#</th><th>Started</th><th>Status</th><th>Pages</th><th>Seen</th><th>New</th><th>Invalid</th><th>Price changes</th><th>Complete</th></tr>
-{% for r in runs %}<tr><td>{{ r.id }}</td><td>{{ r.started_at | dt }}</td><td>{{ r.status }}</td><td>{{ r.pages_fetched }}</td><td>{{ r.items_seen }}</td><td>{{ r.items_new }}</td><td>{{ r.items_invalid }}</td><td>{{ r.price_changes }}</td><td>{{ 'yes' if r.complete else 'no (removals not inferred)' }}</td></tr>{% endfor %}</table></div>
+<div class="scroll card"><table><tr><th>#</th><th>Started</th><th>Status</th><th>Pages</th><th>Seen</th><th>New</th><th>Unchanged</th><th>Invalid</th><th>Price changes</th><th>Secs</th><th>Complete</th></tr>
+{% for r in runs %}<tr><td>{{ r.id }}</td><td>{{ r.started_at | dt }}</td><td>{{ r.status }}</td><td>{{ r.pages_fetched }}</td><td>{{ r.items_seen }}</td><td>{{ r.items_new }}</td><td>{{ r.pages_unchanged or 0 }}</td><td>{{ r.items_invalid }}</td><td>{{ r.price_changes }}</td><td>{{ r.duration_s or '—' }}</td><td>{{ 'yes' if r.complete else 'no (removals not inferred)' }}</td></tr>{% endfor %}</table></div>
 
 <h2>Match review queue</h2>
 {% for c in queue %}<div class="card" style="margin-bottom:10px">

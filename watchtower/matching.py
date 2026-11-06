@@ -13,6 +13,9 @@ from difflib import SequenceMatcher
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .identifiers import clean_mpn, normalise_gtin
+from .specs import canon_brand
+
 from .models import Listing, MatchCandidate, Product
 
 AUTO_THRESHOLD = 0.85
@@ -96,63 +99,108 @@ def full_codes(title: str) -> set[str]:
     return {t for t in _tokens(title) if "-" in t and re.search(r"[a-z]", t) and re.search(r"\d", t) and len(t) >= 6}
 
 
-def _strong_id(a: Listing, b: Listing) -> tuple[str, str] | None:
-    for k in _ID_KEYS:
-        va, vb = a.identifiers.get(k), b.identifiers.get(k)
-        if va and vb and len(_norm_id(va)) >= 8 and _norm_id(va) == _norm_id(vb):
-            return k, str(va)
-    return None
+_STOP = {"the", "a", "an", "and", "with", "for", "of", "to", "in", "on", "by", "official", "genuine", "original", "new",
+         "ram", "memory", "board", "development", "module", "version", "edition"}
+_GENERIC_CATEGORIES = {None, "", "maker-electronics"}
 
 
-def match_score(a: Listing, b: Listing) -> MatchResult:
-    # 1. strong, validated identifiers (GTIN-length); a shared GTIN names the same product
-    sid = _strong_id(a, b)
-    if sid:
-        return MatchResult(1.0, "auto", [f"shared {sid[0]}: {sid[1]}"])
-    brand_a, brand_b = (a.brand or "").lower(), (b.brand or "").lower()
-    # 2. hard conflicts first (category/brand) — they also veto MPN matches
-    if a.category and b.category and a.category != b.category:
-        return MatchResult(0.0, "none", [f"category differs ({a.category} vs {b.category})"])
-    if brand_a and brand_b and brand_a != brand_b:
-        return MatchResult(0.0, "none", [f"brand differs ({a.brand} vs {b.brand})"])
-    ma_id, mb_id = a.identifiers.get("mpn"), b.identifiers.get("mpn")
-    if ma_id and mb_id and len(_norm_id(ma_id)) >= 5 and _norm_id(ma_id) == _norm_id(mb_id) and brand_a and brand_a == brand_b:
-        return MatchResult(0.98, "auto", [f"shared MPN {ma_id} (same brand)"])
+def name_signature(title: str, brand: str | None) -> frozenset[str]:
+    """Normalised bag of distinguishing words: units glued ('4 GB' == '4GB'), brand and filler removed."""
+    t = re.sub(r"(\d+)\s*(gb|tb|mb|ghz|mhz)\b", r"\1\2", title.lower())
+    toks = re.findall(r"[a-z0-9]+(?:\.[0-9]+)?", t)
+    drop = set(re.findall(r"[a-z0-9]+", canon_brand(brand))) | _STOP
+    # spec-like tokens (4gb, 15.6, 5v) are compared via Listing.specs, not as part of the model name
+    spec_like = re.compile(r"^\d+(\.\d+)?(gb|tb|mb|ghz|mhz|in|inch|mah|v|a)$|^\d+\.\d+$")
+    return frozenset(x for x in toks if x not in drop and not spec_like.match(x))
 
+
+def gtin_of(l: Listing) -> str | None:
+    return l.gtin or normalise_gtin((l.identifiers or {}).get("gtin") or (l.identifiers or {}).get("upc") or (l.identifiers or {}).get("ean"))
+
+
+def mpn_of(l: Listing) -> str | None:
+    m = clean_mpn(l.mpn or (l.identifiers or {}).get("mpn"), l.sku)
+    return re.sub(r"[^0-9a-z]", "", m.lower()) if m else None
+
+
+def hard_conflict(a: Listing, b: Listing) -> str | None:
+    """Differences that make two listings materially different products/offers. Checked even when identifiers agree,
+    because merchants copy identifiers across variants."""
     for label, fa, fb in (("variant", variant_set(a.title), variant_set(b.title)),
                           ("condition", {condition_of(a)}, {condition_of(b)}),
                           ("bundle", {bool(_BUNDLE.search(a.title.lower()))}, {bool(_BUNDLE.search(b.title.lower()))}),
                           ("generation", generation_set(a.title), generation_set(b.title))):
         if fa != fb:
-            return MatchResult(0.15, "none", [f"{label} differs ({sorted(fa, key=str)} vs {sorted(fb, key=str)})"])
+            return f"{label} differs ({sorted(fa, key=str)} vs {sorted(fb, key=str)})"
     ca, cb = colour_set(a.title), colour_set(b.title)
     if ca and cb and ca != cb:
-        return MatchResult(0.15, "none", [f"colour differs ({sorted(ca)} vs {sorted(cb)})"])
-
-    reasons: list[str] = []
-    ma, mb = model_tokens(a.title), model_tokens(b.title)
-    jacc = (len(ma & mb) / len(ma | mb)) if ma and mb else None
-    agree, conflicts = 0, []
+        return f"colour differs ({sorted(ca)} vs {sorted(cb)})"
+    conflicts = []
     for key, tol in (("screen_in", 0.15), ("ram_gb", 0), ("storage_gb", 0), ("cpu_family", None)):
         va, vb = a.specs.get(key), b.specs.get(key)
         if va is None or vb is None:
             continue
-        same = (va == vb) if tol in (None, 0) else abs(va - vb) <= tol
-        if same:
-            agree += 1
-        else:
+        if not ((va == vb) if tol in (None, 0) else abs(va - vb) <= tol):
             conflicts.append(f"{key}: {va} vs {vb}")
-    if conflicts:
-        return MatchResult(0.2, "none", ["spec conflict: " + "; ".join(conflicts)])
-    if jacc == 0:
-        return MatchResult(0.25, "none", [f"model codes disagree ({sorted(ma)} vs {sorted(mb)})"])
+    return ("spec conflict: " + "; ".join(conflicts)) if conflicts else None
 
+
+def match_score(a: Listing, b: Listing) -> MatchResult:
+    """Staged: 1 GTIN -> 2 MPN(+brand) -> 3 brand+model/name signature -> 4 specs -> 5 fuzzy title (supporting only).
+    Hard conflicts veto at every stage. Never uses the merchant SKU."""
+    ba, bb = canon_brand(a.brand), canon_brand(b.brand)
+    if a.category and b.category and a.category != b.category and a.category not in _GENERIC_CATEGORIES and b.category not in _GENERIC_CATEGORIES:
+        return MatchResult(0.0, "none", [f"category differs ({a.category} vs {b.category})"])
+    if ba and bb and ba != bb:
+        return MatchResult(0.0, "none", [f"brand differs ({a.brand} vs {b.brand})"])
+    veto = hard_conflict(a, b)
+
+    ga, gb = gtin_of(a), gtin_of(b)
+    if ga and ga == gb:  # stage 1
+        if veto:  # same barcode but materially different listings: suspicious data, a human decides
+            return MatchResult(0.6, "review", [f"shared GTIN {ga} but {veto}"])
+        return MatchResult(1.0, "auto", [f"shared GTIN {ga}"])
+    ma, mb = mpn_of(a), mpn_of(b)
+    if ma and ma == mb and ba and ba == bb:  # stage 2
+        if veto:
+            return MatchResult(0.2, "none", [f"shared MPN {ma} but {veto} (merchants copy MPNs across variants)"])
+        return MatchResult(0.98, "auto", [f"shared MPN {ma} (same brand)"])
+    if veto:
+        return MatchResult(0.15 if not veto.startswith("spec") else 0.2, "none", [veto])
+
+    reasons: list[str] = []
+    sa, sb = name_signature(a.title, a.brand), name_signature(b.title, b.brand)
+    if ba and ba == bb and sa and sa == sb and len(sa) >= 2:  # stage 3: brand + identical normalised model name
+        agree_specs = sum(1 for k in ("screen_in", "ram_gb", "storage_gb", "cpu_family")
+                          if a.specs.get(k) is not None and a.specs.get(k) == b.specs.get(k))
+        return MatchResult(0.95, "auto", [f"same brand {a.brand} and identical normalised name {sorted(sa)}",
+                                          f"{agree_specs} agreeing spec(s); no shared GTIN/MPN published"])
+    ma_t, mb_t = model_tokens(a.title), model_tokens(b.title)
+    shares_code = bool(ma_t and mb_t and len(ma_t & mb_t) / len(ma_t | mb_t) >= 0.5)
+    if ba and ba == bb and sa and sb and sa != sb and not shares_code:
+        only_a, only_b = sa - sb, sb - sa
+        if any(t.isdigit() for t in only_a | only_b):  # 'Zero W' vs 'Zero 2 W', 'Pi 4' vs 'Pi 5': different model/generation
+            return MatchResult(0.2, "none", [f"model numbers differ: only in A {sorted(only_a)}, only in B {sorted(only_b)}"])
+        code = lambda t: bool(re.search(r"[a-z]", t) and re.search(r"\d", t))
+        ca, cb = {t for t in only_a if code(t)}, {t for t in only_b if code(t)}
+        if ca and cb:
+            return MatchResult(0.2, "none", [f"model codes differ: {sorted(ca)} vs {sorted(cb)}"])
+        if ca or cb:
+            return MatchResult(0.6, "review", [f"a model code appears on one side only ({sorted(ca | cb)}): same product?"])
+        if (only_a == set() or only_b == set()) and len(sa & sb) >= 1:  # one name is the other plus descriptive words
+            return MatchResult(0.6, "review", [f"one name extends the other by {sorted(only_a | only_b)}: variant or same product?"])
+
+    jacc = (len(ma_t & mb_t) / len(ma_t | mb_t)) if ma_t and mb_t else None
+    agree = sum(1 for k in ("screen_in", "ram_gb", "storage_gb", "cpu_family")
+                if a.specs.get(k) is not None and a.specs.get(k) == b.specs.get(k))
+    if jacc == 0:
+        return MatchResult(0.25, "none", [f"model codes disagree ({sorted(ma_t)} vs {sorted(mb_t)})"])
     ratio = SequenceMatcher(None, " ".join(sorted(_sim_tokens(a.title))), " ".join(sorted(_sim_tokens(b.title)))).ratio()
-    score = 0.5 * (jacc or 0.0) + 0.2 * ratio + 0.3 * min(agree, 3) / 3
+    score = 0.5 * (jacc or 0.0) + 0.2 * ratio + 0.3 * min(agree, 3) / 3  # stage 5 fuzzy: supporting evidence only
     if jacc is not None:
-        reasons.append(f"model-code overlap {jacc:.2f} ({sorted(ma & mb)})")
+        reasons.append(f"model-code overlap {jacc:.2f} ({sorted(ma_t & mb_t)})")
     reasons += [f"title similarity {ratio:.2f}", f"{agree} agreeing spec(s), 0 conflicts"]
-    if brand_a and brand_a == brand_b:
+    if ba and ba == bb:
         reasons.append(f"same brand {a.brand}")
     cap_review = False
     fa, fb = full_codes(a.title), full_codes(b.title)
@@ -194,7 +242,9 @@ def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
                 s.delete(p)
     else:
         listing.match_status, listing.match_confidence, listing.match_reasons = "review", r.score, r.reasons
-        s.add(MatchCandidate(listing_id=listing.id, product_id=other.product_id, score=r.score, reasons=r.reasons))
+        if not s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == listing.id,
+                                                        MatchCandidate.product_id == other.product_id)):
+            s.add(MatchCandidate(listing_id=listing.id, product_id=other.product_id, score=r.score, reasons=r.reasons))
     return r
 
 
@@ -215,3 +265,20 @@ def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
                 s.delete(p)
     else:
         l.match_status = "self"
+
+
+def rematch_all(s: Session) -> dict:
+    """Re-run matching for every listing not yet matched or confirmed (e.g. after matcher/identifier changes).
+    Rejected candidates are never re-queued. Returns counts."""
+    out = {"checked": 0, "auto": 0, "review": 0}
+    rejected = {(c.listing_id, c.product_id) for c in s.scalars(select(MatchCandidate).where(MatchCandidate.status == "rejected"))}
+    for l in s.scalars(select(Listing).where(Listing.match_status.in_(("self", "review")), Listing.active.is_(True)).order_by(Listing.id)).all():
+        out["checked"] += 1
+        before = l.product_id
+        r = attach_or_queue(s, l)
+        if r and r.decision == "auto":
+            out["auto"] += 1
+        elif r and r.decision == "review":
+            out["review"] += 1
+        _ = before, rejected
+    return out

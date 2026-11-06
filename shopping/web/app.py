@@ -12,17 +12,19 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from sqlalchemy.orm import joinedload
 
 from shopping import affiliate, assistant, fx as fxmod, importcost, plans
 from shopping.search import SORTS, facets, same_product, search_listings
 from shopping.web.charts import price_chart
 from watchtower import config, deals, monitor
+from watchtower.health import source_health
 from shopping.web import security
 from watchtower.collector import SourceBusy, SourceDisabled, SourceNotConfigured, ensure_sources, run_source, set_enabled
 from watchtower.db import Database
 from watchtower.matching import resolve_candidate
-from watchtower.models import (AffiliateClick, CollectionRun, Event, Listing, MatchCandidate, Observation, Source,
-                               WatchItem, utcnow)
+from watchtower.models import (AffiliateClick, CollectionRun, Event, Listing, MatchCandidate, Observation, Product, Source,
+                               SourcePolicy, WatchItem, utcnow)
 from watchtower.money import fmt_money
 from watchtower.quality import freshness, price_status
 from watchtower.sources import ADAPTERS
@@ -67,9 +69,18 @@ def create_app(db: Database | None = None) -> FastAPI:
     def render(request, name, **ctx):
         return tpl.TemplateResponse(request, name, {"now": utcnow(), "plan": plans.plan_for(owner_of(request)), **ctx})
 
+    def has_live(s) -> bool:
+        return bool(s.scalar(select(Listing.id).join(Source, Source.id == Listing.source_id)
+                             .where(Source.kind == "live", Listing.active.is_(True)).limit(1)))
+
     def banner(s):
-        kinds = {k for (k,) in s.execute(select(Source.kind).where(Source.enabled.is_(True))).all()}
-        return "sandbox" if kinds == {"sandbox"} else None
+        """'demo' = no real-retailer listings exist yet, so everything shown is test data."""
+        return None if has_live(s) else "demo"
+
+    def kinds_for(s, data: str):
+        """'real' (live sources only) is the default once any real listings exist; demo/sandbox are opt-in views."""
+        d = data or ("real" if has_live(s) else "all")
+        return {"real": ("live",), "demo": ("demo", "sandbox")}.get(d), d
 
     def with_status(s, rows):
         ctx = deals.PeerContext(s)
@@ -111,27 +122,40 @@ def create_app(db: Database | None = None) -> FastAPI:
 
     @app.get("/")
     def index(request: Request, s=Depends(get_s)):
-        stats = {"listings": s.scalar(select(func.count()).select_from(Listing)),
-                 "observations": s.scalar(select(func.count()).select_from(Observation)),
-                 "runs": s.scalar(select(func.count()).select_from(CollectionRun)),
-                 "multi_obs": s.scalar(select(func.count()).select_from(
+        live = has_live(s)
+        kinds = ("live",) if live else None
+        count = lambda q: s.scalar(q) or 0
+        L = select(func.count()).select_from(Listing).join(Source, Source.id == Listing.source_id)
+        stats = {"listings": count(L), "real_listings": count(L.where(Source.kind == "live")),
+                 "observations": count(select(func.count()).select_from(Observation)),
+                 "runs": count(select(func.count()).select_from(CollectionRun)),
+                 "merchants": count(select(func.count(func.distinct(Listing.source_id))).join(Source, Source.id == Listing.source_id).where(Source.kind == "live")),
+                 "multi_obs": count(select(func.count()).select_from(
                      select(Observation.listing_id).group_by(Observation.listing_id).having(func.count() > 1).subquery()))}
-        top = deals.top_deals(s, 6)
+        multi = s.execute(select(Listing.product_id, func.count(func.distinct(Listing.source_id)).label("m"))
+                          .join(Source, Source.id == Listing.source_id)
+                          .where(Listing.active.is_(True), Listing.product_id.is_not(None), *( (Source.kind == "live",) if live else () ))
+                          .group_by(Listing.product_id).having(func.count(func.distinct(Listing.source_id)) >= 2)).all()
+        stats["compared_products"] = len(multi)
+        products = [s.get(Product, pid) for pid, _ in multi[:8]]
+        top = deals.top_deals(s, 6, kinds=kinds)
         changes = monitor.recent_events(s, ("price_drop", "price_rise", "restock", "out_of_stock", "removed"), 8)
-        sources = s.scalars(select(Source).order_by(Source.name)).all()
-        return render(request, "index.html", stats=stats, top=top, changes=changes, sources=sources,
-                      facets=facets(s), banner=banner(s), stale={x.key: (utcnow() - x.last_success_at).total_seconds() / 3600
-                                                                   > x.stale_after_hours if x.last_success_at else True for x in sources})
+        sources = s.scalars(select(Source).order_by(Source.kind.desc(), Source.name)).all()
+        return render(request, "index.html", stats=stats, top=top, changes=changes, sources=sources, products=products,
+                      facets=facets(s), banner=banner(s), live=live,
+                      stale={x.key: (utcnow() - x.last_success_at).total_seconds() / 3600 > x.stale_after_hours
+                             if x.last_success_at else True for x in sources})
 
     @app.get("/search")
     def search(request: Request, q: Text = "", category: Text = "", source: Text = "", currency: Text = "",
                min_price: Money = None, max_price: Money = None, in_stock: bool = False,
-               sort: Text = "price_asc", page: int = Query(1, ge=1, le=1000), s=Depends(get_s)):
+               sort: Text = "price_asc", data: Text = "", page: int = Query(1, ge=1, le=1000), s=Depends(get_s)):
+        kinds, data = kinds_for(s, data)
         rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
-                                      in_stock, sort, page)
+                                      in_stock, sort, page, kinds=kinds)
         return render(request, "search.html", items=with_status(s, rows), total=total, page=page, per_page=24,
                       f={"q": q, "category": category, "source": source, "currency": currency, "min_price": min_price,
-                         "max_price": max_price, "in_stock": in_stock, "sort": sort},
+                         "max_price": max_price, "in_stock": in_stock, "sort": sort, "data": data},
                       facets=facets(s), banner=banner(s))
 
     @app.get("/listing/{listing_id}")
@@ -144,6 +168,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         pts = [(o.observed_at, o.price_minor) for o in obs if o.price_minor is not None and o.currency == l.currency]
         events = s.scalars(select(Event).where(Event.listing_id == l.id).order_by(Event.detected_at.desc())).all()
         ds = deals.score_listing(s, l)
+        stats = deals.price_stats(s, l)
         est = None
         if dest or ship is not None or ins is not None or hand is not None or to:
             ship_minor, ship_ev = (round(ship * 100), "user-provided") if ship is not None else (l.shipping_minor, "quoted")
@@ -158,14 +183,33 @@ def create_app(db: Database | None = None) -> FastAPI:
                 est["notes"].append("Shipping is the source's own quote for its default destination; it may not apply to yours.")
         link = affiliate.build_link(l)
         return render(request, "listing.html", l=l, obs=obs, chart=price_chart(pts, l.currency), npts=len(pts), events=events,
-                      deal=ds, others=same_product(s, l), est=est, dest=dest, ship=ship, ins=ins, hand=hand, to=to, link=link,
+                      deal=ds, stats=stats, others=same_product(s, l), est=est, dest=dest, ship=ship, ins=ins, hand=hand, to=to, link=link,
                       pstatus=price_status(l, l.source), fresh=freshness(l, l.source), banner=banner(s),
                       watching=bool(s.scalar(select(WatchItem.id).where(WatchItem.owner == owner_of(request), WatchItem.listing_id == l.id))))
 
+    @app.get("/product/{product_id}")
+    def product_page(request: Request, product_id: int, s=Depends(get_s)):
+        prod = s.get(Product, product_id)
+        if not prod:
+            raise HTTPException(404, "product not found")
+        rows = list(s.scalars(select(Listing).options(joinedload(Listing.source)).where(
+            Listing.product_id == product_id, Listing.active.is_(True)).order_by(Listing.price_minor.asc().nulls_last())).unique())
+        ctx = deals.PeerContext(s)
+        items = [{"l": l, "stats": deals.price_stats(s, l), "fresh": freshness(l, l.source), "pstatus": price_status(l, l.source)} for l in rows]
+        cheapest = {}  # per currency: no cross-currency ranking without a sourced FX rate
+        for it in items:
+            l = it["l"]
+            if l.price_minor is not None and l.availability in ("in_stock", "unknown") and it["pstatus"] != "stale":
+                cheapest.setdefault(l.currency, l.id)
+        multi_currency = len({it["l"].currency for it in items}) > 1
+        return render(request, "product.html", prod=prod, items=items, cheapest=cheapest, multi_currency=multi_currency,
+                      kinds={it["l"].source.kind for it in items}, banner=banner(s))
+
     @app.get("/deals")
-    def deals_page(request: Request, category: Text = "", s=Depends(get_s)):
-        return render(request, "deals.html", top=deals.top_deals(s, 30, category or None), category=category,
-                      facets=facets(s), banner=banner(s))
+    def deals_page(request: Request, category: Text = "", data: Text = "", s=Depends(get_s)):
+        kinds, data = kinds_for(s, data)
+        return render(request, "deals.html", top=deals.top_deals(s, 30, category or None, kinds=kinds), category=category,
+                      facets=facets(s), banner=banner(s), data=data)
 
     @app.get("/research")
     def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):
@@ -240,7 +284,9 @@ def create_app(db: Database | None = None) -> FastAPI:
                       runs=s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10)).all(),
                       queue=s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all(),
                       clicks=s.scalar(select(func.count()).select_from(AffiliateClick)), running=sorted(_running),
-                      msg=msg, banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()})
+                      msg=msg, banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()},
+                      health={x.key: source_health(s, x) for x in s.scalars(select(Source))},
+                      policies={p.source.key: p for p in s.scalars(select(SourcePolicy).options(joinedload(SourcePolicy.source)))})
 
     def _collect(key: str):
         try:

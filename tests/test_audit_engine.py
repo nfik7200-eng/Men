@@ -303,7 +303,8 @@ def test_f13_stale_listing_is_not_verified_and_excluded_from_top_deals(db):
         later = T0 + timedelta(days=400)
         ds = deals.score_listing(s, l, now=later)
         assert ds.label == "Stale data" and ds.confidence == "low"
-        assert all(x[0].id != l.id for x in deals.top_deals(s, 20, now=later))
+        assert deals.top_deals(s, 20, now=T0, kinds=None), 'control: not vacuous (fresh at T0)'
+        assert all(x[0].id != l.id for x in deals.top_deals(s, 20, now=later, kinds=None))
 
 
 def test_f15_top_deals_query_count_is_bounded(db):
@@ -319,10 +320,10 @@ def test_f15_top_deals_query_count_is_bounded(db):
         ev = lambda *a, **k: n.__setitem__("c", n["c"] + 1)
         event.listen(eng, "before_cursor_execute", ev)
         try:
-            deals.top_deals(s, 10, now=T0)
+            result = deals.top_deals(s, 10, now=T0, kinds=None)
         finally:
             event.remove(eng, "before_cursor_execute", ev)
-        assert n["c"] <= 12, n["c"]
+        assert result and n["c"] <= 12, (len(result), n["c"])
 
 
 def test_f15_peer_median_without_self_matches_brute_force_and_scales():
@@ -349,5 +350,28 @@ def test_f15_top_deals_is_fast_on_a_large_catalogue(db):
                                               specs={"ram_gb": [4, 8, 16][i % 3]}), T0)
         s.flush()
         t = time.time()
-        deals.top_deals(s, 10, now=T0)
+        assert deals.top_deals(s, 10, now=T0, kinds=None)
         assert time.time() - t < 2.0  # was ~1.3s per 1000 listings before (quadratic); now linear
+
+
+def test_demo_and_sandbox_data_never_enter_default_commercial_deals_or_peer_stats(db):
+    """Demo/sandbox listings are excluded from the default (live-only) ranking, and a live listing's peer median is
+    computed from live peers only."""
+    ensure_sources(db)
+    with db.session() as s:
+        demo = s.query(Source).first()
+        live = Source(key="live_shop", name="Live Shop", base_url="https://shop.example", currency="USD", kind="live")
+        s.add(live); s.flush()
+        for i in range(8):
+            ingest_listing(s, demo, None, _raw(external_id=f"d{i}", title=f"Demo Model D{i}00X", price_minor=10000 + i * 900, specs={"ram_gb": 8}), T0)
+        for i in range(8):
+            ingest_listing(s, live, None, _raw(external_id=f"l{i}", title=f"Live Model L{i}00X", price_minor=60000 + i * 100, specs={"ram_gb": 8}), T0)
+        s.flush()
+        got = deals.top_deals(s, 50, now=T0)  # default kinds=("live",)
+        assert got and all(l.source.kind == "live" for l, _ in got)
+        l0 = s.query(Listing).filter_by(external_id="l0").one()
+        ds = deals.score_listing(s, l0, now=T0)
+        peer = next(c for c in ds.components if c.name == "peer_value")
+        assert "above" in peer.detail or "below" in peer.detail
+        assert "10" not in peer.detail.split("median")[1][:12]  # median ~600, not dragged to 100 by demo prices
+        assert any(l.source.kind == "demo" for l, _ in deals.top_deals(s, 50, now=T0, kinds=None))

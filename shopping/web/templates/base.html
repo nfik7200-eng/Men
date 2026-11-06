@@ -12,7 +12,7 @@
   <nav aria-label="Main"><a href="/search">Browse</a><a href="/deals">Deals</a><a href="/research">Research</a><a href="/watchlist">Watchlist</a><a href="/admin">Sources</a></nav>
 </div></header>
 <main class="wrap">
-{% if banner == 'sandbox' %}<div class="banner" role="note"><b>Demo data.</b> Every source currently collected is a public scraping-practice site, not a real retailer. The pipeline is real; the prices are test data.</div>{% endif %}
+{% if banner == 'demo' %}<div class="banner" role="note"><b>Demo / test data only.</b> No real-retailer listings have been collected yet: everything shown comes from scraping-practice sites or API sandboxes. The pipeline is real; the prices are not shopping opportunities.</div>{% endif %}
 {% block body %}{% endblock %}
 </main>
 <footer><div class="wrap">Prices are observed from the source page at the time shown. “Estimate” = computed by us, not stated by the store. Missing data is shown as missing, never as zero. Outbound links may become affiliate links; this is always disclosed next to the link and never changes rankings.

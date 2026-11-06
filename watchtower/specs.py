@@ -5,7 +5,7 @@ Unknown keys are simply absent (missing != zero).
 """
 import re
 
-BRANDS = ["Apple", "Asus", "Acer", "Lenovo", "HP", "Dell", "Samsung", "MSI", "Packard", "Toshiba",
+BRANDS = ["Raspberry Pi", "Adafruit", "SparkFun", "Arduino", "Pimoroni", "Seeed", "DFRobot", "Pololu", "Espressif", "micro:bit", "Teensy", "Apple", "Asus", "Acer", "Lenovo", "HP", "Dell", "Samsung", "MSI", "Packard", "Toshiba",
           "Huawei", "Amazon", "Microsoft", "Sony", "Nokia", "Xiaomi", "Razer", "LG", "Prestigio",
           "IdeaTab", "Ubuntu", "Aspire", "ThinkPad", "iPad", "iPhone", "Galaxy", "Kindle"]
 _BRAND_ALIAS = {"thinkpad": "Lenovo", "ideatab": "Lenovo", "aspire": "Acer", "ipad": "Apple",
@@ -76,3 +76,16 @@ def parse_specs(title: str, description: str, category: str | None = None) -> di
             specs["os"] = os_
             break
     return specs
+
+
+_CORP = re.compile(r"\b(ltd|limited|inc|incorporated|llc|corp|corporation|co|company|gmbh|industries|electronics|technologies|technology|plc|sa)\b\.?")
+
+
+def canon_brand(brand: str | None) -> str:
+    """'Raspberry Pi Ltd' / 'RASPBERRY PI' / 'Raspberry Pi Foundation' -> 'raspberry pi'. Empty string if unknown."""
+    if not brand:
+        return ""
+    b = re.sub(r"[^a-z0-9: ]", " ", brand.lower())
+    b = _CORP.sub(" ", b)
+    b = re.sub(r"\b(foundation|trading|official)\b", " ", b)
+    return re.sub(r"\s+", " ", b).strip()

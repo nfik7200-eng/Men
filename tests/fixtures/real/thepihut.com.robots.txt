@@ -1,0 +1,180 @@
+# we use Shopify as our ecommerce platform
+
+User-agent: *
+Allow: /
+
+Allow: /products/account
+
+Allow: /products/orders
+
+Allow: /products/checkout
+
+Allow: /*/products/account
+
+Allow: /*/products/orders
+
+Allow: /*/products/checkout
+
+Allow: /collections/account
+
+Allow: /collections/orders
+
+Allow: /collections/checkout
+
+Allow: /*/collections/account
+
+Allow: /*/collections/orders
+
+Allow: /*/collections/checkout
+
+Allow: /pages/checkout
+
+Allow: /*/pages/checkout
+
+Allow: /blogs/*account
+
+Allow: /blogs/*orders
+
+Allow: /blogs/*checkout
+
+Allow: /*/blogs/*account
+
+Allow: /*/blogs/*orders
+
+Allow: /*/blogs/*checkout
+
+Disallow: /admin
+
+Disallow: /cart/
+
+Disallow: /*/cart/
+
+Disallow: /checkout
+
+Disallow: /*/checkout
+
+Disallow: /checkouts/
+
+Disallow: /*/checkouts/
+
+Disallow: /orders
+
+Disallow: /*/orders
+
+Allow: /account/login
+
+Allow: /*/account/login
+
+Disallow: /account
+
+Disallow: /*/account
+
+Disallow: /1763274
+
+Disallow: /cdn/wpm/*.js
+
+Disallow: /services
+
+Disallow: /sf_*
+
+Disallow: /.well-known/shopify/monorail
+
+Disallow: /cart.js
+
+Disallow: /*/cart.js
+
+Disallow: /recommendations/products
+
+Disallow: /*/recommendations/products
+
+Disallow: /collections/*sort_by*
+
+Disallow: /*/collections/*sort_by*
+
+Disallow: /collections/*+*
+
+Disallow: /collections/*%2B*
+
+Disallow: /collections/*%2b*
+
+Disallow: /*/collections/*+*
+
+Disallow: /*/collections/*%2B*
+
+Disallow: /*/collections/*%2b*
+
+Disallow: /collections/*filter*&*filter*
+
+Disallow: /*/collections/*filter*&*filter*
+
+Disallow: /blogs/*+*
+
+Disallow: /blogs/*%2B*
+
+Disallow: /blogs/*%2b*
+
+Disallow: /*/blogs/*+*
+
+Disallow: /*/blogs/*%2B*
+
+Disallow: /*/blogs/*%2b*
+
+Disallow: /*?*ls=*&ls=*
+
+Disallow: /*?*ls%3*ls%3*
+
+Disallow: /*?*oseid=*
+
+Disallow: /*?*preview_theme_id=*
+
+Disallow: /*?*preview_script_id=*
+
+Disallow: /pages/search-results
+Sitemap: https://thepihut.com/sitemap.xml
+
+User-agent: adsbot-google
+Allow: /products/
+
+Allow: /*/products/
+
+Allow: /collections/
+
+Allow: /*/collections/
+
+Allow: /pages/
+
+Allow: /*/pages/
+
+Allow: /blogs/
+
+Allow: /*/blogs/
+
+Allow: /pages/checkout
+
+Allow: /*/pages/checkout
+
+Allow: /blogs/*checkout
+
+Allow: /*/blogs/*checkout
+
+Disallow: /checkout
+
+Disallow: /*/checkout
+
+Disallow: /checkouts/
+
+Disallow: /*/checkouts/
+
+Disallow: /orders
+
+Disallow: /*/orders
+
+Disallow: /services
+
+Disallow: /sf_*
+
+Disallow: /1763274
+
+Disallow: /cdn/wpm/*.js
+
+

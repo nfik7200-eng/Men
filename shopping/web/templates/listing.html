@@ -8,7 +8,7 @@
   <div class="card">
     <div class="price">{{ l.price_minor | money(l.currency) }}{% if l.original_price_minor %}<s>{{ l.original_price_minor | money(l.currency) }}</s> <span class="badge warn">claimed original</span>{% endif %}</div>
     {{ status_badges(l, pstatus, fresh, deal) }}
-    <p class="muted">{{ l.source.name }}{% if l.source.kind == 'sandbox' %} (demo catalogue){% endif %} · observed {{ l.last_observed_at | dt }} · first seen {{ l.first_seen_at | dt }}{% if not l.active %} · <b class="bad-t">no longer listed at source</b>{% endif %}</p>
+    <p class="muted">{{ l.source.name }}{% if l.source.kind == 'demo' %} (demo catalogue){% elif l.source.kind == 'sandbox' %} (API sandbox){% endif %} · observed {{ l.last_observed_at | dt }} · first seen {{ l.first_seen_at | dt }}{% if not l.active %} · <b class="bad-t">no longer listed at source</b>{% endif %}</p>
     {% if l.description %}<p>{{ l.description }}</p>{% endif %}
     <p>
       <a class="btn" href="/go/{{ l.id }}" rel="{{ 'sponsored ' if link.is_affiliate }}nofollow noopener" target="_blank">View at store ↗</a>
@@ -24,6 +24,19 @@
     {% for o in obs | reverse %}<tr><td>{{ o.observed_at | dt }}</td><td>{{ o.price_minor | money(o.currency) }}</td><td>{{ o.original_price_minor | money(o.currency) if o.original_price_minor else '—' }}</td><td>{{ o.availability.replace('_', ' ') }}</td></tr>{% endfor %}</table></div>
   </div>
 
+  <h2>Price statistics <span class="muted">(distinct collections, {{ l.currency }})</span></h2>
+  <div class="card">
+    {% if stats.minimum is not none %}
+    <div class="scroll"><table>
+      <tr><th>Collections</th><td>{{ stats.n_collections }} over {{ '%.1f' % stats.span_days }} days</td><th>Changes</th><td>{{ stats.changes }}</td></tr>
+      <tr><th>Min</th><td>{{ stats.minimum | money(l.currency) }}</td><th>Max</th><td>{{ stats.maximum | money(l.currency) }}</td></tr>
+      <tr><th>Mean</th><td>{{ ('%.2f' % (stats.mean / 100)) }}</td><th>Median</th><td>{{ ('%.2f' % (stats.median / 100)) }}</td></tr>
+      <tr><th>Volatility</th><td>{{ (stats.volatility_pct ~ '%') if stats.volatility_pct is not none else 'needs 3+ collections' }}</td><th>Now vs min</th><td>{{ '%+.1f' % stats.current_vs_min_pct }}%</td></tr>
+    </table></div>
+    {% if stats.note %}<p class="warn-t">⚠ {{ stats.note }}</p>{% endif %}
+    {% else %}<p class="muted">No priced observations yet.</p>{% endif %}
+  </div>
+
   <h2>Deal assessment <span class="badge">{{ deal.label }}</span> <span class="muted">confidence: {{ deal.confidence }}</span></h2>
   <div class="card">
     {% if deal.score is not none %}<p><b>Score {{ deal.score }}/100</b> — sum of the parts below. Each part says how it was derived.</p>
@@ -37,7 +50,7 @@
   {% if events %}<h2>Detected changes</h2><div class="card scroll"><table>
   {% for e in events %}<tr><td>{{ e.detected_at | dt }}</td><td>{{ e.kind.replace('_', ' ') }}{% if e.pct is not none %} ({{ '%+.1f' % e.pct }}%){% endif %}</td></tr>{% endfor %}</table></div>{% endif %}
 
-  <h2>Same product elsewhere</h2>
+  <h2>Same product elsewhere {% if l.product_id and others %}<a class="muted" style="font-size:.85rem" href="/product/{{ l.product_id }}">compare all →</a>{% endif %}</h2>
   <div class="card">
     {% if others %}<div class="scroll"><table><tr><th>Store</th><th>Price</th><th>Match</th></tr>
     {% for o in others %}<tr><td><a href="/listing/{{ o.id }}">{{ o.source.name }}</a></td><td>{{ o.price_minor | money(o.currency) }}{% if o.currency != l.currency %} <span class="muted">(different currency — not converted)</span>{% endif %}</td>

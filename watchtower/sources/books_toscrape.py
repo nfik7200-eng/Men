@@ -15,7 +15,7 @@ class BooksToScrape(SourceAdapter):
     base_url = "https://books.toscrape.com"
     country = "GB"
     currency = "GBP"
-    kind = "sandbox"
+    kind = "demo"
     terms_note = ("Public scraping-practice site; no robots.txt (404) on 2026-11-05 => no published restrictions. "
                   "DEMO catalogue, not a real shop.")
     stale_after_hours = 72

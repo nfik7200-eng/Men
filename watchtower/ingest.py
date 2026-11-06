@@ -27,7 +27,7 @@ def validate(raw: RawListing) -> tuple[RawListing | None, list[str]]:
                                                  (raw.price_minor and raw.original_price_minor < raw.price_minor)):
         problems.append("implausible original price dropped")
         raw.original_price_minor = None
-    if raw.availability not in ("in_stock", "out_of_stock", "unknown"):
+    if raw.availability not in ("in_stock", "out_of_stock", "backorder", "preorder", "unknown"):
         raw.availability = "unknown"
     return raw, problems
 
@@ -50,7 +50,8 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
     if raw is None:
         return None, False, problems  # type: ignore[return-value]
     listing = s.scalar(select(Listing).where(Listing.source_id == source.id, Listing.external_id == raw.external_id))
-    dh = _hash(raw.description)
+    dh = raw.desc_hash or _hash(raw.description)
+    id_changed = False
     if listing is not None and run is not None and s.scalar(
             select(Observation.id).where(Observation.listing_id == listing.id, Observation.run_id == run.id)):
         return listing, False, []  # same listing twice in one run: one observation per (listing, run)
@@ -64,7 +65,8 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
             brand=raw.brand, category=raw.category, description=raw.description, image_url=raw.image_url,
             specs=raw.specs, identifiers=raw.identifiers, rating=raw.rating, review_count=raw.review_count,
             desc_hash=dh, first_seen_at=now, last_seen_at=now, currency=raw.currency, condition=raw.condition,
-            ships_to=raw.ships_to, location_country=raw.location_country, affiliate_url=raw.affiliate_url)
+            ships_to=raw.ships_to, location_country=raw.location_country, affiliate_url=raw.affiliate_url,
+            sku=raw.sku, mpn=raw.mpn, gtin=raw.gtin)
         s.add(listing)
         s.flush()
         _event(s, listing, run, "new_listing", new=raw.title, now=now)
@@ -97,17 +99,33 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
         listing.ships_to = raw.ships_to if raw.ships_to is not None else listing.ships_to
         listing.location_country = raw.location_country or listing.location_country
         listing.affiliate_url = raw.affiliate_url or listing.affiliate_url
+        id_changed = bool((raw.gtin and raw.gtin != listing.gtin) or (raw.mpn and raw.mpn != listing.mpn))
+        listing.sku, listing.mpn, listing.gtin = raw.sku or listing.sku, raw.mpn or listing.mpn, raw.gtin or listing.gtin
         listing.last_seen_at = now
 
     s.add(Observation(listing_id=listing.id, run_id=run.id if run else None, observed_at=now,
                       price_minor=raw.price_minor, original_price_minor=raw.original_price_minor,
-                      currency=raw.currency, availability=raw.availability, shipping_minor=raw.shipping_minor))
+                      currency=raw.currency, availability=raw.availability, shipping_minor=raw.shipping_minor,
+                      extraction_method=raw.extraction_method, content_hash=raw.content_hash, http_status=raw.http_status))
     listing.price_minor, listing.original_price_minor = raw.price_minor, raw.original_price_minor
     listing.shipping_minor = raw.shipping_minor
     listing.availability, listing.last_observed_at = raw.availability, now
-    if is_new:
-        attach_or_queue(s, listing)
+    if is_new or id_changed:
+        attach_or_queue(s, listing)  # new listing, or an identifier appeared/changed: (re)run matching
     return listing, is_new, problems
+
+
+def reconfirm(s: Session, listing: Listing, run: CollectionRun | None, now: datetime, http_status: int = 304) -> bool:
+    """Page unchanged (HTTP 304): still record that we SAW the listing at its cached price, so removals, staleness
+    and price history keep working. One observation per (listing, run)."""
+    if run is not None and s.scalar(select(Observation.id).where(Observation.listing_id == listing.id, Observation.run_id == run.id)):
+        return False
+    s.add(Observation(listing_id=listing.id, run_id=run.id if run else None, observed_at=now, price_minor=listing.price_minor,
+                      original_price_minor=listing.original_price_minor, currency=listing.currency,
+                      availability=listing.availability, shipping_minor=listing.shipping_minor,
+                      extraction_method="not_modified", http_status=http_status))
+    listing.last_seen_at = listing.last_observed_at = now
+    return True
 
 
 REMOVAL_GUARD_MIN = 5

@@ -17,7 +17,7 @@ class WebscraperIoStatic(SourceAdapter):
     base_url = "https://webscraper.io/test-sites/e-commerce/static"
     country = "US"
     currency = "USD"
-    kind = "sandbox"
+    kind = "demo"
     terms_note = ("Public scraping-practice site. robots.txt checked 2026-11-05: only /test-sites/product/, "
                   "/pagination/, /scroll/, /load-more/ disallowed (not used). DEMO catalogue, not a real shop.")
     stale_after_hours = 72

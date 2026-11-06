@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ prod.title }}{% endblock %}
+{% block body %}
+<p class="muted"><a href="/search">← Browse</a></p>
+<h1>{{ prod.title }}</h1>
+<p class="muted">{{ items | length }} merchant listing{{ '' if items | length == 1 else 's' }} matched to this product.
+{% if 'live' not in kinds %}<span class="badge warn">Test data only — not real retailers</span>{% endif %}</p>
+{% if multi_currency %}<div class="banner" role="note">Merchants price in different currencies. We do <b>not</b> convert or rank across currencies without a sourced exchange rate, so the “cheapest” mark is per currency.</div>{% endif %}
+<div class="scroll card"><table>
+<tr><th>Merchant</th><th>Price</th><th>Stock</th><th>Last checked</th><th>History (collections)</th><th>Match</th></tr>
+{% for it in items %}{% set l = it.l %}
+<tr>
+  <td><a href="/listing/{{ l.id }}">{{ l.source.name }}</a><div class="muted">{{ l.title }}</div>
+      {% if l.source.kind == 'live' %}<span class="badge ok">Real retailer</span>{% elif l.source.kind == 'demo' %}<span class="badge warn">Demo</span>{% else %}<span class="badge warn">Sandbox</span>{% endif %}</td>
+  <td><b>{{ l.price_minor | money(l.currency) }}</b> <span class="muted">{{ l.currency }}</span>
+      {% if cheapest.get(l.currency) == l.id and (items | selectattr('l.currency', 'equalto', l.currency) | list | length) > 1 %}<span class="badge ok">Lowest ({{ l.currency }})</span>{% endif %}
+      {% if it.pstatus == 'stale' %}<div><span class="badge warn">Stale price</span></div>{% endif %}</td>
+  <td>{{ l.availability.replace('_', ' ') }}</td>
+  <td>{{ l.last_observed_at | dt }}<div class="muted">{{ it.fresh }}</div></td>
+  <td>{{ it.stats.n_collections }}{% if it.stats.minimum is not none %}<div class="muted">min {{ it.stats.minimum | money(l.currency) }} · max {{ it.stats.maximum | money(l.currency) }}</div>{% endif %}</td>
+  <td>{{ l.match_status }}{% if l.match_confidence %} · {{ '%.2f' % l.match_confidence }}{% endif %}</td>
+</tr>{% endfor %}</table></div>
+<h2>Why these are the same product</h2>
+<div class="card">{% for it in items %}{% if it.l.match_reasons %}<p><b>{{ it.l.source.name }}:</b> <span class="muted">{{ it.l.match_reasons | join('; ') }}</span></p>{% endif %}{% endfor %}
+<p class="muted">Matches use identifiers (GTIN, manufacturer part number) when published, otherwise brand + normalised name. Variants (generation, RAM, condition, bundle, colour) are never merged automatically; uncertain pairs wait for review.</p></div>
+{% endblock %}
