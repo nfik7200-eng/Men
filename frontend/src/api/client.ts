@@ -60,10 +60,14 @@ export class ApiError extends Error {
     this.details = details;
   }
 
+  /** True when the backend itself could not be reached (network failure, or a proxy gateway error). */
   get isConnectionError(): boolean {
-    return this.status === 0;
+    return this.status === 0 || this.code === "backend_unreachable";
   }
 }
+
+const UNREACHABLE = "Cannot reach the BIP backend. Is it running?";
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
 type ErrorEnvelope = {
   error?: { code?: unknown; message?: unknown; details?: unknown };
@@ -77,7 +81,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       headers: { Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
     });
   } catch {
-    throw new ApiError(0, "connection_failed", "Cannot reach the BIP backend. Is it running?");
+    throw new ApiError(0, "connection_failed", UNREACHABLE);
   }
   if (response.status === 204) return undefined as T; // only used with T = undefined
   let payload: unknown;
@@ -88,6 +92,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!response.ok) {
     const env = (payload ?? {}) as ErrorEnvelope;
+    // A gateway status with no BIP error envelope comes from a proxy in front of the backend
+    // (for example the Vite dev proxy when the backend is not running), not from BIP itself.
+    if (GATEWAY_STATUSES.has(response.status) && typeof env.error?.code !== "string") {
+      throw new ApiError(response.status, "backend_unreachable", UNREACHABLE);
+    }
     const code = typeof env.error?.code === "string" ? env.error.code : "http_error";
     const message =
       typeof env.error?.message === "string"

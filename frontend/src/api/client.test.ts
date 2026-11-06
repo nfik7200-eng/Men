@@ -42,10 +42,11 @@ describe("api client", () => {
   });
 
   it("handles non-JSON error bodies and 204 responses", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("<html>", { status: 502 }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("<html>", { status: 500 }));
     const err = (await api.health().catch((e: unknown) => e)) as ApiError;
-    expect(err.status).toBe(502);
+    expect(err.status).toBe(500);
     expect(err.code).toBe("http_error");
+    expect(err.isConnectionError).toBe(false);
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 204 }));
     await expect(api.deleteWatchlist(1)).resolves.toBeUndefined();
   });
@@ -54,5 +55,25 @@ describe("api client", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(404, { error: { code: "not_found", message: "x" } }));
     await api.wallet("solana", "a/b?c").catch(() => undefined);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/wallets/solana/a%2Fb%3Fc");
+  });
+
+  it("treats a gateway error without a BIP envelope as the backend being unreachable", async () => {
+    // The Vite dev/preview proxy answers 502 with an empty body when the backend is not running.
+    for (const status of [502, 503, 504]) {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("", { status }));
+      const err = (await api.health().catch((e: unknown) => e)) as ApiError;
+      expect(err.isConnectionError).toBe(true);
+      expect(err.code).toBe("backend_unreachable");
+      expect(err.message).toMatch(/Cannot reach the BIP backend/);
+    }
+  });
+
+  it("keeps a backend-reported 503 (with its envelope) as a backend error, not a connection error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      respond(503, { error: { code: "database_unavailable", message: "database is unavailable" } }),
+    );
+    const err = (await api.health().catch((e: unknown) => e)) as ApiError;
+    expect(err.isConnectionError).toBe(false);
+    expect(err.code).toBe("database_unavailable");
   });
 });
