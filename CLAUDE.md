@@ -7,6 +7,8 @@ Modular monolith (Python 3.11+): `watchtower/` = shared engine (sources, fetcher
 - Install: `pip install -r requirements.txt`
 - Collect real data: `WATCHTOWER_CONTACT=contact@your-org.net python -m watchtower.cli collect [--source K] [--max-pages N]`
 - Run app: `uvicorn main:app --port 8000`   · Tests: `python -m pytest`
+- Snapshot DB (WAL-safe; never `cp` the .db): `python -m watchtower.cli backup [--out PATH]` · Integrity: `python -m watchtower.cli verify --db PATH`
+- Improvement loop: docs/LOOP_ENGINEERING.md + skill `improvement-loop`; experiment only on snapshot copies, bench with `python scripts/loop_bench.py SNAPSHOT`
 
 ## Rules that must not be broken
 - Missing price is NULL, never 0. Prices are integer minor units + currency; never convert currencies without a sourced FX feed.
@@ -22,4 +24,4 @@ Modular monolith (Python 3.11+): `watchtower/` = shared engine (sources, fetcher
 - Live sources run ONLY through `watchtower/policy.py` (approved + current + robots-compliant + real contact). Never add a source without a reviewed entry in `data/source_policies.json`; robots.txt alone is not permission (read the terms). Never store descriptions/images. Demo/sandbox data never enters real-data views, deal ranking or peer statistics.
 - Matching: hard-conflict vetoes apply at every stage including identifier matches; the merchant SKU is never an identifier; ambiguous candidates go to review.
 - Product-page crawls only sample: never infer removals from absence; a 304 must still record an observation.
-- Docs: SPEC.md, ARCHITECTURE.md, TECHNICAL_DECISIONS.md, COMMERCIAL_ROADMAP.md, PROJECT_PROGRESS.md — update when decisions change.
+- Docs: SPEC.md, ARCHITECTURE.md, TECHNICAL_DECISIONS.md, COMMERCIAL_ROADMAP.md, PROJECT_PROGRESS.md, LOOP_ENGINEERING.md — update when decisions change.

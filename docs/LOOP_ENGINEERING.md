@@ -26,7 +26,7 @@ RESEARCH → IDENTIFY WEAKNESS → PRIORITISE → DESIGN → TEST (red) → IMPL
    Hard cap for an autonomous mission: 6 iterations.
 
 Reusable tooling: `watchtower.cli backup` (snapshot), `watchtower.cli verify` (13 invariants + metrics),
-`tests/` (308 tests, real captured fixtures), the project skill `.claude/skills/improvement-loop/SKILL.md`.
+`tests/` (316 tests, real captured fixtures), `scripts/loop_bench.py` (fixed query/deal bench on a snapshot copy), the project skill `.claude/skills/improvement-loop/SKILL.md`.
 
 ## 1. The loops
 
@@ -51,7 +51,7 @@ Reusable tooling: `watchtower.cli backup` (snapshot), `watchtower.cli verify` (1
 | Matching | staged scorer + hard vetoes, review queue, prune/revalidate | `test_matching_*`, `test_review3`, `test_review_queue` | **mirrored review questions** (fixed, it. 2/5); remaining 12 questions need a human | invariants `mirrored_pending_candidates`, `review_status_has_pending_question` |
 | Observations | one per listing per run, 304 reconfirm, two-step removal | `test_real_sources`, `test_audit_engine` | only 1 day of real history; 1,241 of 1,526 discovered URLs never fetched | `live_observation_days`, `verified_history_listings` |
 | Deal detection | `deals.py` explainable score; verified rule ≥3 collections/≥7 days | `test_peers`, `test_review3`, `test_audit_engine` | cannot produce a verified deal before ~8 days of collection (by design) | — |
-| Assistant | rule-based `assistant.py`, optional local LLM summary | `test_shopping`, `test_audit_assistant`, `test_assistant_units` | **unit spelling decided relevance; different product classes displaced the asked-for model** (fixed, it. 4/6) | query bench script (below) |
+| Assistant | rule-based `assistant.py`, optional local LLM summary | `test_shopping`, `test_audit_assistant`, `test_assistant_units` | **unit spelling decided relevance; different product classes displaced the asked-for model** (fixed, it. 4/6) | `scripts/loop_bench.py` |
 | Frontend | FastAPI + Jinja2, server-rendered, Android + desktop checked in mission 003 | `test_audit_web`, `test_dashboard` | review UI shows candidates one by one (no pair view) | backlog C2 |
 
 **Baseline (2026-11-06, before mission 004 changes, measured on a verified snapshot):** 284 tests passing in ~28 s;
@@ -69,7 +69,13 @@ statement coverage 90 % (`watchtower/cli.py` 0 %); 282 live listings / 2 merchan
 | 3 | F | integrity probes were ad hoc | `watchtower.cli verify`: 13 invariants + metrics, read-only, exit 1 on violation | pre-fix snapshot: FAIL (11 mirrors); post-fix copy: OK | 1 important (currency false positive) → fixed in 5 |
 | 4 | E | "pi 5 8gb" dropped Adafruit's identical "8 GB RAM" board; "pi 5 8 GB" lost the RAM constraint (4 GB ranked 1st) | unit-normalised keywords/text; digit tokens match whole values | "pi 5 8gb": 1 merchant → **both merchants**; "8 GB": 4 GB board no longer ranked 1st | see 6 |
 | 5 | C/F | review findings of 1–3 | partner/mirror status recomputation, never downgrade confirmed/auto; snapshot cleanup; latest-obs currency check | 6 new regression tests; queue still 23 → 12; verify OK | — |
-| 6 | E | "pi 5 2gb" answered with 2 Compute Modules (boards OOS at both shops, hidden); "pi 4 4gb" ranked 2 CM4s above the Pi 4 Model B | named model: listings with an un-asked product-type word (compute, case, cable…) do not displace the exact product; OOS exact shown + flagged | "pi 5 2gb": CM5×2 → Pi 5 2GB from **both** merchants (OOS caveat); "pi 4 4gb": CM4×2 + board → board from **both** merchants; accessory queries unchanged | independent review of 4–6: see PROJECT_PROGRESS |
+| 6 | E | "pi 5 2gb" answered with 2 Compute Modules (boards OOS at both shops, hidden); "pi 4 4gb" ranked 2 CM4s above the Pi 4 Model B | named model: listings with an un-asked product-type word (compute, case, cable…) do not displace the exact product; OOS exact shown + flagged | "pi 5 2gb": CM5×2 → Pi 5 2GB from **both** merchants (OOS caveat); "pi 4 4gb": CM4×2 + board → board from **both** merchants; accessory queries unchanged | 3 important regressions + 2 status gaps → fixed in 6b |
+| 6b | E/C | review of 4–6 (each reproduced by a failing test first): '2.4ghz' split into '4ghz'; '8 GB RAM' became a literal keyword and excluded a 16 GB laptop; product-type rule also hit laptops ('Touchscreen Display'), ignored plurals ('cases') and dropped listings silently; accept left a 'review' listing whose question pointed at the vanished product, and a lone 'self' counterpart unconfirmed | decimal-preserving keywords; spec requirements not keywords; type rule only for maker-electronics, only when no type is asked, with a caveat; plural fallback; status fixes | 316 passing; bench unchanged except the new 'left out' caveats; final copy: rematch → `verify` OK, 12 pending | — (findings closed; one reviewer claim, '5.1V'/'2.5A', did not reproduce because 2-character tokens are already ignored — the longer-unit form did, and is fixed) |
+
+**After (final code, same snapshot):** 316 tests passing in ~35 s; coverage 92 % (cli.py 53 %); `verify` on a
+rematched copy: all invariants OK, 12 pending candidates, 6 cross-merchant products unchanged; assistant answers
+18–65 ms, `top_deals` ~40 ms (machine noise is large at this size; treat timings as "no regression", not a speed-up).
+**What did not change (and cannot by code):** 282 listings, 2 merchants, 1 day of history, 0 verified deals.
 
 Failed/declined experiments: a monkeypatched "concurrent write during backup" test was abandoned (the
 `sqlite3.Connection` C type cannot be patched); consistency rests on the single read transaction, confirmed by review.

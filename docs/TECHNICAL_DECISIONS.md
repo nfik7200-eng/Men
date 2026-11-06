@@ -49,3 +49,17 @@ Decisions marked **[Opus consult]** adopted advice from the architecture consult
 - **Facts-only also applies to the repo** · committed fixtures are reduced captures (descriptions/images removed) **[Opus review]**.
 - **Real defect: SparkFun stock came from a related-products card** · the first `div.stock` on the page belongs to another product; all 62 listings had the wrong availability (`backorder`). Fixed by reading only `div.product-info-main div.product-info-stock-sku div.stock`, `unknown` if absent; the fixture now preserves the real layout (related card first); wrong stored values were reset to `unknown` and re-collected. Lesson: extraction must be validated against real pages, and plausibility checks (0 of 62 in stock) are worth running after every first collection.
 - **Crawl budget split** · re-checks of known listings get 60% of each run's budget (price history is the asset), discovery the rest.
+
+
+## Mission 004 — loop engineering (2026-11-06)
+- **Backups use SQLite's online backup API** (`watchtower.cli backup`), never a file copy: the DB runs in WAL mode and a
+  copy of `watchtower.db` alone lost 28 listings / 70 observations / 1 run on the real data. Snapshots are verified
+  (integrity_check + per-table counts) and never overwrite.
+- **`watchtower.cli verify`** is the shared measurement for every loop; it opens the DB read-only. Invariants are
+  hard (expected 0); metrics are baselines.
+- **Review queue: one question per listing pair.** A decision applies to its mirror; confirmed/auto listings are never
+  downgraded by an unrelated rejection.
+- **Assistant relevance is unit-normalised** ('8GB' == '8 GB'; digit tokens match whole values); parsed spec
+  requirements are minimums, not keywords. **A named model is not answered with a different product class** (maker
+  electronics only, only when the user names no product type, always with a caveat listing what was left out).
+- Experiments run only on snapshot copies; the real DB was not modified in mission 004 (sha256 checked before/after).

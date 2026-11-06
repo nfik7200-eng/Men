@@ -1,4 +1,25 @@
-# Project progress — updated 2026-11-06 (mission 003: free-source scraping & price intelligence)
+# Project progress — updated 2026-11-06 (mission 004: loop engineering)
+
+## Mission 004 — verified now
+| Claim | Evidence |
+|---|---|
+| Baseline re-verified | HEAD bef6b7e = origin; clean tree; **284 passed**; coverage 90 % |
+| Now | **316 passed** (~35 s); coverage 92 %; 8 local commits on `claude/sweet-franklin-dsta71`, **not pushed** (mission rule); PR #3 untouched |
+| Real DB untouched | sha256 of `data/watchtower.db` and `-wal` identical before/after; all experiments on snapshot copies |
+| Backup defect found & fixed | the DB is WAL; a file copy lost 28 listings, 70 observations, 1 run (mission-003 backups were made this way). `watchtower.cli backup` = verified online backup |
+| Review queue | 23 pending → **12** on a rematched snapshot copy (22 were 11 mirrored pairs); rejecting a pair can no longer be undone by accepting its mirror |
+| Assistant (real data, snapshot) | "pi 5 8gb", "pi 5 2gb", "pi 4 4gb" now return the exact board from **both** merchants (before: 1 merchant and/or Compute Modules); out-of-stock exact products shown + flagged, left-out listings reported |
+| Integrity | `watchtower.cli verify`: 13 invariants hold on the snapshot except the 11 mirrors (fixed by `rematch` with the new code — on a copy: all OK) |
+| Independent review | 3 read-only reviewer subagents (iterations 1–3, 2, 4–6); 2 + 1 + 5 high-confidence findings, all reproduced by failing tests and fixed; 1 claim did not reproduce as stated |
+| Unchanged (needs time / permission, not code) | 2 merchants, 282 live listings, 1 day of history, 0 verified deals, no laptop/phone data, no third merchant |
+
+**Human decisions needed:** (1) approve `backup` + `rematch` on the real DB to collapse the 11 mirrors; (2) decide the 12
+remaining review questions; (3) approve a daily collection schedule with a real contact address (≥8 days → first
+verified deals possible); (4) legal read / outreach for a third merchant. Details and backlog: `docs/LOOP_ENGINEERING.md`.
+
+---
+
+## Mission 003 record (2026-11-06: free-source scraping & price intelligence)
 
 ## Verified now (commands run in this session)
 | Claim | Evidence |
