@@ -77,7 +77,7 @@ describe("BIP dashboard", () => {
     await user.clear(screen.getByLabelText("Address"));
     await user.type(screen.getByLabelText("Address"), "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
     await user.click(screen.getByRole("button", { name: "Look up" }));
-    expect(await screen.findByText("No data stored for this address yet")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing has been retrieved for this address yet")).toBeInTheDocument();
   });
 
   it("creates a watchlist, adds and removes entries, rejects duplicates, deletes the list", async () => {
@@ -143,6 +143,9 @@ describe("BIP dashboard", () => {
     expect(await screen.findByText("No retrieval has been run for this address yet.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retrieve recent activity" }));
     expect(await screen.findByText("Run 1: partial")).toBeInTheDocument();
+    // stored observations now live in the workspace's Activity tab
+    const sections = screen.getByRole("navigation", { name: "Wallet sections" });
+    await user.click(within(sections).getByRole("link", { name: "Activity" }));
     expect(screen.getByText(/Not covered by this run/)).toBeInTheDocument();
     expect(screen.getByText("1 recorded issue(s)")).toBeInTheDocument();
     expect(await screen.findByText("Transactions (1)")).toBeInTheDocument();

@@ -24,3 +24,6 @@ export const shortId = (id: string, keep = 6): string =>
   id.length <= keep * 2 + 1 ? id : `${id.slice(0, keep + (id.startsWith("0x") ? 2 : 0))}…${id.slice(-keep)}`;
 
 export const humanize = (s: string): string => s.replace(/[_.]/g, " ");
+
+/** A count that may be missing: null is shown as "Not retrieved", never as 0. */
+export const fmtCount = (n: number | null): string => (n === null ? "Not retrieved" : fmtInt(n));

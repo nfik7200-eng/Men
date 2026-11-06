@@ -107,7 +107,7 @@ function ClaimList({ claims }: { claims: ResearchClaim[] }) {
   );
 }
 
-function ReportView({ runId }: { runId: string }) {
+export function ReportView({ runId }: { runId: string }) {
   const rep = useApi(() => api.researchReport(runId), [runId]);
   if (rep.status === "loading") return <Loading label="Loading report…" />;
   if (rep.status === "error") return <ErrorState error={rep.error} onRetry={rep.reload} />;
@@ -137,7 +137,7 @@ function ReportView({ runId }: { runId: string }) {
   );
 }
 
-function Investigation({ chain, address }: { chain: string; address: string }) {
+export function Investigation({ chain, address }: { chain: string; address: string }) {
   const [question, setQuestion] = useState("What kind of wallet is this, and what does the evidence support?");
   const [focus, setFocus] = useState<string[]>([]);
   const [preview, setPreview] = useState<ResearchPreview | null>(null);
@@ -207,7 +207,7 @@ function Investigation({ chain, address }: { chain: string; address: string }) {
   );
 }
 
-function WalletWorkspace({ chain, address }: { chain: string; address: string }) {
+export function ClassificationPanel({ chain, address }: { chain: string; address: string }) {
   const [result, setResult] = useState<Classification | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
@@ -241,6 +241,14 @@ function WalletWorkspace({ chain, address }: { chain: string; address: string })
           </details>
         ) : null}
       </Panel>
+    </>
+  );
+}
+
+function WalletWorkspace({ chain, address }: { chain: string; address: string }) {
+  return (
+    <>
+      <ClassificationPanel chain={chain} address={address} />
       <Investigation chain={chain} address={address} />
     </>
   );

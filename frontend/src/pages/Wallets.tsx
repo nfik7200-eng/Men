@@ -1,13 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api/client";
 import type { IngestionJob, ObservationRow } from "../api/types";
-import { addressUrl, txUrl } from "../lib/explorer";
+import { txUrl } from "../lib/explorer";
 import { EmptyState, ErrorState, FieldError, Loading, Mono, PageHeader, Panel, Pill } from "../components/ui";
 import { CHAINS, chainLabel, validateAddress } from "../lib/address";
 import { fmtInt, fmtTime, humanize, shortId } from "../lib/format";
 import { useApi } from "../lib/useApi";
-import WalletIntel from "./WalletIntel";
 
 export function WalletSearch() {
   const navigate = useNavigate();
@@ -110,7 +109,7 @@ export default function Wallets() {
   );
 }
 
-function IngestPanel({ chain, address, onDone }: { chain: string; address: string; onDone: () => void }) {
+export function IngestPanel({ chain, address, onDone }: { chain: string; address: string; onDone: () => void }) {
   const [limit, setLimit] = useState(20);
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<IngestionJob | null>(null);
@@ -210,39 +209,26 @@ function Provenance({ row }: { row: ObservationRow }) {
   );
 }
 
-export function WalletProfilePage() {
-  const { chain = "", address = "" } = useParams();
+/** Activity tab of the wallet workspace: retrieval, stored activity and raw observations. */
+export function WalletActivity({ chain, address, onIngested }: { chain: string; address: string; onIngested?: () => void }) {
   const profile = useApi(() => api.wallet(chain, address), [chain, address]);
   const txs = useApi(() => api.walletTransactions(chain, address), [chain, address]);
   const transfers = useApi(() => api.walletTransfers(chain, address), [chain, address]);
   const balances = useApi(() => api.walletBalanceChanges(chain, address), [chain, address]);
-  const [ingests, setIngests] = useState(0);
   const reloadAll = () => {
-    setIngests((n) => n + 1);
     profile.reload();
     txs.reload();
     transfers.reload();
     balances.reload();
+    onIngested?.();
   };
-  const explorer = addressUrl(chain, address);
 
   return (
     <>
-      <PageHeader
-        title="Wallet profile"
-        lede={`${chainLabel(chain)} · ${address}`}
-        actions={
-          <>
-            {explorer ? <a className="btn" href={explorer} target="_blank" rel="noopener noreferrer">Explorer</a> : null}
-            <Link className="btn" to="/wallets">Back to search</Link>
-          </>
-        }
-      />
       <IngestPanel chain={chain} address={address} onDone={reloadAll} />
-      {profile.status === "ready" ? <WalletIntel chain={chain} address={address} refreshKey={ingests} /> : null}
       {profile.status === "loading" ? <Loading /> : null}
       {profile.status === "error" && profile.error.code === "not_found" ? (
-        <EmptyState title="No data stored for this address yet">
+        <EmptyState title="Nothing has been retrieved for this address yet">
           The address is valid, but nothing has been retrieved for it. Use "Retrieve recent
           activity" above. An empty result after a run means no activity was found in the scanned
           window, not that the wallet has never been used.

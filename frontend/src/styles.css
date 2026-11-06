@@ -262,3 +262,12 @@ tr:last-child td { border-bottom: 0; }
 .grade-conflicted, .grade-invalidated { color: var(--bad); }
 .list li, .activity li > *, .state-body, .lede, .kv dd, .rule-list p, .rule-list li { overflow-wrap: anywhere; min-width: 0; }
 td a, dd a, li > a:only-child { display: inline-flex; align-items: center; min-height: var(--target); }
+
+/* ---------------------------------------------------------------- wallet workspace */
+.wallet-id { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+.coverage { margin: 0; color: var(--muted); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.workspace-tabs { display: flex; flex-direction: row; gap: var(--s1); overflow-x: auto; scroll-snap-type: x proximity; border-bottom: 1px solid var(--line); padding-bottom: 1px; -webkit-overflow-scrolling: touch; }
+.workspace-tab { scroll-snap-align: start; white-space: nowrap; padding: var(--s2) var(--s3); color: var(--muted); border-bottom: 2px solid transparent; min-height: var(--target); display: inline-flex; align-items: center; }
+.workspace-tab:hover { color: var(--text); text-decoration: none; }
+.workspace-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.note > a:only-child { display: inline-flex; align-items: center; min-height: var(--target); }

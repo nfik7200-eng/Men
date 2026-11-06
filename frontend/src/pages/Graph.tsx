@@ -195,7 +195,7 @@ function EdgeDetails({ e }: { e: GraphEdge }) {
   );
 }
 
-function GraphView({ chain, address, depth }: { chain: string; address: string; depth: number }) {
+export function GraphView({ chain, address, depth }: { chain: string; address: string; depth: number }) {
   const g = useApi(() => api.graph(chain, address, depth), [chain, address, depth]);
   if (g.status === "loading") return <Loading label="Building graph from stored observations…" />;
   if (g.status === "error") return <ErrorState error={g.error} onRetry={g.reload} />;

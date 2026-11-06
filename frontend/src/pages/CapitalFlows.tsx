@@ -64,7 +64,7 @@ export function DailyFlowChart({ flows, asset }: { flows: Flows; asset: string }
   );
 }
 
-function FlowsView({ chain, address }: { chain: string; address: string }) {
+export function FlowsView({ chain, address }: { chain: string; address: string }) {
   const flows = useApi(() => api.flows(chain, address), [chain, address]);
   const [asset, setAsset] = useState<string | null>(null);
   if (flows.status === "loading") return <Loading label="Computing flows from stored transfers…" />;

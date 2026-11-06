@@ -16,7 +16,7 @@ const renderAt = (path: string) =>
 describe("wallet intelligence", () => {
   it("shows scope-labelled metrics, rules, detectors and verification", async () => {
     installFakeBackend();
-    renderAt(`/wallets/ethereum/${ETH_WALLET}`);
+    renderAt(`/wallets/ethereum/${ETH_WALLET}/evidence`);
     const intel = await screen.findByRole("region", { name: "Wallet intelligence" });
     expect(within(intel).getByText(/not the wallet's lifetime history/)).toBeInTheDocument();
     expect(within(intel).getByText("transactions observed in retrieved dataset")).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe("wallet intelligence", () => {
   it("runs analysis and reports a verification check that could not run", async () => {
     const user = userEvent.setup();
     const { fetchMock } = installFakeBackend();
-    renderAt(`/wallets/ethereum/${ETH_WALLET}`);
+    renderAt(`/wallets/ethereum/${ETH_WALLET}/evidence`);
     await user.click(await screen.findByRole("button", { name: "Run analysis" }));
     expect(await screen.findByText(/Analysis run 1 completed/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Verify" }));
@@ -42,7 +42,7 @@ describe("wallet intelligence", () => {
 
   it("labels offline fixture data as demo data", async () => {
     installFakeBackend({ origin: "offline_fixture" });
-    renderAt(`/wallets/ethereum/${ETH_WALLET}`);
+    renderAt(`/wallets/ethereum/${ETH_WALLET}/evidence`);
     expect(await screen.findByText(/Demo data: offline fixtures/)).toBeInTheDocument();
   });
 });

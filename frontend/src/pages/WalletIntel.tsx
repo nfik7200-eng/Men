@@ -213,7 +213,13 @@ function AnomalyList({ items }: { items: Anomaly[] }) {
   );
 }
 
-export default function WalletIntel({ chain, address, refreshKey }: { chain: string; address: string; refreshKey: number }) {
+export default function WalletIntel({ chain, address, refreshKey, showOrigin = true }: {
+  chain: string;
+  address: string;
+  refreshKey: number;
+  /** false where the page already shows the data-origin banner (wallet workspace) */
+  showOrigin?: boolean;
+}) {
   const profile = useApi(() => api.intelProfile(chain, address), [chain, address, refreshKey]);
   const behaviour = useApi(() => api.intelBehaviour(chain, address), [chain, address, refreshKey]);
   const anomalies = useApi(() => api.anomalies(chain, address), [chain, address, refreshKey]);
@@ -230,7 +236,7 @@ export default function WalletIntel({ chain, address, refreshKey }: { chain: str
   const q = `?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}`;
   return (
     <section aria-label="Wallet intelligence" className="intel">
-      <DataOriginBanner origin={p.data_origin} />
+      {showOrigin ? <DataOriginBanner origin={p.data_origin} /> : null}
       {p.scope.transactions === 0 && p.scope.transfers === 0 ? (
         <EmptyState title="Nothing to analyse yet">
           No observations are stored for this wallet. Retrieve recent activity first; analysis

@@ -11,7 +11,8 @@ import Overview from "./pages/Overview";
 import Providers from "./pages/Providers";
 import Research from "./pages/Research";
 import Settings from "./pages/Settings";
-import Wallets, { WalletProfilePage } from "./pages/Wallets";
+import Wallets from "./pages/Wallets";
+import WalletWorkspacePage from "./pages/wallet/Workspace";
 import Watchlists from "./pages/Watchlists";
 
 export { NAV, NAV_GROUPS } from "./components/shell";
@@ -63,7 +64,7 @@ function Shell() {
           <Route path="/" element={<Overview />} />
           <Route path="/chains" element={<Chains />} />
           <Route path="/wallets" element={<Wallets />} />
-          <Route path="/wallets/:chain/:address" element={<WalletProfilePage />} />
+          <Route path="/wallets/:chain/:address/:tab?" element={<WalletWorkspacePage />} />
           <Route path="/flows" element={<CapitalFlows />} />
           <Route path="/graph" element={<GraphPage />} />
           <Route path="/opportunities" element={<Opportunities />} />

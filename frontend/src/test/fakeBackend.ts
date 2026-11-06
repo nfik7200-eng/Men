@@ -262,6 +262,10 @@ export function researchResponse(path: string, method: string, opts: ResearchOpt
       contradictions: [], claim_status_counts: { unverified: 1, inferred: 1, insufficient_evidence: 1 }, next_steps: ["Corroborate key transactions."],
       limitations: ["No AI model available (No AI provider is configured.). The report contains deterministic analysis and wallet classification only (see its rules and model provenance)."],
       legend: {}, disclaimer: "No identity attribution and no financial advice. Predictions and interpretations are not facts.", evidence_references: ["transaction:" + TX] } };
+  if (path.startsWith("/research/runs?")) {
+    const items = state.started ? [run(state.cancelled ? "cancelled" : "completed_with_limitations")] : [];
+    return { items, total: items.length, limit: 20, offset: 0 };
+  }
   if (path.startsWith("/research/runs/")) {
     state.polls += 1;
     if (state.cancelled) return run("cancelled");
@@ -276,6 +280,8 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
   let healthy = false;
   let ingested = false;
   const watchlists = new Map<number, { id: number; name: string; description: string | null; entries: Json[] }>();
+  const cases: { id: number; title: string; description: string | null; status: string; subject_chain: string | null; subject_address: string | null; created_at: string; updated_at: string; findings: Json[] }[] = [];
+  const caseLinks = new Map<number, Json[]>();
   const json = (status: number, body?: unknown) =>
     Promise.resolve(new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
   const err = (status: number, code: string, message: string) => json(status, { error: { code, message } });
@@ -335,6 +341,47 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
           degraded: 0, unavailable: 0, untested: healthy ? 1 : 2, disabled: 0 },
       });
     if (path.startsWith("/wallets?")) return json(200, { total: 0, limit: 50, offset: 0, items: [] });
+    const st = /^\/wallets\/(ethereum|solana)\/([^/]+)\/status$/.exec(path);
+    if (st) {
+      const [, c, a] = st as unknown as [string, string, string];
+      const address = c === "ethereum" ? a.toLowerCase() : a;
+      const stored = (c === "ethereum" && address === ETH_WALLET) || (c === "solana" && address === SOL_WALLET && ingested);
+      const lists = [...watchlists.values()].filter((w) => w.entries.some((e) => e.chain === c && e.address === address.toLowerCase()));
+      return json(200, {
+        chain: c, address, stored, transaction_count: stored ? 2 : null, transfer_count: stored ? 3 : null,
+        first_observed_at: stored ? now : null, last_observed_at: stored ? now : null, last_ingested_at: stored ? now : null,
+        data_origin: intel.origin === "offline_fixture" ? "offline_fixture" : "live", classifications: 0, research_runs: 0,
+        watchlists: lists.map((w) => ({ id: w.id, name: w.name })),
+        investigations: cases.filter((i) => i.subject_chain === c && i.subject_address === address).map((i) => ({ id: i.id, title: i.title, status: i.status })),
+      });
+    }
+    if (path === "/investigations" && method === "GET") return json(200, cases.map((i) => ({ ...i, finding_count: 0 })));
+    if (path === "/investigations" && method === "POST") {
+      const inv = { id: nextId++, title: String(body.title), description: (body.description as string | null) ?? null, status: "open",
+        subject_chain: (body.subject_chain as string | null) ?? null, subject_address: (body.subject_address as string | null) ?? null,
+        created_at: now, updated_at: now, findings: [] };
+      cases.push(inv);
+      return json(201, inv);
+    }
+    const ir = /^\/investigations\/(\d+)\/research-runs(?:\/(.+))?$/.exec(path);
+    if (ir) {
+      const id = Number(ir[1]);
+      if (!cases.some((i) => i.id === id)) return err(404, "not_found", "investigation not found");
+      const links = caseLinks.get(id) ?? [];
+      if (method === "POST") {
+        if (links.some((l) => l.run_id === body.run_id)) return err(409, "conflict", "already linked");
+        links.push({ run_id: body.run_id, note: body.note ?? null, attached_at: now, state: "completed_with_limitations", question: "What kind of wallet is this?", chain: "solana", address: SOL_WALLET, created_at: now });
+        caseLinks.set(id, links);
+        return json(201, { investigation_id: id, run_id: body.run_id });
+      }
+      if (method === "DELETE") { caseLinks.set(id, links.filter((l) => l.run_id !== ir[2])); return json(204); }
+      return json(200, { items: links });
+    }
+    const one = /^\/investigations\/(\d+)$/.exec(path);
+    if (one) {
+      const inv = cases.find((i) => i.id === Number(one[1]));
+      return inv ? json(200, inv) : err(404, "not_found", "investigation not found");
+    }
     if (path === `/wallets/ethereum/${ETH_WALLET}`)
       return json(200, { chain: "ethereum", address: ETH_WALLET, transaction_count: 2, transfer_count: 3, first_observed_at: now, last_observed_at: now,
         first_seen_source: "publicnode-eth", first_seen_ingestion: "on_demand", first_seen_verification: "unverified", recent_transactions: [], recent_transfers: [] });
@@ -371,7 +418,7 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     }
     return err(404, "not_found", "Not Found");
   });
-  return { fetchMock, watchlists };
+  return { fetchMock, watchlists, cases, caseLinks };
 }
 
 function job(): Json {
