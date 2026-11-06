@@ -225,3 +225,15 @@ def test_collector_records_outcome_and_selection_reason_per_url(live_db):
     with live_db.session() as s:
         outcomes = {c.last_outcome for c in s.query(CrawlUrl)}
         assert "ok" in outcomes and all(o for o in outcomes)  # every tried URL has an outcome
+
+
+def test_a_differing_model_number_is_family_evidence_not_a_strong_match(live_db):
+    ensure_sources(live_db)
+    with live_db.session() as s:
+        _ada_listing(s, "Raspberry Pi Pico W", "5526")
+        src, rows = _spark_rows(s, ["raspberry-pi-pico-2-w", "raspberry-pi-pico-w"])
+        hints = {c.url: acquisition.hint_from_url(c.url) for c in rows}
+        ranked = {r.crawl.url.rsplit("/", 1)[1]: r for r in acquisition.rank_fresh(s, src, rows, {c.url: 0 for c in rows}, hints, NOW)}
+        pts = lambda k: next(c.points for c in ranked[k].components if c.name == "cross_merchant")
+        assert pts("raspberry-pi-pico-w.html") == acquisition.CROSS_EXACT
+        assert pts("raspberry-pi-pico-2-w.html") <= acquisition.CROSS_FAMILY

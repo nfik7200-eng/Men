@@ -28,9 +28,12 @@ class SparkFun(ProductPageAdapter):
         _, pages = parse_sitemap(fetcher.get(self.sitemap_url))
         out = [e for e in pages if _PAGE.match(e.loc) and _SCOPE.search(e.loc)]
         for e in out:  # boards other merchants also sell first
-            slug = e.loc.rsplit("/", 1)[-1]
-            e.priority = 0 if slug.startswith("raspberry-pi") else (1 if re.search(r"arduino|micro-?bit|pico|rp2040", slug) else 2)
+            e.priority = self.tier_for_url(e.loc)
         return sorted(out, key=lambda e: (e.priority, e.loc))
+
+    def tier_for_url(self, url: str) -> int:
+        slug = url.rsplit("/", 1)[-1]
+        return 0 if slug.startswith("raspberry-pi") else (1 if re.search(r"arduino|micro-?bit|pico|rp2040", slug) else 2)
 
     def required_urls(self):
         return [f"{self.base_url}/raspberry-pi-zero-2-w.html", self.sitemap_url]

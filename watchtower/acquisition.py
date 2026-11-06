@@ -86,7 +86,8 @@ def _cross_merchant(hint: str | None, pool: list[Listing]) -> Component:
             continue
         if sh == sl:
             pts, level = CROSS_EXACT, "exact"
-        elif (sh < sl or sl < sh) and len(sh ^ sl) <= 1:
+        elif (sh < sl or sl < sh) and len(sh ^ sl) <= 1 and all(w.isalpha() for w in sh ^ sl):
+            # one extra WORD ('Zero 2 W' vs 'Zero 2 W Mini'); a differing number ('Pico W' vs 'Pico 2 W') is a different model
             pts, level = CROSS_STRONG, "strong"
         else:
             pts, level = CROSS_FAMILY, "family"

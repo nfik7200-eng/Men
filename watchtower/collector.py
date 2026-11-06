@@ -72,7 +72,7 @@ def _listing_url_ok(url: str, hosts: set[str]) -> bool:
 def run_source(db: Database, key: str, fetcher: Fetcher | None = None, max_pages: int | None = None,
                now_fn=utcnow) -> int:
     adapter = ADAPTERS[key]
-    cap = max_pages if max_pages is not None else adapter.default_max_pages
+    cap = min(max_pages, config.MAX_PAGE_BUDGET) if max_pages is not None else config.page_budget(adapter.key, adapter.default_max_pages)
     ensure_sources(db)
     ensure_policies(db)
     with db.session() as s:

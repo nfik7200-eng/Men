@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | source | fx"""
+"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | source | fx"""
 import argparse
 import logging
 
@@ -6,7 +6,7 @@ from .collector import SourceBusy, SourceDisabled, SourceNotConfigured, ensure_s
 from .fetcher import FetchError
 from .policy import SourceNotApproved, ensure_policies
 from .db import Database
-from .models import CollectionRun, Listing, Observation, Source
+from .models import CollectionRun, CrawlUrl, Listing, Observation, Source
 from .sources import ADAPTERS
 
 
@@ -37,6 +37,12 @@ def main(argv=None):
     b.add_argument("--out", help="destination file (default data/backups/watchtower-<UTC time>.db); never overwritten")
     v = sub.add_parser("verify", help="read-only data-integrity report (exit 1 if an invariant is violated)")
     v.add_argument("--db", help="SQLite file to check (default: the configured database); a snapshot is safest")
+    pl = sub.add_parser("plan", help="OFFLINE dry run of the next collection's selection (no network, no writes)")
+    pl.add_argument("--db", required=True, help="SQLite snapshot/copy to read (never the live DB; rolled back, nothing is written)")
+    pl.add_argument("--source", required=True, choices=list(ADAPTERS))
+    pl.add_argument("--max-pages", type=int)
+    pl.add_argument("--show", type=int, default=15, help="how many selected/deferred URLs to list")
+    pl.add_argument("--explain", help="URL whose legacy (tier, alphabetical) rank and new rank to compare")
     e = sub.add_parser("source")
     e.add_argument("action", choices=["enable", "disable"])
     e.add_argument("key", choices=list(ADAPTERS))
@@ -44,6 +50,8 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if args.cmd == "backup":  # before Database(): opening the app DB normally runs init/ensure_* writes
         return _backup(args.out)
+    if args.cmd == "plan":  # offline and read-only as well
+        return _plan(args)
     if args.cmd == "verify":  # read-only as well
         return _verify(args.db)
     db = Database()
@@ -118,6 +126,54 @@ def main(argv=None):
                 print(f"{src.key}: {n} listings, {state}, {'configured' if ready else 'NOT CONFIGURED (' + ', '.join(missing) + ')'}, "
                       f"last_success={src.last_success_at}, last_status={src.last_status}")
             print("observations:", s.query(Observation).count())
+
+
+def _plan(args) -> int:
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from sqlalchemy import select
+    from . import acquisition, config
+    from .collector import RECHECK_SHARE
+    path = Path(args.db).resolve()
+    live = config.DB_URL[len("sqlite:///"):] if config.DB_URL.startswith("sqlite:///") else None
+    if not path.is_file() or (live and path == Path(live).resolve()):
+        print("plan: --db must be an existing snapshot/copy, never the configured live database")
+        return 2
+    adapter = ADAPTERS[args.source]
+    cap = min(args.max_pages, config.MAX_PAGE_BUDGET) if args.max_pages else config.page_budget(adapter.key, adapter.default_max_pages)
+    db = Database(f"sqlite:///{path}")
+    added = db.sync_columns()  # forward-only: lets an older COPY be read with the current schema (the copy, never the live DB)
+    if added:
+        print(f"note: added {len(added)} new nullable column(s) to the COPY {path.name} (e.g. {added[0]})")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with db.Session() as s:  # never committed
+        src = s.query(Source).filter_by(key=args.source).one()
+        known = {c.url: c for c in s.scalars(select(CrawlUrl).where(CrawlUrl.source_id == src.id))}
+        tiers = {u: (adapter.tier_for_url(u) if hasattr(adapter, "tier_for_url") else None) for u in known}
+        tiers = {u: (2 if t is None else t) for u, t in tiers.items()}  # tier unknown offline: neutral default
+        hints = {u: (c.name_hint or acquisition.hint_from_url(u)) for u, c in known.items()}
+        legacy = sorted((u for u, c in known.items() if c.last_fetched_at is None and not c.gone), key=lambda u: (tiers[u], u))
+        plan = acquisition.plan_run(s, src, known, set(known), tiers, hints, cap, now, RECHECK_SHARE)
+        print(f"plan for {args.source} (offline, nothing fetched, nothing written): budget={cap} pages, known URLs={len(known)}")
+        print("  decisions: " + ", ".join(f"{k}={v}" for k, v in plan.counts.items()))
+        print(f"  never fetched: {len(plan.ranked)}; due re-checks selected: {len(plan.recheck)}; discovery slots: {len(plan.fresh)}")
+        named = sum(1 for sc in plan.ranked if hints.get(sc.crawl.url))
+        print(f"  never-fetched URLs with a usable name hint: {named} of {len(plan.ranked)}")
+        for i, sc in enumerate(plan.ranked[: args.show], 1):
+            why = "; ".join(f"{c.name} {c.points:g}" for c in sc.components if c.points)
+            print(f"  {i:3}. {sc.score:6.1f}  {sc.crawl.url}  [{why}]")
+        if args.explain:
+            row = known.get(args.explain)
+            if row is None:
+                print(f"  explain: {args.explain} is not a known URL")
+            else:
+                new = next((i for i, sc in enumerate(plan.ranked, 1) if sc.crawl.url == args.explain), None)
+                old = legacy.index(args.explain) + 1 if args.explain in legacy else None
+                print(f"  explain {args.explain}: legacy rank {old} of {len(legacy)} (tier {tiers[args.explain]}, alphabetical), new rank {new}")
+                for c in (next(sc for sc in plan.ranked if sc.crawl.url == args.explain).components if new else []):
+                    print(f"      {c.name:14} {c.points:5g}  {c.why}")
+        s.rollback()
+    return 0
 
 
 def _verify(db_path: str | None) -> int:
