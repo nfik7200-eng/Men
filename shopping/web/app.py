@@ -6,6 +6,7 @@ from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -22,6 +23,7 @@ from watchtower.health import source_health
 from shopping.web import security
 from watchtower.collector import SourceBusy, SourceDisabled, SourceNotConfigured, ensure_sources, run_source, set_enabled
 from watchtower.db import Database
+from watchtower.coverage import coverage_report
 from watchtower.matching import resolve_candidate
 from watchtower.models import (AffiliateClick, CollectionRun, Event, Listing, MatchCandidate, Observation, Product, Source,
                                SourcePolicy, WatchItem, utcnow)
@@ -212,6 +214,14 @@ def create_app(db: Database | None = None) -> FastAPI:
         kinds, data = kinds_for(s, data)
         return render(request, "deals.html", top=deals.top_deals(s, 30, category or None, kinds=kinds), category=category,
                       facets=facets(s), banner=banner(s), data=data)
+
+    @app.get("/coverage")
+    def coverage_page(request: Request, s=Depends(get_s)):
+        return render(request, "coverage.html", rep=coverage_report(s, with_next_up=True), banner=banner(s))
+
+    @app.get("/api/v1/coverage")
+    def api_coverage(s=Depends(get_s)):
+        return JSONResponse(jsonable_encoder(coverage_report(s, with_next_up=True)))
 
     @app.get("/research")
     def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):

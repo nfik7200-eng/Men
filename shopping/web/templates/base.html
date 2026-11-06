@@ -9,7 +9,7 @@
   <form class="search" action="/search" style="flex:1;min-width:180px;max-width:420px;display:flex;gap:6px">
     <input name="q" placeholder="Search products…" aria-label="Search products" value="{{ (f.q if f is defined else '') or '' }}">
   </form>
-  <nav aria-label="Main"><a href="/search">Browse</a><a href="/deals">Deals</a><a href="/research">Research</a><a href="/watchlist">Watchlist</a><a href="/admin">Sources</a></nav>
+  <nav aria-label="Main"><a href="/search">Browse</a><a href="/deals">Deals</a><a href="/research">Research</a><a href="/watchlist">Watchlist</a><a href="/coverage">Coverage</a><a href="/admin">Sources</a></nav>
 </div></header>
 <main class="wrap">
 {% if banner == 'demo' %}<div class="banner" role="note"><b>Demo / test data only.</b> No real-retailer listings have been collected yet: everything shown comes from scraping-practice sites or API sandboxes. The pipeline is real; the prices are not shopping opportunities.</div>{% endif %}

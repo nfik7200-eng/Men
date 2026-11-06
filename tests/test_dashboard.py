@@ -159,3 +159,19 @@ def test_both_sides_of_an_automatic_match_show_consistent_status(db):
         s.flush()
         assert second.product_id == first.product_id and second.match_status == "auto"
         assert first.match_status == "auto" and "identical normalised name" in " ".join(first.match_reasons) and "stale" not in " ".join(first.match_reasons)
+
+
+def test_coverage_page_separates_discovered_from_collected_and_explains_what_is_next(world):
+    db, c, t0 = world
+    r = c.get("/coverage")
+    assert r.status_code == 200
+    html = r.text
+    assert "Collection coverage" in html and "Discovered" in html and "Collected" in html
+    assert "Adafruit" in html and "SparkFun" in html
+    assert "not a listing" in html or "not collected" in html.lower()  # discovered URLs are labelled as such
+    assert "Webscraper" not in html and "Books to Scrape" not in html  # demo catalogues are not part of real coverage
+    assert "nav" in html and "/coverage" in html
+    j = c.get("/api/v1/coverage")
+    assert j.status_code == 200 and j.json()["data_class"] == "live"
+    assert {x["key"] for x in j.json()["sources"]} == {"adafruit", "sparkfun"}
+    assert all("url" in n and "score" in n for x in j.json()["sources"] for n in x["next_up"])

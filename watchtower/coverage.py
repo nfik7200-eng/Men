@@ -91,7 +91,15 @@ def source_coverage(s: Session, src: Source, now: datetime | None = None) -> dic
     }
 
 
-def coverage_report(s: Session, now: datetime | None = None) -> dict:
+def next_up(s: Session, src: Source, limit: int = 8) -> list[dict]:
+    """The best never-acquired URLs by recorded priority: what the next collection would fetch first (and why)."""
+    rows = [c for c in s.scalars(select(CrawlUrl).where(CrawlUrl.source_id == src.id)) if _classify(c) in ("never_attempted", "fetch_error")]
+    rows.sort(key=lambda c: (-(c.priority_score or 0), c.url))
+    return [{"url": c.url, "score": c.priority_score, "state": c.selection_state, "reason": c.selection_reason,
+             "why": [f"{r['name']} {r['points']:g}: {r['why']}" for r in (c.priority_reasons or []) if r.get("points")]} for c in rows[:limit]]
+
+
+def coverage_report(s: Session, now: datetime | None = None, with_next_up: bool = False) -> dict:
     """Live sources only: demo/sandbox data never counts toward real coverage."""
     now = now or utcnow()
     srcs = list(s.scalars(select(Source).where(Source.kind == "live").order_by(Source.key)))
@@ -102,4 +110,4 @@ def coverage_report(s: Session, now: datetime | None = None) -> dict:
             by_product.setdefault(l.product_id, set()).add(l.source_id)
     return {"data_class": "live", "live_merchants": len({l.source_id for l in listings}), "live_listings": len(listings),
             "cross_merchant_products": sum(1 for v in by_product.values() if len(v) >= 2),
-            "sources": [source_coverage(s, x, now) for x in srcs]}
+            "sources": [{**source_coverage(s, x, now), **({"next_up": next_up(s, x)} if with_next_up else {})} for x in srcs]}
