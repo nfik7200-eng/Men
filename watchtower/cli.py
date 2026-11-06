@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | source | fx"""
+"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | source | fx"""
 import argparse
 import logging
 
@@ -35,6 +35,8 @@ def main(argv=None):
     fx.add_argument("--url")
     b = sub.add_parser("backup", help="verified, WAL-safe snapshot of the database (read-only; never modifies it)")
     b.add_argument("--out", help="destination file (default data/backups/watchtower-<UTC time>.db); never overwritten")
+    v = sub.add_parser("verify", help="read-only data-integrity report (exit 1 if an invariant is violated)")
+    v.add_argument("--db", help="SQLite file to check (default: the configured database); a snapshot is safest")
     e = sub.add_parser("source")
     e.add_argument("action", choices=["enable", "disable"])
     e.add_argument("key", choices=list(ADAPTERS))
@@ -42,6 +44,8 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if args.cmd == "backup":  # before Database(): opening the app DB normally runs init/ensure_* writes
         return _backup(args.out)
+    if args.cmd == "verify":  # read-only as well
+        return _verify(args.db)
     db = Database()
     db.init()
     ensure_sources(db)
@@ -114,6 +118,23 @@ def main(argv=None):
                 print(f"{src.key}: {n} listings, {state}, {'configured' if ready else 'NOT CONFIGURED (' + ', '.join(missing) + ')'}, "
                       f"last_success={src.last_success_at}, last_status={src.last_status}")
             print("observations:", s.query(Observation).count())
+
+
+def _verify(db_path: str | None) -> int:
+    from pathlib import Path
+    from . import config
+    from .integrity import integrity_report
+    path = Path(db_path) if db_path else Path(config.DB_URL[len("sqlite:///"):])
+    if not path.is_file():
+        print(f"verify: database not found: {path}")
+        return 2
+    r = integrity_report(path)
+    for ch in r["checks"]:
+        print(f"{'ok  ' if ch['ok'] else 'FAIL'} {ch['name']:46} {ch['value']}" + ("" if ch["ok"] else f"  ({ch['meaning']})"))
+    for k, val in r["metrics"].items():
+        print(f"     {k:46} {val}")
+    print("integrity: OK" if r["ok"] else "integrity: VIOLATIONS FOUND")
+    return 0 if r["ok"] else 1
 
 
 def _backup(out: str | None) -> int:
