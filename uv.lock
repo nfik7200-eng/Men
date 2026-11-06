@@ -39,10 +39,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "numpy" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "scikit-learn" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
 ]
@@ -54,14 +52,16 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+ml = [
+    { name = "numpy" },
+    { name = "scikit-learn" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "numpy", specifier = ">=2.0,<3" },
     { name = "pydantic", specifier = ">=2.9,<3" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
-    { name = "scikit-learn", specifier = ">=1.5,<2" },
     { name = "sqlalchemy", specifier = ">=2.0.36,<3" },
     { name = "uvicorn", specifier = ">=0.32,<1" },
 ]
@@ -72,6 +72,10 @@ dev = [
     { name = "pyright", specifier = ">=1.1.390" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.8" },
+]
+ml = [
+    { name = "numpy", specifier = ">=2.0,<3" },
+    { name = "scikit-learn", specifier = ">=1.5,<2" },
 ]
 
 [[package]]

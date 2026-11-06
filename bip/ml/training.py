@@ -29,7 +29,7 @@ import json
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, insert, select, update
 
@@ -39,9 +39,12 @@ from bip.db.errors import InvalidRecordError
 from bip.db.repository import Repository
 from bip.db.types import utcnow
 from bip.intel.dataset import load_wallet
-from bip.ml import backend, synthetic, taxonomy
+from bip.ml import runtime, synthetic, taxonomy
 from bip.ml.features import FEATURE_NAMES, FEATURE_VERSION, FeatureVector, extract
 from bip.ml.labels import LabelStore
+
+if TYPE_CHECKING:
+    from bip.ml.backend import LabelModel
 
 J = dict[str, Any]
 MODEL_PREFIX = "wallet-classifier"
@@ -121,6 +124,7 @@ class Trainer:
             )
         if source not in {"synthetic", "stored_labels"}:
             raise InvalidRecordError("source must be 'stored_labels' or 'synthetic'")
+        backend = runtime.backend()  # raises MLUnavailableError before any run is recorded
         data_kind = "synthetic" if source == "synthetic" else "real"
         name = f"{MODEL_PREFIX}-{chain}"
         params: J = {
@@ -200,7 +204,7 @@ class Trainer:
         x_va, _ = backend.matrix([e.fv.values for e in splits["validation"]], FEATURE_NAMES, med)
         x_te, _ = backend.matrix([e.fv.values for e in splits["test"]], FEATURE_NAMES, med)
         candidate = sorted({lab for e in examples for lab in e.labels})
-        modelled: dict[str, backend.LabelModel] = {}
+        modelled: dict[str, LabelModel] = {}
         skipped: dict[str, str] = {}
         evals: list[J] = []
         for lab in candidate:
@@ -234,7 +238,7 @@ class Trainer:
             )
             modelled[lab] = m
             for split, x in (("train", x_tr), ("validation", x_va), ("test", x_te)):
-                p = backend.scores(m, x[idx[split]]) if idx[split] else []
+                p: list[float] = backend.scores(m, x[idx[split]]) if idx[split] else []
                 evals.append(
                     {
                         "split": split,

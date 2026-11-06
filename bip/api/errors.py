@@ -21,6 +21,7 @@ from bip.db.errors import (
     InvalidRecordError,
     RecordNotFoundError,
 )
+from bip.ml.runtime import MLUnavailableError
 from bip.providers.registry import ProviderNotFoundError
 from bip.router.router import NoEligibleProviderError, RoutingFailedError
 from bip.security.secrets import redact_text
@@ -39,6 +40,10 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RecordNotFoundError)
     async def _not_found(_: Request, exc: RecordNotFoundError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         return error_response(404, "not_found", str(exc))
+
+    @app.exception_handler(MLUnavailableError)
+    async def _ml_unavailable(_: Request, exc: MLUnavailableError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        return error_response(503, "ml_unavailable", str(exc))
 
     @app.exception_handler(DuplicateRecordError)
     async def _duplicate(_: Request, exc: DuplicateRecordError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]

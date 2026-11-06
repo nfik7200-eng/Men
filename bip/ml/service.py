@@ -31,7 +31,7 @@ from bip.db.errors import RecordNotFoundError
 from bip.db.repository import Repository, canonical_address
 from bip.db.types import utcnow
 from bip.intel.dataset import load_wallet
-from bip.ml import backend, rules, taxonomy
+from bip.ml import rules, runtime, taxonomy
 from bip.ml.features import FEATURE_NAMES, FEATURE_VERSION, FeatureVector, extract
 
 J = dict[str, Any]
@@ -127,7 +127,7 @@ class ClassificationService:
         key = (model["name"], model["version"])
         if key not in self._cache:
             root = self._settings.resolved_data_root
-            self._cache[key] = backend.load(
+            self._cache[key] = runtime.backend().load(
                 root / model["artifact_path"], model["artifact_sha256"], root / "ml" / "models"
             )
         return self._cache[key]
@@ -207,6 +207,13 @@ class ClassificationService:
         limitations = [
             "Classification is based only on activity BIP has retrieved (not lifetime history)."
         ]
+        if model is not None and not runtime.ml_runtime().available:
+            limitations.append(
+                f"A trained model ({model['name']} {model['version']}) is registered, but the "
+                "ML runtime (numpy, scikit-learn) is not installed in this environment: only "
+                "the deterministic rules baseline ran. No model prediction is shown."
+            )
+            model = None
         if ref.chain == "ethereum":
             limitations.append(
                 "Ethereum activity is discovered via Transfer logs; plain ETH "
@@ -304,7 +311,8 @@ class ClassificationService:
 
     def _predict(self, model: J, fv: FeatureVector) -> tuple[list[J], list[J], J]:
         art = self._artifact(model)
-        x, _ = backend.matrix([fv.values], FEATURE_NAMES, art["medians"])
+        be = runtime.backend()
+        x, _ = be.matrix([fv.values], FEATURE_NAMES, art["medians"])
         roles: list[J] = []
         not_assigned: list[J] = []
         for lab, spec in sorted(art["labels"].items()):
@@ -351,7 +359,7 @@ class ClassificationService:
         not_assigned.sort(key=lambda d: -d["score"])
         anomaly: J = {"status": "not_available", "reason": "model has no anomaly detector"}
         if art.get("anomaly") is not None:
-            s = backend.anomaly_scores(art["anomaly"], x)[0]
+            s = be.anomaly_scores(art["anomaly"], x)[0]
             ref = art["anomaly_reference"]
             pct = sum(1 for r in ref if r <= s) / len(ref) if ref else None
             anomaly = {

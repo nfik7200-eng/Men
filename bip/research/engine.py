@@ -607,7 +607,8 @@ class ResearchManager:
         if not status.available:
             limitations.append(
                 f"No AI model available ({status.reason}). The report contains "
-                "deterministic analysis and ML classification only."
+                "deterministic analysis and wallet classification only (see its "
+                "rules and model provenance)."
             )
             return out
         if budget.model_calls >= self._cfg.max_model_calls:

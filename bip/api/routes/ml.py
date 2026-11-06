@@ -17,7 +17,7 @@ from bip.api.deps import Context, WritableContext
 from bip.api.errors import error_response
 from bip.api.routes.chains import _require_chain  # pyright: ignore[reportPrivateUsage]
 from bip.api.schemas import Body
-from bip.ml import taxonomy
+from bip.ml import runtime, taxonomy
 from bip.ml.features import DESCRIPTIONS, FEATURE_NAMES, FEATURE_VERSION
 from bip.ml.labels import LabelIn, ReviewIn
 
@@ -91,9 +91,11 @@ def wallet_features(ctx: Context, chain: ChainP, address: AddressP) -> Any:
 
 @router.get("/models")
 def list_models(ctx: Context) -> J:
+    rt = runtime.ml_runtime()
     return {
         "items": ctx.classifier.models(),
         "active": {c: ctx.classifier.active_model(c) for c in ("ethereum", "solana")},
+        "runtime": {"available": rt.available, "missing": list(rt.missing)},
     }
 
 

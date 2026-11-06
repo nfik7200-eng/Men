@@ -75,7 +75,7 @@ class NoProvider:
             None,
             False,
             "No AI provider is configured (BIP_AI__PROVIDER="
-            "none). Deterministic analysis and ML classification still run.",
+            "none). Deterministic analysis and wallet classification still run.",
         )
 
     def generate(self, system: str, user: str, *, timeout_s: float, max_bytes: int) -> str:

@@ -8,6 +8,43 @@ How to work on the BIP code base. Applies from roadmap Stage 1 onward.
 - [uv](https://docs.astral.sh/uv/) for environments and dependencies.
 - Node.js 22+ and npm for the frontend.
 - No database server, Docker, API keys or network access are needed to run the app, checks or tests. SQLite ships with Python.
+- **ML runtime (optional):** numpy and scikit-learn are the `ml` dependency group. `uv sync` installs it by default. Without it (`uv sync --no-group ml`), BIP starts normally:
+  - classification uses only the deterministic rules baseline, and says so in its limitations;
+  - training returns `503 ml_unavailable`;
+  - `GET /api/v1/ml/models` reports `runtime.available: false`.
+
+  Rules output is never labelled as a model prediction.
+
+## Android phone (Termux + Ubuntu via proot-distro)
+
+The phone is a development and preview device. scikit-learn is not supported there, so run without the ML group. Full ML tests run in CI and on normal Linux.
+
+**Not verified on a real device yet.** These steps were checked in a Linux container with an environment built using `--no-group ml --no-dev`. Real ARM64 proot remains to be confirmed by the owner.
+
+1. **Use Ubuntu's own Python**, not a uv-managed or Termux (Android) interpreter. Earlier installs failed because uv picked an `aarch64-unknown-linux-android` interpreter and tried to build native wheels:
+   ```bash
+   cd /root/Men && git pull
+   export UV_PYTHON_PREFERENCE=only-system
+   uv sync --python /usr/bin/python3 --no-group ml --no-dev
+   ```
+   This needs no `.venv` deletion when the existing `.venv` already uses `/usr/bin/python3`. If `uv` reports a different interpreter, it recreates the environment. Your database lives under `BIP_DATA_ROOT`, not in `.venv`.
+2. **Start the offline fixture backend** (deterministic fake RPC nodes; every page labels the data "Demo data: offline fixtures"):
+   ```bash
+   BIP_DATA_ROOT=$HOME/bip-fixture uv run --no-sync python -m tests.stage2.serve_offline 8000
+   ```
+   `--no-sync` stops `uv run` from re-adding the ML group. Port 8000 is the frontend's default proxy target.
+3. **Start the frontend** in a second Termux session:
+   ```bash
+   cd /root/Men/frontend && npx vite
+   ```
+   Open `http://127.0.0.1:5173` in Chrome on the phone. The dev server binds to 127.0.0.1 only, so nothing is exposed to the network.
+4. **To use the real (non-fixture) backend instead:**
+   ```bash
+   uv run --no-sync python -m bip.api
+   ```
+   It reaches public RPC providers only where the network allows.
+
+If the backend is not running, the UI shows "Backend unreachable" (the Vite proxy's 502 is recognised) instead of a generic error.
 
 ## Commands
 

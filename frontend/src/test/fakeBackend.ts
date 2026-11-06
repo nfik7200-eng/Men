@@ -237,7 +237,7 @@ export function researchResponse(path: string, method: string, opts: ResearchOpt
   if (path.startsWith("/ml/training-runs") && method === "POST") return { status: "insufficient_data", message: "0 labelled wallet snapshot(s) with trainable labels; at least 30 are needed. No model was trained." };
   if (path.startsWith("/ml/training-runs")) return { items: [] };
   if (path === "/research/config")
-    return { provider: { name: llm ? "ollama" : "none", model: llm ? "llama3:8b" : null, available: llm, reason: llm ? "Local Ollama model available." : "No AI provider is configured (BIP_AI__PROVIDER=none). Deterministic analysis and ML classification still run." },
+    return { provider: { name: llm ? "ollama" : "none", model: llm ? "llama3:8b" : null, available: llm, reason: llm ? "Local Ollama model available." : "No AI provider is configured (BIP_AI__PROVIDER=none). Deterministic analysis and wallet classification still run." },
       configured: {}, how_to_configure: "Set BIP_AI__PROVIDER=ollama", budget: { max_tool_calls: 20 }, focus_areas: [], tools: [] };
   const budget = { max_seconds: 120, max_tool_calls: 20, max_model_calls: 8, max_tool_output_bytes: 102400, max_report_bytes: 30720, max_concurrent: 2 };
   if (path === "/research/preview")
@@ -260,7 +260,7 @@ export function researchResponse(path: string, method: string, opts: ResearchOpt
         ai_interpretations: [], hypotheses: [{ claim_key: "c-3", specialist: "behaviour_analyst", kind: "hypothesis", status: "insufficient_evidence", statement: "Possible service-like pattern.", confidence: null, evidence: [{ type: "rule", ref: "x" }], contradicts: [] }],
         missing_information: [], signals: [] },
       contradictions: [], claim_status_counts: { unverified: 1, inferred: 1, insufficient_evidence: 1 }, next_steps: ["Corroborate key transactions."],
-      limitations: ["No AI model available (No AI provider is configured.). The report contains deterministic analysis and ML classification only."],
+      limitations: ["No AI model available (No AI provider is configured.). The report contains deterministic analysis and wallet classification only (see its rules and model provenance)."],
       legend: {}, disclaimer: "No identity attribution and no financial advice. Predictions and interpretations are not facts.", evidence_references: ["transaction:" + TX] } };
   if (path.startsWith("/research/runs/")) {
     state.polls += 1;

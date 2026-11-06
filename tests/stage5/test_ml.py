@@ -10,13 +10,11 @@ import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from bip.config import load_settings
 from bip.db import schema
 from bip.intel.dataset import WalletDataset
 from bip.ml import backend, synthetic, taxonomy
@@ -24,26 +22,7 @@ from bip.ml.features import FEATURE_NAMES, extract
 from bip.ml.service import _contradictions  # pyright: ignore[reportPrivateUsage]
 from tests.stage3.builders import T0, Builder, a
 from tests.stage3.test_intel_api import Env
-
-API = "/api/v1"
-J = dict[str, Any]
-
-
-def env_with(tmp_path: Path, **ml: Any) -> Env:
-    e = Env(tmp_path, second=False)
-    e.settings = load_settings(data_root=e.settings.resolved_data_root, env="test", ml=ml)
-    from bip.api.app import create_app
-    from tests.api.conftest import roomy_guard
-
-    e.app = create_app(
-        e.settings,
-        engine=e.engine,
-        transport=e.transport,
-        disk_guard=roomy_guard(e.settings.resolved_data_root),
-        environ={},
-        rpc_sleep=lambda _s: None,
-    )
-    return e
+from tests.stage5.helpers import API, J, env_with
 
 
 @pytest.fixture

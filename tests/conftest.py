@@ -12,6 +12,7 @@ from bip.contracts.blockchain import BlockPosition, SlotPosition
 from bip.contracts.identifiers import EvmTxRef, SolanaTxRef
 from bip.contracts.provenance import IngestionMethod, Provenance, SourceKind
 from bip.security.secrets import clear_registered_secrets
+from tests.base58 import b58encode as _b58encode  # re-exported for existing imports
 
 # Synthetic identifiers (not real chain data).
 EVM_TX = "0x" + "ab" * 32
@@ -25,17 +26,6 @@ SOL_KEY_A = "11111111111111111111111111111111"  # 32 zero bytes (system program 
 SOL_KEY_B = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"  # 32 bytes
 
 COLLECTED = datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
-
-
-def _b58encode(data: bytes) -> str:
-    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    n = int.from_bytes(data, "big")
-    out = ""
-    while n:
-        n, r = divmod(n, 58)
-        out = alphabet[r] + out
-    pad = len(data) - len(data.lstrip(b"\x00"))
-    return "1" * pad + out
 
 
 SOL_SIGNATURE = _b58encode(bytes(range(1, 65)))

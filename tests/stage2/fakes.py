@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from bip.providers.registry import ResolvedEndpoint
 from bip.rpc.transport import TransportError, TransportResponse
-from tests.conftest import _b58encode  # pyright: ignore[reportPrivateUsage]
+from tests.base58 import b58encode as _b58encode
 
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 SOL_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
