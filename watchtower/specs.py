@@ -61,6 +61,15 @@ def parse_specs(title: str, description: str, category: str | None = None) -> di
             storage = max(storage or 0, val)
         else:
             unlabeled.append(val)
+    if category == "maker-electronics":
+        # Boards, modules and cards: a bare "16GB" may be RAM (Pi 4/5), eMMC (Compute Module 3+) or an SD card, so it is
+        # never assumed to be RAM. Storage words make it storage; otherwise it is kept as an AMBIGUOUS capacity.
+        if len(unlabeled) == 1 and ram is None and storage is None:
+            if re.search(r"\b(sd|microsd|card|emmc|flash|storage|ssd|nvme)\b", low):
+                storage = unlabeled[0]
+            else:
+                specs["capacity_gb"] = unlabeled[0]
+        unlabeled = []
     for val in unlabeled:
         if ram is None and storage is None and len(unlabeled) >= 2 and val <= 64 and val == unlabeled[0]:
             ram = val

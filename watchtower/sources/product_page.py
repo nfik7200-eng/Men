@@ -67,7 +67,7 @@ class ProductPageAdapter(SourceAdapter):
             external_id=sku or clean.rstrip("/").rsplit("/", 1)[-1], url=clean, title=title,
             price_minor=price, currency=(cur or self.currency), description="",
             availability=offer.availability, brand=text_of(node.get("brand")) or detect_brand(title),
-            category=CANONICAL_CATEGORY, specs=parse_specs(title, "", None), sku=sku, mpn=mpn, gtin=gtin,
+            category=CANONICAL_CATEGORY, specs=parse_specs(title, "", CANONICAL_CATEGORY), sku=sku, mpn=mpn, gtin=gtin,
             condition=offer.condition,
             desc_hash=hashlib.sha1(desc_src.lower().encode()).hexdigest() if desc_src else None,
             extraction_method="jsonld", http_status=200,

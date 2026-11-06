@@ -123,3 +123,39 @@ def test_admin_shows_health_policy_and_run_metrics(world):
     assert "Collection health" in html and "approved" in html and "crawl-delay 10s" in html
     assert "not required (demo)" in html and "Unchanged" in html and "pages/min" in html or "healthy" in html
     assert "ok 100%" in html
+
+
+def test_named_model_query_prefers_the_exact_product_over_kits_and_modules(db):
+    """Found on the real site: 'cheapest raspberry pi 5 8gb' returned a Pi 5 Essential Kit and Compute Module 5."""
+    from watchtower.ingest import ingest_listing
+    from watchtower.models import Source
+    from watchtower.sources import RawListing
+    ensure_sources(db)
+    with db.session() as s:
+        shop = Source(key="shopx", name="Shop X", base_url="https://x.example", currency="USD", kind="live")
+        s.add(shop); s.flush()
+        rows = [("1", "Raspberry Pi 5 - 8GB", 18000), ("2", "Raspberry Pi 5 Essential Kit - 8GB", 14995), ("3", "Raspberry Pi Compute Module 5 32GB - 8GB RAM", 15000),
+                ("4", "Raspberry Pi 5 - 4GB", 11000), ("5", "Raspberry Pi 5 Active Cooler", 500)]
+        for ext, title, price in rows:
+            ingest_listing(s, shop, None, RawListing(external_id=ext, url=f"https://x.example/{ext}", title=title, price_minor=price, currency="USD",
+                           brand="Raspberry Pi", category="maker-electronics", availability="in_stock", specs=__import__("watchtower.specs", fromlist=["x"]).parse_specs(title, "", None)), utcnow())
+        r = assistant.answer(s, "cheapest raspberry pi 5 8gb", use_llm=False)
+    assert r["picks"][0].listing.title == "Raspberry Pi 5 - 8GB"  # exact product first, although the kit/module are cheaper
+
+
+def test_both_sides_of_an_automatic_match_show_consistent_status(db):
+    from watchtower.ingest import ingest_listing
+    from watchtower.models import Source
+    from watchtower.sources import RawListing
+    ensure_sources(db)
+    with db.session() as s:
+        a, b, *_ = s.query(Source).order_by(Source.id).all()
+        mk = lambda ext, t: RawListing(external_id=ext, url=f"https://x.example/{ext}", title=t, price_minor=1000, currency="USD", brand="Raspberry Pi",
+                                       category="maker-electronics", availability="in_stock",
+                                       specs=__import__("watchtower.specs", fromlist=["x"]).parse_specs(t, "", None))
+        first, *_ = ingest_listing(s, b, None, mk("f", "Raspberry Pi 5 - 8GB"), utcnow())
+        first.match_status, first.match_reasons = "review", ["one name extends the other by ['active','cooler']: stale"]  # an older, different candidate
+        second, *_ = ingest_listing(s, a, None, mk("s", "Raspberry Pi 5 - 8 GB RAM"), utcnow())
+        s.flush()
+        assert second.product_id == first.product_id and second.match_status == "auto"
+        assert first.match_status == "auto" and "identical normalised name" in " ".join(first.match_reasons) and "stale" not in " ".join(first.match_reasons)

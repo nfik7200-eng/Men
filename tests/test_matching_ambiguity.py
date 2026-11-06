@@ -81,3 +81,19 @@ def test_distinct_names_still_auto_merge_normally(db):
         s.flush()
         assert b.match_status == "auto" and a.product_id == b.product_id
         assert demote_ambiguous(s, shop1.id) == 0 and demote_ambiguous(s, shop2.id) == 0  # unique names are left alone
+
+
+def test_items_distinguished_by_capacity_are_not_ambiguous_but_identical_titles_are(db):
+    """Real data: Adafruit lists 'Raspberry Pi 4 Model B - 2 GB / 4 GB / 8 GB RAM'. Their name signatures are identical
+    (GB tokens are stripped) but they are DIFFERENT items; only truly identical titles are ambiguous."""
+    ensure_sources(db)
+    with db.session() as s:
+        shop1, shop2 = _two_sources(s)
+        o2, *_ = ingest_listing(s, shop2, None, _raw("o2", 6795, "Raspberry Pi 4 Model B (2 GB)"), T0)
+        o4, *_ = ingest_listing(s, shop2, None, _raw("o4", 12000, "Raspberry Pi 4 Model B (4 GB)"), T0)
+        a2, *_ = ingest_listing(s, shop1, None, _raw("a2", 8000, "Raspberry Pi 4 Model B - 2 GB RAM"), T0)
+        a4, *_ = ingest_listing(s, shop1, None, _raw("a4", 12000, "Raspberry Pi 4 Model B - 4 GB RAM"), T0)
+        s.flush()
+        assert a2.product_id == o2.product_id and a4.product_id == o4.product_id and a2.product_id != a4.product_id
+        assert demote_ambiguous(s, shop1.id) == 0 and demote_ambiguous(s, shop2.id) == 0
+        assert a2.match_status == "auto" and a4.match_status == "auto"

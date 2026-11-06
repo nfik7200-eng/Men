@@ -91,7 +91,7 @@ def test_adafruit_adapter_on_real_pages():
 def test_sparkfun_adapter_on_real_pages_sku_is_not_an_mpn():
     sp = SparkFun()
     z = sp.parse_product(SPK["spark_zero2w"], U["szero2w"], NOW)
-    assert (z.title, z.price_minor, z.currency, z.availability, z.sku) == ("Raspberry Pi Zero 2 W", 1900, "USD", "backorder", "DEV-18713")
+    assert (z.title, z.price_minor, z.currency, z.availability, z.sku) == ("Raspberry Pi Zero 2 W", 1900, "USD", "out_of_stock", "DEV-18713")
     assert z.mpn is None  # sparkfun copies its SKU into "mpn"; that is not a manufacturer part number
     assert z.specs["merchant_category"].startswith("Development Boards")
     assert sp.parse_product(SPK["spark_zerow"], U["szerow"], NOW).price_minor == 1650
@@ -226,7 +226,7 @@ def test_approved_policy_is_loaded_from_versioned_data_and_needs_a_real_contact(
     with live_db.session() as s:
         pols = {p.source.key: p for p in s.scalars(select(SourcePolicy))}
         assert pols["adafruit"].status == "approved" and pols["sparkfun"].status == "approved"
-        assert "No clause" in pols["adafruit"].tos_finding or "no clause" in pols["adafruit"].tos_finding.lower()
+        assert "absence of a prohibition, not a permission" in pols["adafruit"].tos_finding and "Privacy & Legal" in pols["adafruit"].tos_finding
         assert pols["sparkfun"].crawl_delay_s == 10 and pols["adafruit"].review_due_at > utcnow() - timedelta(days=1)
     monkeypatch.setattr(config, "CONTACT", "set-WATCHTOWER_CONTACT")
     with pytest.raises(SourceNotApproved, match="CONTACT"):
@@ -340,6 +340,11 @@ def test_sampling_never_infers_removal_but_404_on_the_listing_url_does(live_db):
     site.pages["https://www.adafruit.com/category/105"] = '<a href="/product/5291">a</a><a href="/product/5812">b</a>'
     site.pages[U["a5291"]] = ADA["ada_5291"] + " "  # changed body so the conditional request is not a 304
     run_source(live_db, "adafruit", fetcher=site, now_fn=lambda: NOW + timedelta(days=4))
+    with live_db.session() as s:  # ONE 404 is not enough (could be a transient CDN/maintenance error)
+        first = s.query(Listing).filter_by(sku="5291").one()
+        assert first.active and s.query(Event).filter_by(kind="removed", listing_id=first.id).count() == 0
+        assert s.query(CrawlUrl).filter_by(gone=True).count() == 0
+    run_source(live_db, "adafruit", fetcher=site, now_fn=lambda: NOW + timedelta(days=4, hours=3))  # a second, later 404 confirms
     with live_db.session() as s:
         gone = s.query(Listing).filter_by(sku="5291").one()
         assert gone.active is False and s.query(Event).filter_by(kind="removed", listing_id=gone.id).count() == 1
@@ -379,3 +384,32 @@ def test_cross_store_match_is_made_by_the_collector_on_real_pages(live_db):
         assert z2.product_id == a2.product_id and z2.match_status == "auto" and z2.match_confidence >= 0.9
         zw = s.query(Listing).filter_by(sku="DEV-14277").one()
         assert zw.product_id != a2.product_id  # Zero W is NOT the Zero 2 W
+
+
+def test_crawl_budget_favours_rechecks_of_known_listings_over_discovery(live_db):
+    pages = {"https://www.adafruit.com/category/105": '<a href="/product/5291" title="Raspberry Pi Zero 2 W.">a</a><a href="/product/5812" title="Raspberry Pi 5 - 4 GB RAM.">b</a>',
+             "https://www.adafruit.com/category/17": "<html></html>", "https://www.adafruit.com/category/875": "<html></html>",
+             U["a5291"]: ADA["ada_5291"], U["a5812"]: ADA["ada_5812"]}
+    site = FakeSite(pages)
+    run_source(live_db, "adafruit", fetcher=site, max_pages=1, now_fn=lambda: NOW)        # collects the tier-0 page only
+    with live_db.session() as s:
+        first = s.query(CrawlUrl).filter(CrawlUrl.last_fetched_at.is_not(None)).one()
+        first_url = first.url
+    n = len(site.requested)
+    run_source(live_db, "adafruit", fetcher=site, max_pages=2, now_fn=lambda: NOW + timedelta(days=2))  # first is due again AND one new page exists
+    fetched = [u for u in site.requested[n:] if "/product/" in u]
+    assert set(fetched) == {U["a5291"], U["a5812"]} and fetched[0] == first_url  # re-check first, then discovery
+    with live_db.session() as s:
+        assert s.query(Listing).count() == 2  # no duplicates
+
+
+def test_sparkfun_stock_is_read_from_the_main_product_never_a_related_card():
+    """Real defect: the first div.stock on a SparkFun page is a RELATED product's badge. The captured fixture keeps that
+    layout (related card first, main product second)."""
+    sp = SparkFun()
+    assert "stock-info-catalog" in SPK["spark_zero2w"] and SPK["spark_zero2w"].index("stock-info-catalog") < SPK["spark_zero2w"].index("product-info-main")
+    assert sp.parse_product(SPK["spark_zero2w"], U["szero2w"], NOW).availability == "out_of_stock"
+    page = SPK["spark_zero2w"].replace("Out of stock", "In stock")  # main product flips; the related card is unchanged
+    assert sp.parse_product(page, U["szero2w"], NOW).availability == "in_stock"
+    no_main = SPK["spark_zero2w"].replace('<div class="product-info-main">', '<div class="x">')
+    assert sp.parse_product(no_main, U["szero2w"], NOW).availability == "unknown"  # no main-product badge: unknown, not a neighbour's

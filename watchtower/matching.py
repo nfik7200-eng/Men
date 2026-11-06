@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .identifiers import clean_mpn, normalise_gtin
 from .specs import canon_brand
 
-from .models import Listing, MatchCandidate, Product
+from .models import Listing, MatchCandidate, Product, Source
 
 AUTO_THRESHOLD = 0.85
 REVIEW_THRESHOLD = 0.55
@@ -60,6 +60,11 @@ def _norm_id(v) -> str:
 VARIANT_WORDS = {"ultra", "pro", "plus", "max", "mini", "lite", "fe", "se", "air", "xl", "edge", "fold", "flip",
                  "neo", "turbo", "note", "prime", "classic", "premium", "slim",
                  "wifi", "wireless", "bluetooth", "no", "non", "headers", "header", "poe", "lte"}  # hardware options change the product
+# Product-type words: an accessory/part named in only one title ('Pi 5 Camera Cable', 'Pi 5 Active Cooler', 'Compute Module 5')
+# is a different product from the bare board even when the model name is a prefix of it.
+TYPE_WORDS = {"cable", "case", "cooler", "fan", "heatsink", "battery", "bumper", "baseplate", "adapter", "adaptor", "charger", "supply",
+              "psu", "cover", "stand", "mount", "enclosure", "camera", "display", "touchscreen", "screen", "compute",
+              "hat", "shield", "breakout", "wire", "connector", "sensor", "antenna", "holder", "sleeve", "rtc"}
 COLOURS = {"black", "white", "silver", "gray", "grey", "blue", "red", "green", "gold", "rose", "pink", "purple",
            "yellow", "orange", "bronze", "navy", "graphite", "midnight", "starlight", "titanium", "lavender", "beige"}
 _USED = re.compile(r"refurb|renewed|reconditioned|pre-?owned|\bused\b|open[- ]box|for parts|like new|\bb-?grade\b|\bgood condition\b")
@@ -160,6 +165,7 @@ def hard_conflict(a: Listing, b: Listing) -> str | None:
     """Differences that make two listings materially different products/offers. Checked even when identifiers agree,
     because merchants copy identifiers across variants."""
     for label, fa, fb in (("variant", variant_set(a.title), variant_set(b.title)),
+                          ("product type", _words(a.title) & TYPE_WORDS, _words(b.title) & TYPE_WORDS),
                           ("condition", {condition_of(a)}, {condition_of(b)}),
                           ("bundle", {bool(_BUNDLE.search(a.title.lower()))}, {bool(_BUNDLE.search(b.title.lower()))}),
                           ("generation", generation_set(a.title), generation_set(b.title))):
@@ -219,17 +225,22 @@ def match_score(a: Listing, b: Listing) -> MatchResult:
 
     ma_t, mb_t = model_tokens(a.title), model_tokens(b.title)
     shares_code = bool(ma_t and mb_t and len(ma_t & mb_t) / len(ma_t | mb_t) >= 0.5)
-    if ba and ba == bb and sa and sb and sa != sb and not shares_code:
+    overlap = len(sa & sb)
+    related = bool(sa and sb) and overlap >= 1 and overlap / min(len(sa), len(sb)) >= 0.5  # names must really share words
+    if ba and ba == bb and related and sa != sb and not shares_code:
         only_a, only_b = sa - sb, sb - sa
         if any(t.isdigit() for t in only_a | only_b):  # 'Zero W' vs 'Zero 2 W', 'Pi 4' vs 'Pi 5': different model/generation
             return MatchResult(0.2, "none", [f"model numbers differ: only in A {sorted(only_a)}, only in B {sorted(only_b)}"])
+        short = lambda ts: {t for t in ts if len(t) <= 2 and t.isalpha()}
+        if short(only_a) and short(only_b):  # 'A+' vs 'B+', 'H' vs 'W': different variant letters
+            return MatchResult(0.2, "none", [f"variant letters differ: {sorted(short(only_a))} vs {sorted(short(only_b))}"])
         code = lambda t: bool(re.search(r"[a-z]", t) and re.search(r"\d", t))
         ca, cb = {t for t in only_a if code(t)}, {t for t in only_b if code(t)}
         if ca and cb:
             return MatchResult(0.2, "none", [f"model codes differ: {sorted(ca)} vs {sorted(cb)}"])
         if ca or cb:
             return MatchResult(0.6, "review", [f"a model code appears on one side only ({sorted(ca | cb)}): same product?"])
-        if (only_a == set() or only_b == set()) and len(sa & sb) >= 1:  # one name is the other plus descriptive words
+        if (only_a == set() or only_b == set()) and overlap >= 1:  # one name is the other plus descriptive words
             return MatchResult(0.6, "review", [f"one name extends the other by {sorted(only_a | only_b)}: variant or same product?"])
 
     jacc = (len(ma_t & mb_t) / len(ma_t | mb_t)) if ma_t and mb_t else None
@@ -284,8 +295,12 @@ def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
     for review. Guards: (1) a product holds at most ONE listing per merchant, (2) equally good candidates are
     ambiguous, (3) the listing must not conflict with ANY member of the target product (no transitive drift),
     (4) human rejections are never re-queued."""
-    q = select(Listing).where(Listing.source_id != listing.source_id, Listing.active.is_(True),
-                              Listing.product_id.is_not(None), Listing.product_id != listing.product_id)
+    if listing.match_status == "confirmed":
+        return None  # a human decision is never re-litigated by the matcher
+    live = listing.source is not None and listing.source.kind == "live"  # demo/sandbox and live data never merge
+    q = (select(Listing).join(Source, Source.id == Listing.source_id)
+         .where(Listing.source_id != listing.source_id, Listing.active.is_(True), Listing.product_id.is_not(None),
+                Listing.product_id != listing.product_id, (Source.kind == "live") if live else (Source.kind != "live")))
     if listing.category:
         q = q.where((Listing.category == listing.category) | Listing.category.is_(None))
     rejected = {(c.listing_id, c.product_id) for c in s.scalars(select(MatchCandidate).where(MatchCandidate.status == "rejected"))}
@@ -322,10 +337,21 @@ def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
         old = listing.product_id
         listing.product_id = other.product_id
         listing.match_status, listing.match_confidence, listing.match_reasons = "auto", r.score, r.reasons
+        # keep BOTH sides consistent: the target listing now has a confirmed counterpart, so its own status/evidence
+        # must not still show an older, different candidate (found in the UI: stale 'review' reasons beside an auto match)
+        if other.match_status in ("self", "review"):
+            other.match_status, other.match_confidence, other.match_reasons = "auto", r.score, r.reasons
+            for c in s.scalars(select(MatchCandidate).where(MatchCandidate.listing_id == other.id, MatchCandidate.status == "pending",
+                                                            MatchCandidate.product_id != other.product_id)).all():
+                s.delete(c)
         _drop_product_if_empty(s, old, listing.id)
     else:
         listing.match_status, listing.match_confidence, listing.match_reasons = "review", r.score, r.reasons
-        _queue(s, listing, other.product_id, r.score, r.reasons)
+        seen_products = set()
+        for rr, o in scored:  # queue every near-tie (up to 3 products), not just the first
+            if rr.decision == "review" and rr.score >= r.score - 0.05 and o.product_id not in seen_products and len(seen_products) < 3:
+                seen_products.add(o.product_id)
+                _queue(s, listing, o.product_id, rr.score, rr.reasons)
     return r
 
 
@@ -354,10 +380,11 @@ def demote_ambiguous(s: Session, source_id: int) -> int:
     groups: dict[tuple, list[Listing]] = {}
     for l in rows:
         sig = name_signature(l.title, l.brand)
-        if sig:
-            groups.setdefault((canon_brand(l.brand), sig), []).append(l)
+        if sig:  # unit values are part of identity here: '2 GB' and '4 GB' are different items, identical cable titles are not
+            units = tuple(sorted((k, tuple(sorted(v))) for k, v in unit_values(l.title).items()))
+            groups.setdefault((canon_brand(l.brand), sig, units), []).append(l)
     n = 0
-    for (_, sig), items in groups.items():
+    for (_, sig, _units), items in groups.items():
         if len(items) < 2:
             continue
         for l in items:
@@ -375,10 +402,32 @@ def demote_ambiguous(s: Session, source_id: int) -> int:
     return n
 
 
+def revalidate_auto(s: Session) -> int:
+    """Re-check every existing automatic cross-merchant pairing against the CURRENT matcher; demote any that would no
+    longer auto-merge (e.g. made by an older, weaker matcher). Returns the number demoted."""
+    n = 0
+    for l in s.scalars(select(Listing).where(Listing.match_status == "auto", Listing.active.is_(True))).all():
+        others = [m for m in _members(s, l.product_id) if m.id != l.id and m.source_id != l.source_id]
+        bad = next(((m, r) for m in others if (r := match_score(l, m)).decision != "auto"), None)
+        if bad is None:
+            continue
+        m, r = bad
+        reasons = [f"re-validation: no longer an automatic match for '{m.title[:50]}' ({r.decision}: {'; '.join(r.reasons)[:90]})"]
+        old = l.product_id
+        newp = Product(title=l.title, brand=l.brand, category=l.category)
+        s.add(newp)
+        s.flush()
+        l.product_id, l.match_status, l.match_reasons, l.match_confidence = newp.id, "review", reasons, min(r.score, 0.6)
+        _queue(s, l, old, l.match_confidence, reasons)
+        n += 1
+    return n
+
+
 def rematch_all(s: Session) -> dict:
     """Re-run matching for every listing not yet matched or confirmed (after matcher/identifier changes). Rejected
     pairs are never re-queued or auto-merged (enforced inside attach_or_queue). Returns counts."""
-    out = {"checked": 0, "auto": 0, "review": 0, "demoted": 0}
+    out = {"revalidated_demoted": revalidate_auto(s), "checked": 0, "auto": 0, "review": 0, "demoted": 0}
+    out.update(prune_candidates(s))
     for l in s.scalars(select(Listing).where(Listing.match_status.in_(("self", "review")), Listing.active.is_(True)).order_by(Listing.id)).all():
         out["checked"] += 1
         r = attach_or_queue(s, l)
@@ -386,4 +435,34 @@ def rematch_all(s: Session) -> dict:
         out["review"] += int(bool(r and r.decision == "review"))
     for sid in {x for (x,) in s.execute(select(Listing.source_id).distinct())}:
         out["demoted"] += demote_ambiguous(s, sid)
+    out["pruned_after"] = prune_candidates(s)
+    return out
+
+
+def prune_candidates(s: Session) -> dict:
+    """Clean the review queue and keep match state consistent: drop pending candidates that point at the listing's own
+    product, that have no cross-merchant member to compare with, or that the CURRENT matcher scores 'none'; refresh
+    scores; listings left in 'review' without any pending candidate become 'self'; a lone 'auto' without a partner
+    becomes 'self'."""
+    out = {"candidates_dropped": 0, "review_to_self": 0, "auto_to_self": 0}
+    for c in s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all():
+        l = c.listing
+        members = [m for m in _members(s, c.product_id) if m.source_id != l.source_id]
+        if c.product_id == l.product_id or not members:
+            s.delete(c); out["candidates_dropped"] += 1
+            continue
+        best = max((match_score(l, m) for m in members), key=lambda r: r.score)
+        if best.decision == "none":
+            s.delete(c); out["candidates_dropped"] += 1
+        else:
+            c.score, c.reasons = best.score, best.reasons
+    s.flush()
+    for l in s.scalars(select(Listing).where(Listing.match_status == "review", Listing.active.is_(True))).all():
+        if not s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == l.id, MatchCandidate.status == "pending")):
+            l.match_status, l.match_reasons = "self", []
+            out["review_to_self"] += 1
+    for l in s.scalars(select(Listing).where(Listing.match_status == "auto", Listing.active.is_(True))).all():
+        if not any(m.id != l.id and m.source_id != l.source_id for m in _members(s, l.product_id)):
+            l.match_status = "self"
+            out["auto_to_self"] += 1
     return out

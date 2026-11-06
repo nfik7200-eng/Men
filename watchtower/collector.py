@@ -29,6 +29,7 @@ from .structured import normalise_url
 log = logging.getLogger("watchtower.collector")
 ABANDON_AFTER = timedelta(minutes=45)
 NON_PRODUCT_RECHECK = timedelta(days=30)
+RECHECK_SHARE = 0.6
 
 
 class SourceDisabled(Exception):
@@ -237,8 +238,14 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
         prio = {normalise_url(e.loc): e.priority for e in entries}
         # 2. due URLs: never-fetched first, then oldest-checked; this run's budget is `cap` product pages
         due = [c for c in known.values() if c.url in discovered and not c.gone and (c.next_check_at is None or c.next_check_at <= now)]
-        due.sort(key=lambda c: (c.last_fetched_at is not None, prio.get(c.url, 9), c.last_fetched_at or now))
-        for crawl in due[:cap]:
+        fresh = sorted((c for c in due if c.last_fetched_at is None), key=lambda c: (prio.get(c.url, 9), c.url))
+        recheck = sorted((c for c in due if c.last_fetched_at is not None), key=lambda c: c.last_fetched_at)
+        # Budget split: price history is the core asset, so re-checks of known listings get most of the budget (60%),
+        # the rest discovers new pages; leftovers on either side flow to the other.
+        n_re = min(len(recheck), max(1, round(cap * RECHECK_SHARE)) if recheck else 0)
+        n_new = min(len(fresh), max(0, cap - n_re))
+        n_re = min(len(recheck), max(0, cap - n_new))
+        for crawl in recheck[:n_re] + fresh[:n_new]:
             try:
                 res = fetcher.get_ex(crawl.url, etag=crawl.etag, last_modified=crawl.last_modified)
             except FetchBlocked as e:
@@ -246,11 +253,18 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                 errors.append(str(e))
                 break
             except FetchGone:
-                crawl.gone, crawl.last_status, crawl.last_fetched_at = True, 404, now_fn()
-                lst = s.get(Listing, crawl.listing_id) if crawl.listing_id else None
-                if lst and lst.active:
-                    lst.active = False
-                    _event(s, lst, run, "removed", now=now_fn())
+                # Two-step removal: a single 404/410 may be a transient CDN/maintenance error. Only a SECOND consecutive
+                # gone answer (from a later run) marks the URL gone, and only the listing's own canonical URL can remove it.
+                was_gone = crawl.last_status in (404, 410)
+                crawl.last_status, crawl.last_fetched_at = 404, now_fn()
+                if was_gone:
+                    crawl.gone = True
+                    lst = s.get(Listing, crawl.listing_id) if crawl.listing_id else None
+                    if lst and lst.active and normalise_url(lst.url) == crawl.url:
+                        lst.active = False
+                        _event(s, lst, run, "removed", now=now_fn())
+                else:
+                    crawl.next_check_at = now_fn() + timedelta(hours=2)
                 s.commit()
                 continue
             except FetchError as e:
@@ -274,7 +288,6 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                     run.pages_unchanged = (run.pages_unchanged or 0) + 1
                 s.commit()
                 continue
-            crawl.etag, crawl.last_modified = res.etag or crawl.etag, res.last_modified or crawl.last_modified
             try:
                 raw = adapter.parse_product(res.text, crawl.url, now)
             except Exception as e:  # odd markup must not kill the run
@@ -300,7 +313,18 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                 run.items_invalid += 1
                 errors.append(f"{raw.external_id or '?'}: {'; '.join(problems)}"[:160])
             else:
-                crawl.listing_id, crawl.content_hash = listing.id, raw.content_hash
+                # Alias URL (a second URL for a listing we already track under another URL): keep the first URL as
+                # the listing's address, and never let the alias's own 404 remove the listing.
+                other = s.scalar(select(CrawlUrl).where(CrawlUrl.source_id == src.id, CrawlUrl.listing_id == listing.id,
+                                                        CrawlUrl.id != crawl.id, CrawlUrl.gone.is_(False)))
+                if other is not None and other.url != crawl.url:
+                    listing.url = other.url
+                    crawl.listing_id = None
+                    crawl.next_check_at = now + NON_PRODUCT_RECHECK
+                else:
+                    crawl.listing_id = listing.id
+                crawl.content_hash = raw.content_hash
+                crawl.etag, crawl.last_modified = res.etag or crawl.etag, res.last_modified or crawl.last_modified
                 run.items_new += int(is_new)
                 ex[raw.extraction_method or "jsonld"] += 1
                 if problems:
@@ -309,7 +333,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
         run.bytes_fetched = nbytes
         demote_ambiguous(s, src.id)
         if run.pages_fetched == 0 and status != "blocked":
-            status = "ok" if not due else ("failed" if errors else "ok")  # nothing due is a healthy no-op
+            status = "ok" if not (recheck or fresh) else ("failed" if errors else "ok")  # nothing due is a healthy no-op
         elif errors and status == "ok":
             status = "partial"
         # A sampled/prioritised crawl is NEVER complete, so absence never implies removal.

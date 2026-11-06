@@ -10,11 +10,11 @@
    ],
    "tos_url": "https://www.adafruit.com/terms_of_service",
    "tos_sha": "25be69223d1da1958f93343601b93e4308799dcff9911a759c52a473e5dcffc4",
-   "tos_finding": "Terms of service read in full (2026-11-06): covers ordering, shipping, customs and returns. No clause restricting automated access, scraping, data extraction or reuse was found. Not an explicit permission.",
+   "tos_finding": "Read in full 2026-11-06: (1) /terms_of_service \u2014 sales, shipping, returns, customs, community rules ('Be Excellent'), liability; (2) /privacy ('Privacy & Legal') \u2014 privacy policy. Searched both for scrap/crawl/spider/robot/bot/automated means/data mining/extract/systematic/commercial use/reproduce/republish/redistribute/database right/copyright/licence: the only hits concern payment fraud checks, privacy controls and warranties. NO website terms-of-use clause on automated access, extraction or reuse was found. That is the absence of a prohibition, not a permission: ask Adafruit for written permission or a product feed before any public launch.",
    "crawl_delay_s": null,
    "reviewed_by": "engineering (not legal)",
    "reviewed_at": "2026-11-06T00:00:00",
-   "notes": "robots.txt (User-agent *) disallows /api/ /ajax/ /search /i/ /includes/ etc.; /product/ and /category/ are allowed. We fetch /category/{105,17,875} and /product/N only, 1 request per 2 s, no search or API paths. Do not store descriptions/images. Affiliate/price API: none found."
+   "notes": "robots.txt (User-agent *) disallows /api/ /ajax/ /search /i/ /includes/ etc.; /product/ and /category/ are allowed. We fetch /category/{105,17,875} and /product/N only, 1 request per 2 s (enforced: live sources have a 2 s floor), no search or API paths. Do not store descriptions/images. Affiliate/price API: none found."
   },
   "sparkfun": {
    "status": "approved",
@@ -25,7 +25,7 @@
    ],
    "tos_url": "https://www.sparkfun.com/terms",
    "tos_sha": "a17242a0c4ad3ec1e311277a2419788beca2123848aae7fc92bf5bfbb0c8904e",
-   "tos_finding": "Terms/privacy page read in full (2026-11-06): no clause restricting automated access, scraping, data extraction or reuse was found. Not an explicit permission.",
+   "tos_finding": "Terms of Sale (/terms) and Privacy Policy (/privacy, read 2026-11-06 with the 10 s crawl-delay respected) read: no clause restricting automated access, scraping, data extraction or reuse of price/availability facts was found. This is the absence of a prohibition, not a permission; a legal review is still needed before any commercial use.",
    "crawl_delay_s": 10,
    "reviewed_by": "engineering (not legal)",
    "reviewed_at": "2026-11-06T00:00:00",

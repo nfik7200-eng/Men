@@ -60,15 +60,20 @@ class PeerContext:
       'maker-electronics' are NOT comparable (a cable is always 'below the median' of boards), so they get no peers.
     Peers never cross data classes (live vs demo/sandbox) or currencies."""
 
-    def __init__(self, s: Session):
+    def __init__(self, s: Session, now: datetime | None = None):
         rows = s.execute(select(Listing.id, Listing.category, Listing.currency, Listing.price_minor, Listing.specs, Source.kind,
-                                Listing.product_id, Listing.source_id)
+                                Listing.product_id, Listing.source_id, Listing.availability, Listing.last_observed_at,
+                                Source.stale_after_hours)
                          .join(Source, Source.id == Listing.source_id)
                          .where(Listing.active.is_(True), Listing.price_minor.is_not(None))).all()
+        now = now or utcnow()
         self.group: dict[tuple, list[int]] = {}
         self.ram_group: dict[tuple, list[int]] = {}
         self.by_product: dict[tuple, list[tuple[int, int]]] = {}
-        for _, cat, cur, price, specs, kind, pid, sid in rows:
+        for _, cat, cur, price, specs, kind, pid, sid, avail, seen, stale_h in rows:
+            # A peer price is only evidence if you could actually buy at it now: not stale, not out of stock/backorder/preorder.
+            if avail in ("out_of_stock", "backorder", "preorder") or seen is None or now - seen > timedelta(hours=stale_h or 72):
+                continue
             dc = data_class(kind)
             if pid is not None:
                 self.by_product.setdefault((dc, pid, cur), []).append((sid, price))
@@ -130,11 +135,13 @@ def collapse(hist: list[Observation], gap_hours: float | None = None) -> list[Ob
     """Observations closer than the gap are one collection: keep the latest of each burst."""
     gap = timedelta(hours=config.MIN_OBS_GAP_HOURS if gap_hours is None else gap_hours)
     out: list[Observation] = []
+    start = None  # bucket anchor: a chain of observations each < gap apart must NOT merge into one collection
     for o in hist:
-        if out and o.observed_at - out[-1].observed_at < gap:
+        if out and start is not None and o.observed_at - start < gap:
             out[-1] = o
         else:
             out.append(o)
+            start = o.observed_at
     return out
 
 
@@ -174,7 +181,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
     if listing.price_minor is None:
         ds.warnings.append("Price unavailable at last collection — not treated as zero.")
         return ds
-    ctx = ctx or PeerContext(s)
+    ctx = ctx or PeerContext(s, now)
     raw_hist = hist_ctx.by_listing.get(listing.id, []) if hist_ctx else priced_history(s, listing)
     hist = collapse([o for o in raw_hist if o.currency == listing.currency])
     ds.n_obs = len(hist)
@@ -260,7 +267,7 @@ def top_deals(s: Session, limit: int = 12, category: str | None = None, now: dat
     if category:
         q = q.where(Listing.category == category)
     cands = [l for l in s.scalars(q).unique() if not is_stale(l, now)]
-    ctx = PeerContext(s)
+    ctx = PeerContext(s, now)
     hist_ctx = HistoryContext(s, select(Listing.id).where(Listing.id.in_([l.id for l in cands]))) if len(cands) <= 800 \
         else HistoryContext(s, select(Listing.id).where(Listing.active.is_(True)))
     scored = [(l, score_listing(s, l, ctx, now, hist_ctx)) for l in cands]

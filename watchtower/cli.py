@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | source | fx"""
+"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | source | fx"""
 import argparse
 import logging
 
@@ -21,6 +21,10 @@ def main(argv=None):
     sub.add_parser("health")
     sub.add_parser("policy")
     sub.add_parser("rematch", help="re-run cross-store matching for unmatched listings")
+    sub.add_parser("reparse", help="re-derive title-parsed specs of live listings with the current rules")
+    rc = sub.add_parser("recheck", help="mark the N oldest-fetched URLs of a product-page source as due now")
+    rc.add_argument("--source", required=True, choices=list(ADAPTERS))
+    rc.add_argument("-n", type=int, default=10)
     fx = sub.add_parser("fx", help="record or list sourced exchange rates")
     fx.add_argument("action", choices=["set", "list"])
     fx.add_argument("base", nargs="?")
@@ -76,6 +80,20 @@ def main(argv=None):
                 p = s.query(SourcePolicy).filter_by(source_id=src.id).one_or_none()
                 req = "n/a (demo/sandbox)" if src.kind in ("demo", "sandbox") else (p.status if p else "MISSING")
                 print(f"{src.key:22} {src.kind:8} policy={req}" + (f" reviewed={p.reviewed_at:%Y-%m-%d} due={p.review_due_at:%Y-%m-%d}" if p and p.reviewed_at else ""))
+    elif args.cmd == "recheck":
+        from .models import CrawlUrl
+        from .models import utcnow
+        with db.session() as s:
+            src = s.query(Source).filter_by(key=args.source).one()
+            rows = s.query(CrawlUrl).filter(CrawlUrl.source_id == src.id, CrawlUrl.last_fetched_at.is_not(None), CrawlUrl.gone.is_(False),
+                                            CrawlUrl.listing_id.is_not(None)).order_by(CrawlUrl.last_fetched_at).limit(args.n).all()
+            for r in rows:
+                r.next_check_at = utcnow()
+            print(f"{len(rows)} URL(s) of {args.source} marked due")
+    elif args.cmd == "reparse":
+        from .ingest import reparse_specs
+        with db.session() as s:
+            print(f"{reparse_specs(s)} listing(s) re-parsed")
     elif args.cmd == "rematch":
         from .matching import rematch_all
         with db.session() as s:

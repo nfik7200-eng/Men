@@ -23,3 +23,23 @@ server-rendered UI (Jinja) + JSON API `/api/v1/*` (the seed of the future paid A
 * `shopping/web/security.py`: fail-closed admin auth, Origin-based CSRF check, per-browser owner cookie, rate limiting, security headers (installed as one middleware).
 * API-source contract on `SourceAdapter`: `official_api`, `configured()`, `request_headers()`, `allowed_hosts()`, `listing_hosts()`; the collector refuses unconfigured/disabled/busy sources and fails runs on exceptions.
 * `watchtower/sources/ebay_browse.py` (scaffold) · `shopping/fx.py` (sourced FX) · `shopping/importcost.py` v2 (landed cost) · `Database.sync_columns` (interim migrations).
+
+## Mission 003 — free-source scraping engine
+```
+ policy.gate (approved? review current? robots re-checked? real contact?)        data/source_policies.json (versioned evidence)
+        │
+ adapter.discover ──► crawl_urls (per-URL state: etag, lastmod, next_check_at, gone, content hash)
+        │                    │  due ordering: re-checks 60% of budget, then discovery by priority tier
+        ▼                    ▼
+ Fetcher (allowlist, per-hop robots via watchtower/robots.py, Crawl-delay, ≥2 s live floor, conditional GET, 304)
+        │
+ adapter.parse_product ──► structured.py (JSON-LD, strict prices, AggregateOffer≠price) ──► ingest_listing / reconfirm
+        │                                                                                      │
+        └─ facts only (no description/image)                              Observation (+method, offer hash, http status)
+                                                                                               ▼
+        matching.attach_or_queue (GTIN→MPN→brand+name signature→specs→fuzzy; vetoes at every stage; one listing per
+        merchant per product; ties/ambiguity → review) ──► deals (same-product peers, live-only) ──► web (product page)
+```
+* **Product page (`/product/{id}`)** compares merchants side by side per currency (never converted); every row shows data class, last-checked time, stock, history stats and the matching rationale.
+* **Health** (`watchtower/health.py`): success rate, throughput, freshness and state per source; shown in admin with policy status.
+* **Where Business monitoring fits**: a competitor is just another `live` source with its own policy; Events/WatchItem/health are reused unchanged.

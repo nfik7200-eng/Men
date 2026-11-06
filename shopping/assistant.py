@@ -14,6 +14,7 @@ from watchtower.deals import DealScore, PeerContext, score_listing
 from watchtower.models import Listing, utcnow
 from watchtower.money import fmt_money
 from watchtower.quality import price_status
+from watchtower.matching import name_signature
 from watchtower.specs import CPU_TIER
 
 from . import importcost, llm
@@ -43,6 +44,7 @@ class Pick:
     misses: list[str] = field(default_factory=list)
     unknown: list[str] = field(default_factory=list)
     deal: DealScore | None = None
+    extra: int = 0  # product words in the title that the user did not ask for (kit, module, cooler...)
     relevant: bool = True  # mentions every product word the user used that appears in any candidate
     price_status: str = "verified"
     import_estimate: dict | None = None
@@ -237,7 +239,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
             over = [l for l in cands if l.price_minor > budget]
             cands = [l for l in cands if l.price_minor <= budget and (budget_min is None or l.price_minor >= budget_min)]
 
-    ctx = PeerContext(s)
+    ctx = PeerContext(s, now)
     picks = [_fit(l, intent) for l in cands]
     for p in picks:
         av = p.listing.availability
@@ -253,8 +255,17 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     model_present = [t for t in intent.get("model_tokens", []) if any(word_in(t, l) for l in cands)]
     for p in picks:
         p.relevant = all(k in text_of(p.listing) for k in kw_present) and all(word_in(t, p.listing) for t in model_present)
-    ranked = sorted(picks, key=lambda p: (not p.relevant, -p.fit, p.listing.price_minor))
+    if model_present:  # the user named a specific model: 'Pi 5 Essential Kit' / 'Compute Module 5' are not 'Pi 5'
+        qnorm = re.sub(r"(\d+)\s*(gb|tb|mb|ghz|mhz)\b", r"\1\2", question.lower())  # '8 GB' and '8GB' are the same word
+        qwords = set(re.findall(r"[a-z0-9]+", qnorm))
+        for p in picks:
+            p.extra = len(name_signature(p.listing.title, p.listing.brand) - qwords)
+    ranked = sorted(picks, key=lambda p: (not p.relevant, p.extra, -p.fit, p.listing.price_minor))
     relevant = [p for p in ranked if p.relevant] or ranked  # relevance to the user's words outranks availability
+    fresh = [p for p in relevant if p.price_status != "stale"]
+    if fresh and len(fresh) < len(relevant):  # stale prices never outrank (or sit beside) fresh ones for the same ask
+        caveats.append(f"{len(relevant) - len(fresh)} matching listing(s) omitted because their prices are stale.")
+        relevant = fresh
     qualified = [p for p in relevant if not p.misses]
     pool = qualified or relevant
     if relevant and not qualified and all(any("stock" in m or "backorder" in m or "pre-order" in m for m in p.misses) for p in relevant):

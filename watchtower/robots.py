@@ -71,7 +71,7 @@ class Robots:
                 if a == "*":
                     if best is None:
                         best, best_len = g, 0
-                elif a and (a in token or token in a):  # a robots agent token names us if it is part of our product token
+                elif a and a == token:  # RFC 9309: the group's product token must equal ours (case-insensitive), not merely overlap it
                     if len(a) > best_len:
                         best, best_len = g, len(a)
         return best

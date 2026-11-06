@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from .matching import attach_or_queue
 from .models import CollectionRun, Event, Listing, Observation, Product, Source
 from .sources.base import RawListing
+from .specs import parse_specs
 
 
 def validate(raw: RawListing) -> tuple[RawListing | None, list[str]]:
@@ -91,7 +92,7 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
         if listing.desc_hash != dh and (listing.description or raw.description):
             _event(s, listing, run, "description_change", now=now)
         listing.title, listing.url, listing.description, listing.desc_hash = raw.title, raw.url, raw.description, dh
-        listing.brand, listing.category = raw.brand or listing.brand, raw.category or listing.category
+        listing.brand, listing.category = raw.brand, raw.category or listing.category  # brand follows the CURRENT detector (a stale value is not kept)
         listing.image_url, listing.specs = raw.image_url or listing.image_url, raw.specs or listing.specs
         listing.rating, listing.review_count = raw.rating, raw.review_count
         listing.currency = raw.currency
@@ -146,3 +147,21 @@ def mark_removed(s: Session, source: Source, run: CollectionRun, now: datetime) 
         l.active = False
         _event(s, l, run, "removed", now=now)
     return len(gone), None
+
+
+_PARSED_KEYS = ("screen_in", "cpu_family", "ram_gb", "storage_gb", "capacity_gb", "storage_type", "os")
+
+
+def reparse_specs(s: Session) -> int:
+    """Re-derive title-parsed spec keys with the CURRENT rules (live rows store no description, so the title is the whole
+    source text). Keys the rules no longer produce are removed; adapter-provided keys (merchant_category …) are kept.
+    Returns the number of listings changed."""
+    changed = 0
+    for l in s.scalars(select(Listing).join(Source, Source.id == Listing.source_id).where(Source.kind == "live")):
+        old = dict(l.specs or {})
+        new = {k: v for k, v in old.items() if k not in _PARSED_KEYS}
+        new.update(parse_specs(l.title, "", l.category))
+        if new != old:
+            l.specs = new
+            changed += 1
+    return changed
