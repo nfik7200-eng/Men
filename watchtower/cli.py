@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | source | fx"""
+"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | source | fx"""
 import argparse
 import logging
 
@@ -33,11 +33,15 @@ def main(argv=None):
     fx.add_argument("--as-of", help="YYYY-MM-DD the rate is valid for")
     fx.add_argument("--source", help="who published this rate (required)")
     fx.add_argument("--url")
+    b = sub.add_parser("backup", help="verified, WAL-safe snapshot of the database (read-only; never modifies it)")
+    b.add_argument("--out", help="destination file (default data/backups/watchtower-<UTC time>.db); never overwritten")
     e = sub.add_parser("source")
     e.add_argument("action", choices=["enable", "disable"])
     e.add_argument("key", choices=list(ADAPTERS))
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    if args.cmd == "backup":  # before Database(): opening the app DB normally runs init/ensure_* writes
+        return _backup(args.out)
     db = Database()
     db.init()
     ensure_sources(db)
@@ -112,5 +116,24 @@ def main(argv=None):
             print("observations:", s.query(Observation).count())
 
 
+def _backup(out: str | None) -> int:
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from . import config
+    from .db import SnapshotError, snapshot
+    if not config.DB_URL.startswith("sqlite:///"):
+        print("backup: only SQLite databases are supported")
+        return 2
+    src = Path(config.DB_URL[len("sqlite:///"):])
+    dst = Path(out) if out else config.ROOT / "data" / "backups" / f"watchtower-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.db"
+    try:
+        r = snapshot(src, dst)
+    except SnapshotError as ex:
+        print(f"backup FAILED: {ex}")
+        return 1
+    print(f"backup ok: {r['path']} integrity={r['integrity']} " + " ".join(f"{k}={v}" for k, v in sorted(r["tables"].items())))
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
