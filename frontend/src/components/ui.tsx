@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ApiError } from "../api/client";
+import { usePageTitle } from "../lib/usePageTitle";
 
 export type Tone = "ok" | "warn" | "bad" | "idle" | "info";
 
@@ -7,11 +8,18 @@ export function Pill({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`pill pill-${tone}`}>{children}</span>;
 }
 
-export function PageHeader({ title, lede, actions }: { title: string; lede?: string; actions?: ReactNode }) {
+export function PageHeader({ title, lede, actions, docTitle }: {
+  title: string;
+  lede?: string;
+  actions?: ReactNode;
+  /** document.title override (defaults to the heading) */
+  docTitle?: string;
+}) {
+  usePageTitle(docTitle ?? title);
   return (
     <header className="page-header">
       <div>
-        <h1>{title}</h1>
+        <h1 tabIndex={-1}>{title}</h1>
         {lede ? <p className="lede">{lede}</p> : null}
       </div>
       {actions ? <div className="page-actions">{actions}</div> : null}

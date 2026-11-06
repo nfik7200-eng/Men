@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import App, { NAV } from "./App";
+import App, { NAV, NAV_GROUPS } from "./App";
 import { SOL_WALLET, installFakeBackend } from "./test/fakeBackend";
 
 const renderAt = (path = "/") =>
@@ -49,7 +49,8 @@ describe("BIP dashboard", () => {
     const nav = screen.getByRole("navigation", { name: "Main" });
     for (const item of NAV) {
       await user.click(within(nav).getByRole("link", { name: item.label }));
-      expect(screen.getByRole("heading", { level: 1, name: item.label })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1, name: item.heading })).toBeInTheDocument();
+      expect(document.title).toBe(`${item.heading} · BIP`);
     }
   });
 
@@ -150,5 +151,45 @@ describe("BIP dashboard", () => {
     const link = screen.getByRole("link", { name: /5555/ });
     expect(link).toHaveAttribute("href", `https://explorer.solana.com/tx/${"5".repeat(64)}`);
     expect(screen.getByText("unknown")).toBeInTheDocument(); // null block time is not fabricated
+  });
+
+  it("groups the navigation into Monitor, Explore, Intelligence and Cases", () => {
+    installFakeBackend();
+    renderAt("/");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(NAV_GROUPS.map((g) => g.label)).toEqual(["Monitor", "Explore", "Intelligence", "Cases", ""]);
+    for (const name of ["Monitor", "Explore", "Intelligence", "Cases"]) {
+      expect(within(nav).getByText(name)).toBeInTheDocument();
+    }
+    const monitor = within(nav).getByRole("list", { name: "Monitor" });
+    expect(within(monitor).getAllByRole("link").map((a) => a.textContent)).toEqual(["Overview", "Chains", "Providers"]);
+    expect(within(nav).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("opens the mobile menu, closes it with Escape and returns focus to the Menu button", async () => {
+    const user = userEvent.setup();
+    installFakeBackend();
+    renderAt("/");
+    const menu = screen.getByRole("button", { name: "Menu" });
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    await user.click(menu);
+    expect(menu).toHaveAttribute("aria-expanded", "true");
+    await user.keyboard("{Escape}");
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveFocus();
+  });
+
+  it("offers a skip link and shows the backend version from /health", async () => {
+    installFakeBackend();
+    renderAt("/");
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute("href", "#content");
+    expect(await screen.findByText(/BIP 0\.1\.0/)).toBeInTheDocument();
+    expect(screen.queryByText(/· 0\.5/)).toBeNull();
+  });
+
+  it("shows one backend-offline banner instead of an error in every panel", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 502 }));
+    renderAt("/");
+    expect(await screen.findByRole("status", { name: "Backend status" })).toHaveTextContent(/Backend unreachable/);
   });
 });

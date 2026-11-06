@@ -1,7 +1,6 @@
-import { useState } from "react";
-import { NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { api } from "./api/client";
-import { Pill } from "./components/ui";
+import { useEffect, useRef } from "react";
+import { Route, Routes, useLocation } from "react-router-dom";
+import { BackendBanner, HealthProvider, Sidebar } from "./components/shell";
 import CapitalFlows from "./pages/CapitalFlows";
 import Chains from "./pages/Chains";
 import GraphPage from "./pages/Graph";
@@ -13,33 +12,8 @@ import Research from "./pages/Research";
 import Settings from "./pages/Settings";
 import Wallets, { WalletProfilePage } from "./pages/Wallets";
 import Watchlists from "./pages/Watchlists";
-import { useApi } from "./lib/useApi";
 
-export const NAV = [
-  { to: "/", label: "Overview" },
-  { to: "/chains", label: "Chains" },
-  { to: "/wallets", label: "Wallet Intelligence" },
-  { to: "/flows", label: "Capital Flows" },
-  { to: "/graph", label: "Relationship Graph" },
-  { to: "/opportunities", label: "Opportunities" },
-  { to: "/research", label: "AI Research" },
-  { to: "/investigations", label: "Investigations" },
-  { to: "/providers", label: "Providers" },
-  { to: "/watchlists", label: "Watchlists" },
-  { to: "/settings", label: "Settings" },
-] as const;
-
-function ConnectionBadge() {
-  const health = useApi(api.health);
-  if (health.status === "loading") return <Pill tone="idle">Connecting…</Pill>;
-  if (health.status === "error")
-    return (
-      <button type="button" className="badge-button" onClick={health.reload} title="Retry">
-        <Pill tone="bad">Backend offline</Pill>
-      </button>
-    );
-  return <Pill tone={health.data.status === "ok" ? "ok" : "warn"}>API {health.data.status}</Pill>;
-}
+export { NAV, NAV_GROUPS } from "./components/shell";
 
 function NotFound() {
   return (
@@ -50,49 +24,37 @@ function NotFound() {
   );
 }
 
-export default function App() {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const location = useLocation();
-  const [lastPath, setLastPath] = useState(location.pathname);
-  if (location.pathname !== lastPath) {
-    setLastPath(location.pathname);
-    setMenuOpen(false);
-  }
+/** Moves focus to the page heading after client-side navigation (not on first load). */
+function useFocusOnNavigate() {
+  const { pathname } = useLocation();
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    document.querySelector<HTMLElement>("main h1")?.focus();
+  }, [pathname]);
+}
 
+export default function App() {
+  return (
+    <HealthProvider>
+      <Shell />
+    </HealthProvider>
+  );
+}
+
+function Shell() {
+  useFocusOnNavigate();
   return (
     <div className="shell">
-      <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
-        <div className="brand-row">
-          <div className="brand">
-            <span className="brand-mark" aria-hidden="true" />
-            <div>
-              <strong>BIP</strong>
-              <span>Blockchain Intelligence · 0.5</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn menu-toggle"
-            aria-expanded={menuOpen}
-            aria-controls="main-nav"
-            onClick={() => setMenuOpen((o) => !o)}
-          >
-            Menu
-          </button>
-        </div>
-        <nav id="main-nav" aria-label="Main">
-          {NAV.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"} className="nav-link">
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <ConnectionBadge />
-          <span className="muted">Local prototype · no authentication</span>
-        </div>
-      </aside>
-      <main className="main">
+      <a className="skip-link" href="#content">
+        Skip to content
+      </a>
+      <Sidebar />
+      <main className="main" id="content" tabIndex={-1}>
+        <BackendBanner />
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/chains" element={<Chains />} />

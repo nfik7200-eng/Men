@@ -211,3 +211,19 @@ tr:last-child td { border-bottom: 0; }
   .linklike, .badge-button, summary { min-height: var(--target); display: inline-flex; align-items: center; }
   input, select, textarea { font-size: 16px; } /* avoids zoom-on-focus on mobile browsers */
 }
+
+/* ---------------------------------------------------------------- shell: groups, skip link, banner */
+.skip-link { position: absolute; left: var(--s2); top: -64px; min-height: var(--target); display: inline-flex; align-items: center; z-index: 20; background: var(--accent); color: var(--accent-ink); padding: var(--s2) var(--s3); border-radius: var(--radius-control); font-weight: 600; }
+.skip-link:focus { top: var(--s2); }
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group { margin-top: var(--s3); }
+.nav-group-label { font-size: var(--fs-xs); color: var(--muted); padding: 0 10px var(--s1); font-weight: 600; }
+.nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.nav-link { display: block; }
+.main h1:focus { outline: none; }
+.backend-banner { display: flex; gap: var(--s3); align-items: center; justify-content: space-between; flex-wrap: wrap; border: 1px solid var(--bad); background: var(--bad-bg); border-radius: var(--radius-panel); padding: var(--s3) var(--s4); }
+.backend-banner strong { color: var(--bad); }
+.sidebar-search { padding: 0 6px; }
+@media (max-width: 820px) {
+  .sidebar.open nav { max-height: calc(100vh - 72px); overflow-y: auto; padding-bottom: var(--s4); }
+}
