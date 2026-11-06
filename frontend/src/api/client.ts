@@ -42,6 +42,7 @@ import type {
   Watchlist,
   WatchlistEntry,
   WatchlistSummary,
+  WalletStatus,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -137,6 +138,8 @@ export const api = {
   walletBalanceChanges: (chain: string, address: string) =>
     request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/balance-changes?limit=50`),
   settings: () => request<PublicSettings>("/settings"),
+  walletStatus: (chain: string, address: string) =>
+    request<WalletStatus>(`/wallets/${enc(chain)}/${enc(address)}/status`),
   wallets: (limit = 50, offset = 0) => request<WalletList>(`/wallets?limit=${limit}&offset=${offset}`),
   wallet: (chain: string, address: string) =>
     request<WalletProfile>(`/wallets/${enc(chain)}/${enc(address)}`),

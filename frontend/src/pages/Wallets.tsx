@@ -241,14 +241,14 @@ export function WalletProfilePage() {
       <IngestPanel chain={chain} address={address} onDone={reloadAll} />
       {profile.status === "ready" ? <WalletIntel chain={chain} address={address} refreshKey={ingests} /> : null}
       {profile.status === "loading" ? <Loading /> : null}
-      {profile.status === "error" && profile.error.status === 404 ? (
+      {profile.status === "error" && profile.error.code === "not_found" ? (
         <EmptyState title="No data stored for this address yet">
           The address is valid, but nothing has been retrieved for it. Use "Retrieve recent
           activity" above. An empty result after a run means no activity was found in the scanned
           window, not that the wallet has never been used.
         </EmptyState>
       ) : null}
-      {profile.status === "error" && profile.error.status !== 404 ? (
+      {profile.status === "error" && profile.error.code !== "not_found" ? (
         <ErrorState error={profile.error} onRetry={profile.reload} />
       ) : null}
       {profile.status === "ready" ? (

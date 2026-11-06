@@ -658,6 +658,60 @@ class Repository:
                 )
         return out, total
 
+    def wallet_status(self, chain: str, address: str) -> dict[str, object]:
+        """What BIP holds for one wallet. ``None`` means not stored, never zero (ADR-031)."""
+        ref = canonical_address(chain, address)
+        w, ir = schema.wallets, schema.ingestion_runs
+        wl, we, inv = schema.watchlists, schema.watchlist_entries, schema.investigations
+        wc, rr = schema.wallet_classifications, schema.research_runs
+        with self._tx() as conn:
+            row = conn.execute(
+                select(w).where(w.c.chain == ref.chain, w.c.address == ref.address)
+            ).first()
+            counts = self._wallet_counts(conn, ref.chain, ref.address) if row is not None else None
+            last_ingested = conn.execute(
+                select(func.max(ir.c.finished_at)).where(
+                    ir.c.chain == ref.chain, ir.c.address == ref.address
+                )
+            ).scalar()
+            n_cls = conn.execute(
+                select(func.count())
+                .select_from(wc)
+                .where(wc.c.chain == ref.chain, wc.c.address == ref.address)
+            ).scalar_one()
+            n_runs = conn.execute(
+                select(func.count())
+                .select_from(rr)
+                .where(rr.c.chain == ref.chain, rr.c.address == ref.address)
+            ).scalar_one()
+            lists = conn.execute(
+                select(wl.c.id, wl.c.name)
+                .join(we, we.c.watchlist_id == wl.c.id)
+                .where(we.c.chain == ref.chain, we.c.address == ref.address)
+                .order_by(wl.c.id)
+            ).all()
+            cases = conn.execute(
+                select(inv.c.id, inv.c.title, inv.c.status)
+                .where(inv.c.subject_chain == ref.chain, inv.c.subject_address == ref.address)
+                .order_by(inv.c.id)
+            ).all()
+        origin = self.get_meta("data_origin")
+        return {
+            "chain": ref.chain,
+            "address": ref.address,
+            "stored": row is not None,
+            "transaction_count": counts[0] if counts else None,
+            "transfer_count": counts[1] if counts else None,
+            "first_observed_at": row.first_observed_at if row is not None else None,
+            "last_observed_at": row.last_observed_at if row is not None else None,
+            "last_ingested_at": last_ingested,
+            "data_origin": "offline_fixture" if origin == "offline_fixture" else "live",
+            "classifications": int(n_cls),
+            "research_runs": int(n_runs),
+            "watchlists": [{"id": r.id, "name": r.name} for r in lists],
+            "investigations": [{"id": r.id, "title": r.title, "status": r.status} for r in cases],
+        }
+
     def get_wallet(self, chain: str, address: str) -> records.WalletProfile:
         ref = canonical_address(chain, address)
         w, t, tr = schema.wallets, schema.transactions, schema.transfers

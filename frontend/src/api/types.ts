@@ -678,3 +678,20 @@ export type ResearchConfig = {
   configured: Record<string, string | null>; how_to_configure: string; budget: Record<string, number>;
   focus_areas: string[]; tools: { name: string; description: string; specialists: string[] }[];
 };
+
+/** GET /wallets/{chain}/{address}/status (ADR-031). null = not stored, never 0. */
+export type WalletStatus = {
+  chain: string;
+  address: string;
+  stored: boolean;
+  transaction_count: number | null;
+  transfer_count: number | null;
+  first_observed_at: string | null;
+  last_observed_at: string | null;
+  last_ingested_at: string | null;
+  data_origin: "live" | "offline_fixture";
+  classifications: number;
+  research_runs: number;
+  watchlists: { id: number; name: string }[];
+  investigations: { id: number; title: string; status: string }[];
+};

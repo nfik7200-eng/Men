@@ -76,4 +76,10 @@ describe("api client", () => {
     expect(err.isConnectionError).toBe(false);
     expect(err.code).toBe("database_unavailable");
   });
+
+  it("requests the wallet status endpoint with encoded segments", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { stored: false }));
+    await expect(api.walletStatus("ethereum", "0xAB")).resolves.toEqual({ stored: false });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/wallets/ethereum/0xAB/status");
+  });
 });

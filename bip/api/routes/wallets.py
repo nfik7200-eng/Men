@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Path, Query
 
 from bip.api.deps import Context
+from bip.api.routes.chains import _require_chain  # pyright: ignore[reportPrivateUsage]
 from bip.api.schemas import Out
 from bip.contracts.provenance import Provenance
 from bip.db.records import WalletProfile, WalletSummary
@@ -29,6 +30,17 @@ def list_wallets(
 ) -> WalletList:
     items, total = ctx.repo.list_wallets(limit, offset)
     return WalletList(total=total, limit=limit, offset=offset, items=tuple(items))
+
+
+@router.get("/wallets/{chain}/{address}/status")
+def wallet_status(
+    ctx: Context,
+    chain: Annotated[str, Path(min_length=1, max_length=32)],
+    address: Annotated[str, Path(min_length=1, max_length=100)],
+) -> dict[str, object]:
+    """200 for any valid address: ``stored`` says whether BIP holds data (ADR-031)."""
+    _require_chain(ctx, chain)
+    return ctx.repo.wallet_status(chain, address)
 
 
 @router.get("/wallets/{chain}/{address}", response_model=WalletProfile)

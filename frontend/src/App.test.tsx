@@ -192,4 +192,17 @@ describe("BIP dashboard", () => {
     renderAt("/");
     expect(await screen.findByRole("status", { name: "Backend status" })).toHaveTextContent(/Backend unreachable/);
   });
+
+  it("treats a missing endpoint (route_not_found) as an error, not as 'nothing stored'", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = String(input);
+      const body = url.endsWith("/health")
+        ? { status: "ok", version: "0.1.0", environment: "test", database: "ok", storage_writes: "allowed", timestamp: "2026-11-06T00:00:00Z" }
+        : { error: { code: "route_not_found", message: "Not Found" } };
+      return Promise.resolve(new Response(JSON.stringify(body), { status: url.endsWith("/health") ? 200 : 404, headers: { "Content-Type": "application/json" } }));
+    });
+    renderAt(`/wallets/ethereum/0x${"aa".repeat(20)}`);
+    expect((await screen.findAllByText("Request failed")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/No data stored for this address yet|Nothing has been retrieved/)).toBeNull();
+  });
 });

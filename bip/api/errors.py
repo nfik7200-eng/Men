@@ -113,7 +113,10 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_: Request, exc: StarletteHTTPException) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
-        code = {404: "not_found", 405: "method_not_allowed", 413: "payload_too_large"}.get(
+        # Routes never raise HTTPException(404) themselves (missing records use RecordNotFoundError
+        # -> "not_found"), so a 404 here means no route matched: a distinct code lets clients tell a
+        # missing endpoint from "no data for this record" (ADR-031).
+        code = {404: "route_not_found", 405: "method_not_allowed", 413: "payload_too_large"}.get(
             exc.status_code, "http_error"
         )
         message = str(exc.detail) if exc.detail else "Request failed."

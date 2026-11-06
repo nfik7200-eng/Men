@@ -59,7 +59,7 @@ def test_health_reports_unavailable_database(settings: Settings, tmp_path: Path)
 def test_security_headers_and_unknown_route(client: TestClient) -> None:
     resp = client.get(f"{API}/does-not-exist")
     assert resp.status_code == 404
-    assert error_code(resp) == "not_found"
+    assert error_code(resp) == "route_not_found"  # ADR-031: distinct from a missing record
     assert resp.headers["x-content-type-options"] == "nosniff"
     assert resp.headers["cache-control"] == "no-store"
 
