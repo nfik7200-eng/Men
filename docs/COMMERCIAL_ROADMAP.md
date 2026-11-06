@@ -1,27 +1,50 @@
-# Commercial roadmap (hypotheses, not facts)
+# Commercial roadmap (updated 2026-11-06) — hypotheses, gates and costs
 
-## Economics (estimates — validate)
-| Item | MVP | At ~100 real sources / 50k listings |
+Evidence grades as in `DATA_SOURCE_RESEARCH.md`: **[P]** primary page read · **[S]** search summary only · **[U]** unverified.
+
+## 1. What is true today
+* Engine, consumer UI, eBay adapter *scaffold* and landed-cost/FX foundations exist and are tested (143 tests).
+* **No real retailer data exists.** The only collected data is two scraping-practice sandboxes. The eBay adapter has run only against mocked/synthetic data. No credentials, approvals, or affiliate accounts exist.
+* No paid service was purchased. No revenue stream is live.
+
+## 2. Gates (in order — nothing public before gate 1)
+| # | Gate | Owner | Blocks |
+|---|---|---|---|
+| 1 | Read eBay API License Agreement: may we store prices/price history, show them, and later sell a data API? | You | Public launch, data-product revenue |
+| 2 | eBay developer account + sandbox keys; allow `api.sandbox.ebay.com` in the environment | You | Live adapter test |
+| 3 | Production keyset (approval steps [U]) | You/eBay | Real listings |
+| 4 | eBay Partner Network membership; country eligibility [U]; campaign id | You/eBay | Affiliate revenue |
+| 5 | ≥4 weeks of daily observations | Time | First *verified* deals |
+| 6 | One destination's customs tariff verified from the official authority | You/research | Landed-cost claims |
+
+## 3. Affiliate readiness (mission §11) — what was verified
+| Item | Finding |
+|---|---|
+| Amazon eligibility | Need an Associates account for the marketplace **and ≥10 qualifying sales in the past 30 days** to use the Creators API; PA-API 5 is deprecated and answers `403` [P]. ⇒ not available at launch; revisit after traffic exists. |
+| eBay eligibility / countries / rates | EPN homepage read but contains no eligibility or rate table [P]; reported electronics ≈1.5–4 % [S]; country rules [U]. |
+| Link attribution (eBay) | Send `X-EBAY-C-ENDUSERCTX: affiliateCampaignId=<10-digit id>[,affiliateReferenceId=…]` and the API returns `itemAffiliateWebUrl` carrying `campid`/`customid` [P]. Implemented (`EBAY_CAMPAIGN_ID`) and tested with mocks. |
+| Click recording | Every outbound click goes via `/go/{id}` and is logged (listing, network, time). **Limit:** stored provider URLs have a fixed `customid`, so per-click sub-ID reconciliation against EPN reports is *not* possible without rewriting the URL per click (permission [U]). Conversions/revenue are visible only in the network dashboard; we do not receive them. |
+| Disclosure | Amazon: exact sentence *"As an Amazon Associate I earn from qualifying purchases."* is required [P] and wired in. EPN wording [U] — generic disclosure shown whenever any affiliate link is active. |
+| Ranking independence | Ranking/scoring modules contain no reference to affiliate data (static test) and rankings are unchanged when affiliate config + clicks are enabled (behavioural test). Sponsored placements: not built; must stay outside ranking code. |
+
+## 4. Economics (estimates — validate; no vendor was contacted)
+| Item | Now | At real scale (~50k listings, daily) |
 |---|---|---|
-| Hosting | $0–5/mo (free tier VM or small VPS; SQLite) | $10–40/mo (VPS + Postgres) |
-| Scraping | $0 (polite, no proxies) | Proxies are a *compliance smell*: prefer APIs/feeds. If needed $50+/mo |
-| LLM | $0 (rules; optional local Ollama) | $0–50/mo if hosted LLM used for match review only |
-| Notifications | $0 (in-app) | Email ~$0–20/mo (transactional tier), push free |
-| Storage | <100MB/mo observations | ~1–3GB/yr at daily observation for 50k listings |
-Margins are dominated by customer acquisition and data access, not infrastructure.
+| Hosting | $0–10/mo (SQLite, small VM) | $10–40/mo (Postgres/VPS) |
+| Data access | $0 (sandboxes). eBay API fees [U] | [U]; feeds/APIs may be free for approved partners |
+| Proxies | $0 — and **do not use**: API/feeds make proxies unnecessary and scraping retailers via proxies is a compliance risk | $0 |
+| LLM | $0 (rules; optional local Ollama, untested) | $0–50 if hosted model is ever used for match review |
+| Email/push alerts | not built | $0–20/mo |
+| Storage | <100 MB/month | ~1–3 GB/year |
+Margin is determined by traffic and affiliate conversion, not infrastructure: at a 2 % commission on electronics, $1,000/month revenue needs ≈$50k/month of referred sales [arithmetic on a reported rate, S].
 
-## Affiliate programmes (secondary sources only; official terms NOT yet read — verify before relying)
-- Amazon Associates: reports say new accounts must generate 3 qualifying sales within 180 days or be closed; electronics ≈1–4%. Scraping Amazon is not permitted by its terms; use the official Product Advertising API only after approval.
-- eBay Partner Network: approval not guaranteed; electronics reportedly ~1.5–4%; country eligibility unverified.
-Implication: affiliate on electronics is thin-margin — it needs real traffic volume. The platform ships provider-agnostic `affiliate.json` templating + click log; nothing is enabled.
+## 5. Staged plan
+1. **Weeks 0–2 — remove the unknowns:** gates 1, 2, 4. Decide by evidence whether eBay is viable for price history. Run the adapter in the eBay sandbox; fix parser mismatches.
+2. **Weeks 2–6 — real data:** production keys; one marketplace (US or GB), 3–5 electronics categories, daily collection; add `getItem` refresh for watched items. Gate 5 starts here.
+3. **Weeks 6–10 — trust + traffic:** public read-only site (accounts first if watchlists are exposed), SEO price-history pages, a waitlist for "landed cost to East Africa". Measure: waitlist size, alert→click rate.
+4. **Months 3–5 — monetise:** affiliate links live and disclosed; free/Pro tiers enforced (limits already coded; no billing); validate $5–10 willingness to pay before building payments.
+5. **Months 5–9 — business monitoring pilot:** 3–5 retailers/importers at $29–99, using the same Events/Watch engine; **requires the retailers' own competitor lists and terms review**, scraping only where permitted.
+6. **Later:** API/data products (only if gate 1 allows), second provider (affiliate-network feeds), price prediction after ≥6 months of history.
 
-## Staged plan
-1. **Now (week 0)** — pipeline + demo. Gate: reproducible install, tests green. ✅
-2. **Weeks 1–4: real data access** — apply to eBay Partner Network + obtain Browse API keys; pick ONE market/category (recommendation: electronics, US/UK sources, import-cost view for East Africa). Add 2–3 compliant adapters with overlapping products so cross-store matching is proven live. Daily scheduled collection. Gate: ≥4 weeks of history → first *verified* deals.
-3. **Weeks 4–8: acquisition** — SEO pages per product/price history; weekly "real vs fake discount" content; free watchlist + email alerts (add accounts). Metric: weekly active watchers, alert→click rate.
-4. **Months 2–4: monetise** — affiliate links live (disclosed); Pro $5–10 (more watches, 6h alerts, long history, import calculator) — test willingness to pay with a waitlist before building billing.
-5. **Months 4–8: Business monitoring** — pilot with 3–5 local retailers/importers at $29–99 on manually onboarded competitor lists; weekly competitor report from Events. Gate: 3 paying pilots.
-6. **Later** — API/data products, sponsored (labelled, never affecting rank), price prediction once ≥6 months history.
-
-## Key risks
-Data-access legality (largest), affiliate rejection, thin margins, long time-to-trust (needs history), cross-currency without sourced FX.
+## 6. Key risks (ranked)
+1. Data-license terms may forbid price history (gate 1). 2. Affiliate approval/country eligibility. 3. Thin electronics commissions. 4. Matching quality on messy real titles. 5. Time to accumulate history. 6. Unverified duty/tax data for the East-Africa angle.

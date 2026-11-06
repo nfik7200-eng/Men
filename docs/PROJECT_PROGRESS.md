@@ -1,31 +1,26 @@
-# Project progress — 2026-11-05 (single focused day)
+# Project progress — updated 2026-11-06 (mission 002)
 
-## Acceptance criteria — evidence
-| # | Criterion | Status | Evidence |
-|---|---|---|---|
-| 1 | App starts | ✅ | `uvicorn main:app` served all pages; `/health` ok |
-| 2 | Real permitted source collected | ✅ (sandbox sources) | 2 live runs: 66 + 120 listings, 0 invalid, robots honoured |
-| 3 | Products persisted | ✅ | 186 listings in SQLite, idempotent re-run created 0 duplicates |
-| 4 | Timestamped observations | ✅ | 372 observations after 2 runs |
-| 5 | Comparisons | ⚠️ partly | Same-product-elsewhere view + matching proven by tests; **no live cross-store overlap** (sandbox catalogues don't overlap) |
-| 6 | Product details | ✅ | /listing/{id}, screenshots reviewed desktop + Pixel 7 |
-| 7 | History shown when sufficient | ✅ | chart appears at ≥2 obs; real listing #18 has 2 obs |
-| 8 | Price change detection | ⚠️ tests only | drop/rise/restock/removed/description events tested; live data had **0 changes** (static sandbox) |
-| 9 | Assistant uses real data | ✅ | answers cite listing ids; budget/gap/no-result behaviours tested |
-| 10 | Desktop + Android layout | ✅ | 0 px horizontal overflow on 5 pages × 2 viewports; screenshots inspected (home/search/deals Android not individually eyeballed) |
-| 11 | Tests | ✅ | 46 pass (also from a clean venv) |
-| 12 | Reproducible | ✅ | README quick start run in clean venv |
-| 13 | Roadmap | ✅ | docs/COMMERCIAL_ROADMAP.md |
+## Verified now (commands run in this session)
+| Claim | Evidence |
+|---|---|
+| Tests | `python -m pytest` → **143 passed** (was 46). 97 new tests are regression tests for audit findings, eBay adapter (mocked), landed cost/FX, affiliate |
+| Previous claims re-verified | 186 listings / 372 observations existed; PR #3 draft/open, no checks/reviews |
+| Real collection on migrated DB | 3rd run (2026-11-06): 66 + 120 items, 0 invalid, 0 new; **558 observations**, every listing has history on 2 distinct days; eBay skipped as "not configured; missing EBAY_CLIENT_ID, EBAY_CLIENT_SECRET" |
+| Schema migration | `sync_columns` added 5 listing columns to a copy of the real DB with data intact |
+| UI | Screenshots inspected at 1280×900 and Pixel 7 (home, search, listing+chart+landed cost, research incl. ambiguity, deals, watchlist, 404/422 pages, login, admin); 0 px overflow; real-browser watch + admin login flows work (CSRF check does not block genuine browsers) |
+| Performance | `top_deals` @5,000 listings: 7.9 s/5,002 queries (audit) → **0.26 s/3 queries** |
 
-## Incomplete / not verified (be skeptical of anything not listed as ✅)
-- No real retailer source; no live verified deals (needs ≥7 days of history). Deal labels today are "estimate" only.
-- Ollama integration untested against a real model (not installed); mocked-transport test only.
-- Affiliate programme facts come from third-party blogs, not official terms; no programme joined.
-- Import-cost rates are placeholders (`verified:false`). No FX conversion.
-- No accounts, alert delivery, billing, Alembic, business-monitoring UI. Admin POST/watchlist have no CSRF protection.
-- Not production-ready. No security review beyond own code reading + XSS/admin tests.
+## Not true / not done (read before relying on anything)
+* **The eBay integration does not work against eBay.** It is a contract + scaffolding validated with mocked transport and synthetic fixtures. Activation blockers: no credentials, no approval, environment allowlist lacks `api.sandbox.ebay.com`/`api.ebay.com`, and **the eBay API License Agreement (data storage/price history rights) could not be read (HTTP 403)**.
+* No real retailer data; deal labels are "estimate" only — no verified deal can exist before ≥3 collections spanning ≥7 days (nothing here has that yet).
+* Affiliate: nothing joined/enabled; EPN country eligibility and disclosure wording unverified; Amazon needs ≥10 sales/30 days (primary source).
+* Landed-cost rates are placeholders (marked "assumed"); no sourced FX rate is recorded (the UI says so).
+* Ollama still untested with a real model. No Context7 / GitHub-MCP (proxy 403) — not used.
+* Security: see `AUDIT_REPORT.md` §5 open items. Not production-ready.
+* PR #3 remains **draft**; not marked ready, not merged.
 
-## Model checkpoints (honest)
-This session ran on a single model; **no Opus advisor review occurred**. Recommended manual Opus checkpoints: (1) review `matching.py` thresholds
-and `deals.py` scoring before trusting live deals, (2) security review before any public deploy, (3) business-model review once real data exists.
-Plugins: Playwright (via local Chromium script) used for screenshots; Context7/GitHub-MCP failed to connect (proxy); frontend-design/superpowers skills not otherwise used.
+## Model usage (honest)
+Independent audit: a read-only subagent launched with `model: opus` (I cannot independently verify the serving model). Everything else (implementation, tests, docs, research) was done by this Sonnet session. Recommended manual Opus checkpoints still open: matching/deal threshold review on *real* data; formal security review before any public deploy; business-model review after gate 1.
+
+## Next milestone
+Resolve gates 1–2 (read the eBay license; sandbox keys + allowlist), run the adapter against the eBay sandbox, fix parser mismatches, then start daily collection.

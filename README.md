@@ -13,13 +13,13 @@ pip install -r requirements.txt
 export WATCHTOWER_CONTACT="you@example.com"        # identifies the crawler to site owners
 python -m watchtower.cli collect --max-pages 6      # real collection (≈30 s, polite 1.5 s delay)
 uvicorn main:app --port 8000                        # open http://localhost:8000
-python -m pytest                                    # 46 tests, no network needed
+python -m pytest                                    # 143 tests, no network needed
 ```
 Run `collect` again later (cron/daily): each run appends observations; price changes, restocks and removals become events.
 
 ## Configuration (env vars)
 `WATCHTOWER_DB_URL` (default SQLite `data/watchtower.db`) · `WATCHTOWER_CONTACT` · `WATCHTOWER_MIN_DELAY` · `WATCHTOWER_ADMIN_TOKEN`
-(required for /admin if not on loopback) · `OLLAMA_URL`/`OLLAMA_MODEL` (optional) · `AFFILIATE_CONFIG` (see `shopping/affiliate.py`)
+(**required** to use /admin, ≥20 chars; admin is disabled without it) · `WATCHTOWER_TRUST_PROXY=1` (only behind your own proxy) · `WATCHTOWER_COOKIE_SECURE=1` · `WATCHTOWER_RATE_LIMIT` (per IP/min, default 120) · `OLLAMA_URL`/`OLLAMA_MODEL` (optional) · `AFFILIATE_CONFIG` (see `shopping/affiliate.py`)
 · `IMPORT_RULES` (default `data/import_rules.json`; shipped rates are unverified placeholders).
 
 ## Layout
@@ -29,7 +29,21 @@ JSON API: `/api/v1/listings`, `/listings/{id}`, `/listings/{id}/history`, `/deal
 ## Deploy (cheap)
 One small VPS or free-tier VM: `pip install -r requirements.txt`, run `uvicorn main:app --host 127.0.0.1` behind Caddy/nginx (TLS),
 a systemd timer or cron for `python -m watchtower.cli collect`, and a daily copy of the SQLite file. Set `WATCHTOWER_ADMIN_TOKEN`.
-Do not expose publicly before accounts exist: the watchlist is a single shared "local" owner.
+Watchlists are per-browser (anonymous cookie) until real accounts exist. Read `docs/AUDIT_REPORT.md` §5 (open risks) before exposing publicly; run behind TLS and set `WATCHTOWER_ADMIN_TOKEN`.
 
 ## Not built yet
-Accounts/auth, alert delivery (email/push), billing, business-monitoring UI, Alembic migrations, ML prediction, any real retailer source.
+Real user accounts, alert delivery (email/push), billing, business-monitoring UI, Alembic migrations, ML prediction, any real retailer data (eBay adapter is scaffolding only).
+
+## Admin, sources and rates (CLI)
+```bash
+python -m watchtower.cli status                      # sources, enabled/configured state, observation count
+python -m watchtower.cli source disable books_toscrape
+python -m watchtower.cli fx set USD UGX 3700 --as-of 2026-11-06 --source "<who published it>" --url <https://...>
+export WATCHTOWER_ADMIN_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"   # then sign in at /admin/login
+```
+## eBay (not live)
+Set `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET` (env only), `EBAY_ENV=sandbox|production`, `EBAY_MARKETPLACE`, optional `EBAY_CAMPAIGN_ID`, `EBAY_QUERIES`.
+Without credentials the source reports "not configured" and fetches nothing. Read `docs/DATA_SOURCE_RESEARCH.md` §4 before activating.
+
+## Docs
+`docs/AUDIT_REPORT.md` · `DATA_SOURCE_RESEARCH.md` · `COMMERCIAL_ROADMAP.md` · `TECHNICAL_DECISIONS.md` · `ARCHITECTURE.md` · `PROJECT_PROGRESS.md`

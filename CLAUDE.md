@@ -14,5 +14,9 @@ Modular monolith (Python 3.11+): `watchtower/` = shared engine (sources, fetcher
 - Fetcher: honour robots.txt, delay, backoff; on 401/403/451 STOP (no bypass). New source = new adapter in watchtower/sources + terms note.
 - Removals are inferred only after a COMPLETE crawl. "Verified" deals need history (3+ obs over 7+ days).
 - Never auto-merge products on weak evidence (see matching.py thresholds); uncertain → review queue.
-- Sponsored placements must never influence ranking code.
+- Sponsored placements and affiliate data must never influence ranking code (a test greps for it).
+- Admin is fail-closed (token ≥20 chars required). Never trust `client.host`/XFF for auth. State-changing routes rely on the Origin check + SameSite cookies — keep them same-site forms.
+- Fetcher: every URL (start, next, redirect) must be on the source's host allowlist; adapters never fetch directly. API adapters must expose `configured()` and never log credentials.
+- Deal labels: 'Verified' needs the evidence rules in `watchtower/deals.py` docstring; stale data never ranks. Currency is never converted without a recorded, attributed FX rate.
+- eBay adapter is scaffolding (mock-tested). Do not describe it as live until it has run against the eBay sandbox/production and the API License Agreement has been read.
 - Docs: SPEC.md, ARCHITECTURE.md, TECHNICAL_DECISIONS.md, COMMERCIAL_ROADMAP.md, PROJECT_PROGRESS.md — update when decisions change.

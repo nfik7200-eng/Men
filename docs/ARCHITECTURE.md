@@ -18,3 +18,8 @@ server-rendered UI (Jinja) + JSON API `/api/v1/*` (the seed of the future paid A
 **Scheduling**: CLI `collect` is idempotent; run from cron / systemd timer / GitHub Actions (daily is enough for MVP).
 **Business monitoring (not built)**: add `Competitor` Source rows, a `report` module over Events, API keys + rate limits on /api/v1.
 **Known limits**: single-writer SQLite; one tenant ("local" owner); no auth; admin is loopback-only or token-protected.
+
+## Mission 002 additions
+* `shopping/web/security.py`: fail-closed admin auth, Origin-based CSRF check, per-browser owner cookie, rate limiting, security headers (installed as one middleware).
+* API-source contract on `SourceAdapter`: `official_api`, `configured()`, `request_headers()`, `allowed_hosts()`, `listing_hosts()`; the collector refuses unconfigured/disabled/busy sources and fails runs on exceptions.
+* `watchtower/sources/ebay_browse.py` (scaffold) · `shopping/fx.py` (sourced FX) · `shopping/importcost.py` v2 (landed cost) · `Database.sync_columns` (interim migrations).
