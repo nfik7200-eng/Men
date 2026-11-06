@@ -65,3 +65,24 @@ def test_cli_verify_exit_code(tmp_path, capsys):
     assert cli.main(["verify", "--db", str(path)]) == 0
     assert "integrity: OK" in capsys.readouterr().out
     assert cli.main(["verify", "--db", str(tmp_path / "missing.db")]) == 2
+
+
+def test_a_recorded_currency_change_is_not_an_integrity_violation(tmp_path):
+    """Independent review: older observations legitimately keep the old currency after a currency_change event."""
+    path = _db(tmp_path)
+    db = Database(f"sqlite:///{path}")
+    with db.session() as s:
+        a = s.query(Source).filter_by(key="shopa").one()
+        raw = _raw("a1", "Raspberry Pi Zero 2 W")
+        raw.currency = "EUR"
+        ingest_listing(s, a, None, raw, datetime(2026, 11, 7, 12, 0))
+    db.engine.dispose()
+    r = integrity_report(path)
+    assert r["ok"], [c for c in r["checks"] if not c["ok"]]
+
+
+def test_verify_reports_a_non_database_file_instead_of_crashing(tmp_path, capsys):
+    bad = tmp_path / "x.db"
+    bad.write_bytes(b"garbage" * 100)
+    assert cli.main(["verify", "--db", str(bad)]) == 2
+    assert "cannot read" in capsys.readouterr().out

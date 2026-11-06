@@ -124,11 +124,19 @@ def _verify(db_path: str | None) -> int:
     from pathlib import Path
     from . import config
     from .integrity import integrity_report
+    import sqlite3
+    if not db_path and not config.DB_URL.startswith("sqlite:///"):
+        print("verify: only SQLite databases are supported")
+        return 2
     path = Path(db_path) if db_path else Path(config.DB_URL[len("sqlite:///"):])
     if not path.is_file():
         print(f"verify: database not found: {path}")
         return 2
-    r = integrity_report(path)
+    try:
+        r = integrity_report(path)
+    except sqlite3.Error as ex:  # not a database, or an un-migrated schema
+        print(f"verify: cannot read {path}: {ex}")
+        return 2
     for ch in r["checks"]:
         print(f"{'ok  ' if ch['ok'] else 'FAIL'} {ch['name']:46} {ch['value']}" + ("" if ch["ok"] else f"  ({ch['meaning']})"))
     for k, val in r["metrics"].items():

@@ -14,8 +14,10 @@ CHECKS: dict[str, tuple[str, str]] = {
     "nonpositive_prices": ("SELECT (SELECT count(*) FROM observations WHERE price_minor <= 0) + "
                            "(SELECT count(*) FROM listings WHERE price_minor <= 0)",
                            "a missing price must be NULL, never 0 or negative"),
-    "observation_currency_matches_listing": (f"SELECT count(*) FROM observations o JOIN listings l ON l.id = o.listing_id {_LIVE} "
-                                             "AND o.currency != l.currency", "currency changed without a currency_change event?"),
+    # only the LATEST observation: older ones legitimately keep the old currency after a recorded currency_change
+    "latest_observation_currency_matches_listing": (
+        f"SELECT count(*) FROM listings l {_LIVE} AND l.currency IS NOT (SELECT o.currency FROM observations o "
+        "WHERE o.listing_id = l.id ORDER BY o.observed_at DESC, o.id DESC LIMIT 1)", "current currency not backed by history"),
     "one_observation_per_listing_per_run": ("SELECT count(*) FROM (SELECT 1 FROM observations WHERE run_id IS NOT NULL "
                                             "GROUP BY listing_id, run_id HAVING count(*) > 1)", "duplicate observations inflate history"),
     "live_listing_has_observation": (f"SELECT count(*) FROM listings l {_LIVE} AND NOT EXISTS "
@@ -29,7 +31,7 @@ CHECKS: dict[str, tuple[str, str]] = {
     "one_listing_per_merchant_per_product": ("SELECT count(*) FROM (SELECT 1 FROM listings WHERE product_id IS NOT NULL "
                                              "GROUP BY product_id, source_id HAVING count(*) > 1)", "matcher merged variants"),
     "products_never_mix_data_classes": ("SELECT count(*) FROM (SELECT 1 FROM listings l JOIN sources s ON s.id = l.source_id "
-                                        "GROUP BY l.product_id HAVING count(DISTINCT s.kind = 'live') > 1)", "demo data mixed into real"),
+                                        "WHERE l.product_id IS NOT NULL GROUP BY l.product_id HAVING count(DISTINCT s.kind = 'live') > 1)", "demo data mixed into real"),
     "no_orphan_products": ("SELECT count(*) FROM products p WHERE NOT EXISTS (SELECT 1 FROM listings l WHERE l.product_id = p.id)",
                            "product left behind by a merge"),
     "candidate_points_at_own_product": ("SELECT count(*) FROM match_candidates m JOIN listings l ON l.id = m.listing_id "
@@ -76,7 +78,7 @@ def integrity_report(path) -> dict:
                                                    "HAVING count(DISTINCT date(o.observed_at)) >= 3 AND "
                                                    "julianday(max(o.observed_at)) - julianday(min(o.observed_at)) >= 7)"),
             "multi_merchant_products": _count(c, "SELECT count(*) FROM (SELECT 1 FROM listings l " + _LIVE +
-                                                 " GROUP BY l.product_id HAVING count(DISTINCT l.source_id) > 1)"),
+                                                 " AND l.product_id IS NOT NULL GROUP BY l.product_id HAVING count(DISTINCT l.source_id) > 1)"),
             "pending_review_candidates": _count(c, "SELECT count(*) FROM match_candidates WHERE status = 'pending'"),
             "price_change_events_live": _count(c, f"SELECT count(*) FROM events e JOIN listings l ON l.id = e.listing_id {_LIVE} "
                                                   "AND e.kind IN ('price_drop', 'price_rise')"),

@@ -382,7 +382,9 @@ def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
         return
     l, target = c.listing, c.product_id
     mirrors = _reverse_pending(s, l, target)
-    partners = [m.listing for m in mirrors]
+    # everyone whose 'review' status may hinge on this question: the listing, the target product's members, and the
+    # listings of mirrored candidates (collected BEFORE the move)
+    affected = {x.id: x for x in [l] + _members(s, target) + [m.listing for m in mirrors]}
     c.status = "accepted" if accept else "rejected"
     for m in mirrors:
         m.status = c.status
@@ -391,14 +393,15 @@ def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
         l.product_id, l.match_status = target, "confirmed"
         s.flush()
         _drop_product_if_empty(s, old, l.id)  # also closes other pending candidates pointing at the vanished product
-        s.flush()
-        for p in partners:  # the partner's question was answered by this decision
-            if p.product_id == target and not _under_review(s, p):
-                p.match_status = "confirmed"
-    else:
-        s.flush()
-        for x in [l] + partners:
-            x.match_status = "review" if _under_review(s, x) else "self"
+    s.flush()
+    for x in affected.values():
+        if x.match_status != "review":
+            continue  # human-confirmed and automatic matches are never downgraded by an unrelated decision
+        if _under_review(s, x):
+            continue
+        x.match_status = "confirmed" if accept and x.product_id == target else "self"
+        if x.match_status == "self":
+            x.match_reasons = []
 
 
 def demote_ambiguous(s: Session, source_id: int) -> int:

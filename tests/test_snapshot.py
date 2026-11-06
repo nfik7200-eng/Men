@@ -63,3 +63,11 @@ def test_cli_backup_does_not_initialise_or_write_the_source(tmp_path, monkeypatc
     assert (src.read_bytes(), (tmp_path / "live.db-wal").read_bytes()) == before  # no tables created, no policy rows
     assert cli.main(["backup", "--out", str(tmp_path / "b.db")]) == 1  # never overwrites
     keep.close()
+
+
+def test_unreadable_source_gives_a_clean_error_and_leaves_no_partial_file(tmp_path):
+    bad = tmp_path / "not_a_db.db"
+    bad.write_bytes(b"this is not an sqlite file" * 100)
+    with pytest.raises(SnapshotError):
+        snapshot(bad, tmp_path / "out.db")
+    assert not (tmp_path / "out.db").exists()  # a retry with the same --out must work

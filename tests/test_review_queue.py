@@ -110,3 +110,43 @@ def test_prune_keeps_distinct_questions_about_the_same_target_product(db):
     prune_candidates(s)
     s.flush()
     assert {(m.listing_id, m.product_id) for m in _pending(s)} == {(target.id, other_side.product_id), (x.id, other_side.product_id)}
+
+
+# --- independent review of iteration 2: with ONE candidate (the normal state now) the partner listing was never updated
+def test_rejecting_the_single_candidate_returns_both_listings_to_self(db):
+    s, a, b = _world(db)
+    (c,) = _pending(s)
+    resolve_candidate(s, c.id, accept=False)
+    s.flush()
+    assert _pending(s) == [] and a.match_status == b.match_status == "self"
+
+
+def test_accepting_the_single_candidate_confirms_both_listings(db):
+    s, a, b = _world(db)
+    (c,) = _pending(s)
+    resolve_candidate(s, c.id, accept=True)
+    s.flush()
+    assert a.product_id == b.product_id and a.match_status == b.match_status == "confirmed"
+    prune_candidates(s)  # later maintenance must not undo the human decision
+    s.flush()
+    assert a.match_status == b.match_status == "confirmed"
+
+
+def test_rejecting_another_question_never_downgrades_a_confirmed_listing(db):
+    s, a, b = _world(db)
+    (c,) = _pending(s)
+    resolve_candidate(s, c.id, accept=True)
+    src = Source(key="shopc", name="shopc", base_url="https://shopc.example", currency="USD", kind="live")
+    s.add(src)
+    s.flush()
+    raw = _raw("c1", "Raspberry Pi 3 Model A Plus")
+    raw.category = "laptop"
+    x, *_ = ingest_listing(s, src, None, raw, T0)
+    s.flush()
+    x.category = "maker-electronics"
+    q = MatchCandidate(listing_id=a.id, product_id=x.product_id, score=0.6, reasons=["another question about a"])
+    s.add(q)
+    s.flush()
+    resolve_candidate(s, q.id, accept=False)
+    s.flush()
+    assert a.match_status == b.match_status == "confirmed" and a.product_id == b.product_id

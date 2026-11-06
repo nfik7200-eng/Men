@@ -78,32 +78,40 @@ def snapshot(src, dst) -> dict:
     included (a plain file copy of a WAL database silently drops them) and the source is never written. Refuses to
     overwrite `dst`. Verifies the copy (integrity_check + per-table row counts equal to the source) and returns
     {"path", "integrity", "tables": {name: rows}}; on any mismatch the partial copy is removed and SnapshotError raised."""
+    import os
     import sqlite3
     from pathlib import Path
 
     src, dst = Path(src), Path(dst)
     if not src.is_file():
         raise SnapshotError(f"source database not found: {src}")
-    if dst.exists():
-        raise SnapshotError(f"refusing to overwrite existing file: {dst}")
     dst.parent.mkdir(parents=True, exist_ok=True)
-    s = sqlite3.connect(f"{src.resolve().as_uri()}?mode=ro", uri=True, isolation_level=None)
-    d = sqlite3.connect(dst)
     try:
-        s.execute("BEGIN")  # one read transaction: the copy and the source counts see the same committed state,
-        s.execute("SELECT count(*) FROM sqlite_master").fetchone()  # even while a crawl keeps writing
-        s.backup(d)
-        names = [n for (n,) in s.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
-        count = lambda c, n: c.execute(f'SELECT count(*) FROM "{n}"').fetchone()[0]
-        tables = {n: count(d, n) for n in names}
-        integrity = d.execute("PRAGMA integrity_check").fetchone()[0]
-        mismatch = [n for n in names if count(s, n) != tables[n]]
-    finally:
-        if s.in_transaction:
-            s.execute("ROLLBACK")
-        s.close()
-        d.close()
-    if integrity != "ok" or mismatch:
-        dst.unlink(missing_ok=True)
-        raise SnapshotError(f"snapshot verification failed: integrity={integrity!r}, row-count mismatch in {mismatch}")
+        os.close(os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY))  # atomic "never overwrite"
+    except FileExistsError:
+        raise SnapshotError(f"refusing to overwrite existing file: {dst}") from None
+    try:
+        s = sqlite3.connect(f"{src.resolve().as_uri()}?mode=ro", uri=True, isolation_level=None)
+        d = sqlite3.connect(dst)
+        try:
+            s.execute("BEGIN")  # one read transaction: the copy and the source counts see the same committed state,
+            s.execute("SELECT count(*) FROM sqlite_master").fetchone()  # even while a crawl keeps writing
+            s.backup(d)
+            names = [n for (n,) in s.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+            count = lambda c, n: c.execute(f'SELECT count(*) FROM "{n}"').fetchone()[0]
+            tables = {n: count(d, n) for n in names}
+            integrity = d.execute("PRAGMA integrity_check").fetchone()[0]
+            mismatch = [n for n in names if count(s, n) != tables[n]]
+        finally:
+            if s.in_transaction:
+                s.execute("ROLLBACK")
+            s.close()
+            d.close()
+        if integrity != "ok" or mismatch:
+            raise SnapshotError(f"snapshot verification failed: integrity={integrity!r}, row-count mismatch in {mismatch}")
+    except BaseException as ex:
+        dst.unlink(missing_ok=True)  # only ever the file this call created
+        if isinstance(ex, sqlite3.Error):
+            raise SnapshotError(f"cannot read source database {src}: {ex}") from ex
+        raise
     return {"path": str(dst), "integrity": integrity, "tables": tables}
