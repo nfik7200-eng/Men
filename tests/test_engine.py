@@ -212,7 +212,7 @@ def test_weak_evidence_goes_to_review_not_auto(db):
 def test_cross_source_attach_and_review_queue(db):
     ensure_sources(db)
     with db.session() as s:
-        s1, s2 = s.query(Source).order_by(Source.id).all()
+        s1, s2, *_ = s.query(Source).order_by(Source.id).all()
         sp = {"ram_gb": 8, "storage_gb": 256}
         l1, *_ = ingest_listing(s, s1, None, _raw(external_id="a", title="Acme Aspire X441NA-GA190", specs=sp), T0)
         l2, *_ = ingest_listing(s, s2, None, _raw(external_id="b", title="Acme Aspire X441NA GA190 15.6", specs=dict(sp),

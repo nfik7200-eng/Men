@@ -42,3 +42,4 @@ pre.answer{white-space:pre-wrap;font:inherit;background:var(--bg);padding:12px;b
 .pager{display:flex;gap:8px;margin-top:16px;align-items:center}
 footer{color:var(--muted);font-size:.82rem;padding:24px 0;border-top:1px solid var(--line)}
 .thumb{width:100%;max-height:120px;object-fit:contain;background:#fff;border-radius:8px}
+button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;filter:grayscale(.4)}

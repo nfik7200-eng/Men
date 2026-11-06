@@ -7,8 +7,8 @@
 <div class="scroll card"><table>
 <tr><th>Source</th><th>Kind</th><th>Enabled</th><th>Last success</th><th>Last status</th><th>Terms / robots note</th><th></th></tr>
 {% for s in sources %}<tr><td>{{ s.name }}<div class="muted">{{ s.key }}</div></td><td>{{ s.kind }}</td><td>{{ "yes" if s.enabled else "DISABLED" }}</td><td>{{ s.last_success_at | dt }}</td>
-<td>{{ s.last_status or '—' }}{% if s.last_error %}<div class="bad-t muted">{{ s.last_error[:160] }}</div>{% endif %}</td><td class="muted">{{ s.terms_note }}</td>
-<td style="display:flex;gap:6px;flex-wrap:wrap"><form method="post" action="/admin/collect/{{ s.key }}"><button {{ 'disabled' if (s.key in running or not s.enabled) }}>{{ 'Running…' if s.key in running else 'Collect now' }}</button></form>
+<td>{% if not ready[s.key][0] %}<span class="badge warn">not configured: needs {{ ready[s.key][1] | join(', ') }}</span><br>{% endif %}{{ s.last_status or '—' }}{% if s.last_error %}<div class="bad-t muted">{{ s.last_error[:160] }}</div>{% endif %}</td><td class="muted">{{ s.terms_note }}</td>
+<td style="display:flex;gap:6px;flex-wrap:wrap"><form method="post" action="/admin/collect/{{ s.key }}"><button {{ 'disabled' if (s.key in running or not s.enabled or not ready[s.key][0]) }}>{{ 'Running…' if s.key in running else 'Collect now' }}</button></form>
 <form method="post" action="/admin/source/{{ s.key }}/{{ 'disable' if s.enabled else 'enable' }}" data-no-busy="1"><button class="secondary">{{ 'Disable' if s.enabled else 'Enable' }}</button></form></td></tr>{% endfor %}</table></div>
 
 <h2>Recent runs</h2>

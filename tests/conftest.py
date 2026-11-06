@@ -23,7 +23,7 @@ class FakeFetcher:
         }
         self.requested: list[str] = []
 
-    def get(self, url):
+    def get(self, url, headers=None):
         self.requested.append(url)
         if url not in self.pages:
             raise FetchError(f"404 for {url}")

@@ -28,6 +28,10 @@ class SourceBusy(Exception):
     pass
 
 
+class SourceNotConfigured(Exception):
+    """An API source without credentials/approval. Nothing is fetched; the message lists what is missing."""
+
+
 def ensure_sources(db: Database) -> None:
     with db.session() as s:
         for a in ADAPTERS.values():
@@ -60,6 +64,9 @@ def run_source(db: Database, key: str, fetcher: Fetcher | None = None, max_pages
         src = s.query(Source).filter_by(key=key).one()
         if not src.enabled:
             raise SourceDisabled(f"source {key} is disabled")
+        ready, missing = adapter.configured()
+        if not ready:
+            raise SourceNotConfigured(f"{key} is not configured; missing: {', '.join(missing)}")
         now = now_fn()
         for r in s.scalars(select(CollectionRun).where(CollectionRun.source_id == src.id, CollectionRun.status == "running")):
             if now - r.started_at > ABANDON_AFTER:
@@ -70,7 +77,7 @@ def run_source(db: Database, key: str, fetcher: Fetcher | None = None, max_pages
         s.add(run)
         s.commit()
         run_id, src_id = run.id, src.id
-    fetcher = fetcher or Fetcher(allowed_hosts=adapter.allowed_hosts())
+    fetcher = fetcher or Fetcher(allowed_hosts=adapter.allowed_hosts(), respect_robots=not adapter.official_api)
     try:
         _crawl(db, adapter, fetcher, cap, run_id, src_id, now_fn)
     except Exception as e:  # unexpected: never leave a run stuck in 'running'
@@ -96,7 +103,8 @@ def _crawl(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                     complete = False  # capped: cannot infer removals
                     break
                 try:
-                    html = fetcher.get(url)
+                    hdrs = adapter.request_headers(fetcher)
+                    html = fetcher.get(url, headers=hdrs) if hdrs else fetcher.get(url)
                 except FetchBlocked as e:
                     status, complete = "blocked", False
                     errors.append(str(e))

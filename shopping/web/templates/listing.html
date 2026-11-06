@@ -61,12 +61,18 @@
     <p class="muted">Alerts are shown in the watchlist; email/push delivery is not built yet.</p>
   </div>
   <div class="card" style="margin-top:14px">
-    <h3 style="margin-top:0">Import cost estimate</h3>
-    <form method="get"><div class="row"><label>Destination (ISO, e.g. UG)<input name="dest" value="{{ dest }}" maxlength="2"></label><label>Shipping ({{ l.currency }})<input name="ship" type="number" step="0.01" min="0" value="{{ '' if ship is none else ship }}"></label></div><p><button class="secondary">Estimate</button></p></form>
+    <h3 style="margin-top:0">Landed-cost estimate</h3>
+    <form method="get"><div class="row"><label>Destination (ISO, e.g. UG)<input name="dest" value="{{ dest }}" maxlength="2"></label><label>Shipping ({{ l.currency }})<input name="ship" type="number" step="0.01" min="0" value="{{ '' if ship is none else ship }}"></label></div>
+    <div class="row"><label>Insurance ({{ l.currency }})<input name="ins" type="number" step="0.01" min="0" value="{{ '' if ins is none else ins }}"></label><label>Handling/clearance ({{ l.currency }})<input name="hand" type="number" step="0.01" min="0" value="{{ '' if hand is none else hand }}"></label></div>
+    <label>Show total in (3-letter code, needs a recorded rate)<input name="to" value="{{ to }}" maxlength="3"></label>
+    <p><button class="secondary">Estimate</button></p></form>
     {% if est %}{% if est.available %}
-      <table>{% for x in est.lines %}<tr><td>{{ x.label }}</td><td>{{ x.amount_minor | money(est.currency) if x.amount_minor is not none else 'unknown' }}</td><td><span class="badge">{{ x.evidence }}</span></td></tr>{% endfor %}
-      <tr><th>Total{{ ' (lower bound)' if est.partial }}</th><th colspan="2">{{ est.total_minor | money(est.currency) }}</th></tr></table>
-      {% for n in est.notes if n %}<p class="muted">{{ n }}</p>{% endfor %}
+      <div class="scroll"><table>{% for x in est.lines %}<tr><td>{{ x.label }}<div class="muted">{{ x.basis }}</div></td><td>{{ x.amount_minor | money(est.currency) if x.amount_minor is not none else 'unknown' }}</td><td><span class="badge {{ 'ok' if x.evidence in ('verified','quoted','user-provided') else ('warn' if x.evidence == 'assumed' else 'bad') }}">{{ x.evidence }}</span></td></tr>{% endfor %}
+      <tr><th>Total{{ ' (lower bound)' if est.partial }}</th><th colspan="2">{{ est.total_minor | money(est.currency) }}</th></tr></table></div>
+      {% if est.missing_inputs %}<p class="warn-t">Missing inputs: {{ est.missing_inputs | join(', ') }}</p>{% endif %}
+      {% if est.converted %}<p>≈ {{ est.converted.total_minor | money(est.converted.currency) }} <span class="muted">at 1 {{ l.currency }} = {{ est.converted.rate }} {{ est.converted.currency }} · {{ est.converted.source }} · as of {{ est.converted.as_of.strftime('%Y-%m-%d') }}{{ ' · STALE' if est.converted.stale }}</span></p>{% endif %}
+      {% if est.fx_missing %}<p class="muted">{{ est.fx_missing }}</p>{% endif %}
+      <details><summary class="muted">Assumptions</summary><ul>{% for a in est.assumptions %}<li class="muted">{{ a }}</li>{% endfor %}{% for n in est.notes if n %}<li class="muted">{{ n }}</li>{% endfor %}</ul></details>
     {% else %}<p>{{ est.reason }}</p>{% endif %}{% endif %}
   </div>
 </aside>

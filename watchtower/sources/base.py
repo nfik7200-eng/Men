@@ -41,6 +41,16 @@ class SourceAdapter(ABC):
     default_max_pages: int = 5
     parse_errors: list[str] = []  # per-card extraction failures from the LAST parse_page call (card skipped, page kept)
 
+    official_api = False  # True: authenticated official API (robots.txt not applicable; API agreement governs)
+
+    def configured(self) -> tuple[bool, list[str]]:
+        """(ready, missing_requirements). Scrapers need nothing; API adapters need credentials."""
+        return True, []
+
+    def request_headers(self, fetcher) -> dict:
+        """Extra headers per request (e.g. Authorization). Called before each fetch."""
+        return {}
+
     def allowed_hosts(self) -> set[str]:
         """Hosts the fetcher may contact for this source (initial URLs, next links, redirects)."""
         from urllib.parse import urlparse

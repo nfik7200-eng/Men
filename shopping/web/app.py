@@ -13,12 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 
-from shopping import affiliate, assistant, importcost, plans
+from shopping import affiliate, assistant, fx as fxmod, importcost, plans
 from shopping.search import SORTS, facets, same_product, search_listings
 from shopping.web.charts import price_chart
 from watchtower import config, deals, monitor
 from shopping.web import security
-from watchtower.collector import SourceBusy, SourceDisabled, ensure_sources, run_source, set_enabled
+from watchtower.collector import SourceBusy, SourceDisabled, SourceNotConfigured, ensure_sources, run_source, set_enabled
 from watchtower.db import Database
 from watchtower.matching import resolve_candidate
 from watchtower.models import (AffiliateClick, CollectionRun, Event, Listing, MatchCandidate, Observation, Source,
@@ -45,6 +45,15 @@ def create_app(db: Database | None = None) -> FastAPI:
     tpl.env.filters["money"] = fmt_money
     tpl.env.filters["dt"] = lambda d: d.strftime("%Y-%m-%d %H:%M UTC") if d else "never"
     tpl.env.globals.update(SORTS=SORTS, fmt_money=fmt_money)
+
+    def active_disclosures():
+        with db.session() as s_:
+            nets = set(n for (n,) in s_.execute(select(AffiliateClick.network).where(AffiliateClick.network.is_not(None)).distinct()).all())
+            if s_.scalar(select(Listing.id).where(Listing.affiliate_url.is_not(None)).limit(1)):
+                nets.add("provider")
+        nets |= {r.get("network", "x") for r in affiliate.load_config().values()}
+        return affiliate.disclosures(nets)
+    tpl.env.globals["disclosures"] = active_disclosures
 
     def get_s():
         with db.session() as s:
@@ -127,7 +136,7 @@ def create_app(db: Database | None = None) -> FastAPI:
 
     @app.get("/listing/{listing_id}")
     def listing_page(request: Request, listing_id: int, dest: Annotated[str, Query(max_length=2)] = "", ship: Money = None,
-                     s=Depends(get_s)):
+                     ins: Money = None, hand: Money = None, to: Annotated[str, Query(max_length=3)] = "", s=Depends(get_s)):
         l = s.get(Listing, listing_id)
         if not l:
             raise HTTPException(404, "listing not found")
@@ -136,11 +145,20 @@ def create_app(db: Database | None = None) -> FastAPI:
         events = s.scalars(select(Event).where(Event.listing_id == l.id).order_by(Event.detected_at.desc())).all()
         ds = deals.score_listing(s, l)
         est = None
-        if dest or ship is not None:
-            est = importcost.estimate(l.price_minor, l.currency, dest or None, round(ship * 100) if ship is not None else None)
+        if dest or ship is not None or ins is not None or hand is not None or to:
+            ship_minor, ship_ev = (round(ship * 100), "user-provided") if ship is not None else (l.shipping_minor, "quoted")
+            quote = fxmod.get_rate(s, l.currency, to) if len(to) == 3 else None
+            est = importcost.estimate(l.price_minor, l.currency, dest or None, ship_minor,
+                                      insurance_minor=round(ins * 100) if ins is not None else None,
+                                      handling_minor=round(hand * 100) if hand is not None else None,
+                                      shipping_evidence=ship_ev, fx=quote)
+            if est.get("available") and len(to) == 3 and quote is None:
+                est["fx_missing"] = f"No sourced {l.currency}→{to.upper()} exchange rate is recorded, so nothing was converted."
+            if est.get("available") and ship is None and l.shipping_minor is not None:
+                est["notes"].append("Shipping is the source's own quote for its default destination; it may not apply to yours.")
         link = affiliate.build_link(l)
         return render(request, "listing.html", l=l, obs=obs, chart=price_chart(pts, l.currency), npts=len(pts), events=events,
-                      deal=ds, others=same_product(s, l), est=est, dest=dest, ship=ship, link=link,
+                      deal=ds, others=same_product(s, l), est=est, dest=dest, ship=ship, ins=ins, hand=hand, to=to, link=link,
                       pstatus=price_status(l, l.source), fresh=freshness(l, l.source), banner=banner(s),
                       watching=bool(s.scalar(select(WatchItem.id).where(WatchItem.owner == owner_of(request), WatchItem.listing_id == l.id))))
 
@@ -222,12 +240,12 @@ def create_app(db: Database | None = None) -> FastAPI:
                       runs=s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10)).all(),
                       queue=s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all(),
                       clicks=s.scalar(select(func.count()).select_from(AffiliateClick)), running=sorted(_running),
-                      msg=msg, banner=banner(s))
+                      msg=msg, banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()})
 
     def _collect(key: str):
         try:
             run_source(db, key)
-        except (SourceBusy, SourceDisabled):
+        except (SourceBusy, SourceDisabled, SourceNotConfigured):
             pass
         except Exception:  # already recorded on the run row by the collector
             pass
@@ -242,6 +260,9 @@ def create_app(db: Database | None = None) -> FastAPI:
         src = s.scalar(select(Source).where(Source.key == key))
         if src is not None and not src.enabled:
             return RedirectResponse("/admin?msg=Source is disabled", status_code=303)
+        ready, missing = ADAPTERS[key].configured()
+        if not ready:
+            return RedirectResponse("/admin?msg=Not configured: missing " + ", ".join(missing), status_code=303)
         with _lock:
             if key in _running:
                 return RedirectResponse("/admin?msg=Already running", status_code=303)

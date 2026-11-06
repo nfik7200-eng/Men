@@ -177,3 +177,11 @@ def test_error_pages_are_friendly(client):
     j = client.get("/api/v1/listings/999999")
     assert j.status_code == 404 and j.json() == {"error": "listing not found"}
     assert client.get("/nope").status_code == 404
+
+
+def test_weak_admin_token_disables_admin(seeded, monkeypatch):
+    monkeypatch.setattr(config, "ADMIN_TOKEN", "short")
+    c = TestClient(create_app(seeded))
+    assert c.post("/admin/login", data={"token": "short"}, follow_redirects=False).status_code == 303
+    assert c.get("/admin", headers={"accept": "application/json"}).status_code == 403  # even with the "right" weak token
+    assert c.get("/admin", headers={"accept": "application/json", "X-Admin-Token": "short"}).status_code == 403

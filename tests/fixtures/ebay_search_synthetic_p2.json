@@ -1,0 +1,10 @@
+{
+  "_fixture_note": "SYNTHETIC page 2 (see ebay_search_synthetic.json).",
+  "total": 3, "limit": 2, "offset": 2,
+  "itemSummaries": [
+    {"itemId": "v1|000000000003|0", "title": "Dell Inspiron 15 3520 i5 8GB 256GB SSD", "price": {"value": "429.00", "currency": "GBP"},
+     "condition": "Used", "itemWebUrl": "https://www.ebay.co.uk/itm/000000000003"},
+    {"title": "Broken item with no id", "price": {"value": "10.00", "currency": "GBP"}, "itemWebUrl": "https://www.ebay.co.uk/itm/x"},
+    {"itemId": "v1|000000000004|0", "title": "Off-site link item", "price": {"value": "10.00", "currency": "GBP"}, "itemWebUrl": "https://evil.example/phish"}
+  ]
+}

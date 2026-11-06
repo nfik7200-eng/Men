@@ -323,3 +323,31 @@ def test_f15_top_deals_query_count_is_bounded(db):
         finally:
             event.remove(eng, "before_cursor_execute", ev)
         assert n["c"] <= 12, n["c"]
+
+
+def test_f15_peer_median_without_self_matches_brute_force_and_scales():
+    import random
+    from statistics import median
+    random.seed(7)
+    for _ in range(500):
+        vals = sorted(random.choices(range(1, 30), k=random.randint(1, 25)))
+        own = random.choice(vals + [999])
+        n, m = deals.PeerContext._median_without(vals, own)
+        rest = list(vals)
+        if own in rest:
+            rest.remove(own)
+        assert n == len(rest) and (m == median(rest) if rest else m is None)
+
+
+def test_f15_top_deals_is_fast_on_a_large_catalogue(db):
+    import time
+    _src(db)
+    with db.session() as s:
+        src = s.query(Source).first()
+        for i in range(2000):
+            ingest_listing(s, src, None, _raw(external_id=f"f{i}", title=f"Fast Model Y{i:04d}K", price_minor=40000 + (i % 300) * 100,
+                                              specs={"ram_gb": [4, 8, 16][i % 3]}), T0)
+        s.flush()
+        t = time.time()
+        deals.top_deals(s, 10, now=T0)
+        assert time.time() - t < 2.0  # was ~1.3s per 1000 listings before (quadratic); now linear

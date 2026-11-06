@@ -29,7 +29,8 @@ def _host_ok(host: str, allowed: set[str] | None) -> bool:
 
 class Fetcher:
     def __init__(self, client: httpx.Client | None = None, min_delay: float | None = None,
-                 max_retries: int | None = None, sleep=time.sleep, allowed_hosts: set[str] | None = None):
+                 max_retries: int | None = None, sleep=time.sleep, allowed_hosts: set[str] | None = None,
+                 respect_robots: bool = True):
         # follow_redirects stays OFF: redirects are re-validated hop by hop in get()
         self.client = client or httpx.Client(
             headers={"User-Agent": config.USER_AGENT, "Accept": "text/html,application/json"},
@@ -38,6 +39,8 @@ class Fetcher:
         self.max_retries = config.MAX_RETRIES if max_retries is None else max_retries
         self._sleep = sleep
         self.allowed_hosts = allowed_hosts
+        # robots.txt governs crawlers. Official, authenticated APIs are governed by their API agreement instead.
+        self.respect_robots = respect_robots
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
         self._last: dict[str, float] = {}
 
@@ -58,7 +61,7 @@ class Fetcher:
             raise FetchBlocked(f"non-public IP refused: {host}")
         if not _host_ok(host, self.allowed_hosts):
             raise FetchBlocked(f"host not in this source's allowlist: {host}")
-        if not self.allowed(url):
+        if self.respect_robots and not self.allowed(url):
             raise FetchBlocked(f"robots.txt disallows {url}")
 
     def _robots_for(self, url: str):
@@ -85,7 +88,8 @@ class Fetcher:
         return True if rp is None else rp.can_fetch(config.USER_AGENT, url)
 
     # -- request with retry ------------------------------------------
-    def _request(self, url: str) -> httpx.Response:
+    def _request(self, url: str, method: str = "GET", headers: dict | None = None, data: dict | None = None,
+                 auth: tuple[str, str] | None = None) -> httpx.Response:
         host = urlparse(url).netloc
         delay, err = 0.0, "unknown"
         for attempt in range(self.max_retries + 1):
@@ -94,9 +98,9 @@ class Fetcher:
                 self._sleep(wait)
             self._last[host] = time.monotonic()
             try:
-                r = self.client.get(url)
+                r = self.client.request(method, url, headers=headers, data=data, auth=auth)
             except httpx.HTTPError as e:
-                err = f"network error: {e}"
+                err = f"network error: {type(e).__name__}"  # never echo request details (may contain credentials)
             else:
                 if r.status_code == 200 or r.status_code in _REDIRECT:
                     return r
@@ -110,10 +114,21 @@ class Fetcher:
             delay = max(delay, 2.0 ** (attempt + 1))
         raise FetchError(f"{err} after {self.max_retries + 1} attempts: {url}")
 
-    def get(self, url: str) -> str:
+    def post_form(self, url: str, data: dict, auth: tuple[str, str] | None = None) -> dict:
+        """POST application/x-www-form-urlencoded and return parsed JSON (OAuth token endpoints). No redirects."""
+        self._check(url)
+        r = self._request(url, "POST", data=data, auth=auth)
+        if r.status_code != 200:
+            raise FetchBlocked(f"POST {urlparse(url).netloc} answered {r.status_code}")
+        try:
+            return r.json()
+        except ValueError as e:
+            raise FetchError("token endpoint returned non-JSON") from e
+
+    def get(self, url: str, headers: dict | None = None) -> str:
         for _ in range(MAX_REDIRECTS + 1):
             self._check(url)
-            r = self._request(url)
+            r = self._request(url, headers=headers)
             if r.status_code == 200:
                 return r.text
             loc = r.headers.get("location")

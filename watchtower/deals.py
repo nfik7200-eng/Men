@@ -12,9 +12,9 @@ What counts as evidence (audit-hardened, see docs/AUDIT_REPORT.md):
   * peer_value (<=40, estimated): vs median of comparable listings; never counts as verification.
   * Stale listings are labelled "Stale data" and excluded from rankings.
 """
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -44,24 +44,45 @@ class DealScore:
 
 
 class PeerContext:
-    """Caches active priced listings by (category, currency) so ranking many listings is one query."""
+    """Sorted price lists by (category, currency[, RAM]) built once; per-listing peer median is O(log N)
+    (the listing's own price is excluded without rebuilding anything)."""
 
     def __init__(self, s: Session):
         rows = s.execute(select(Listing.id, Listing.category, Listing.currency, Listing.price_minor, Listing.specs)
                          .where(Listing.active.is_(True), Listing.price_minor.is_not(None))).all()
-        self.by_group: dict[tuple, list[tuple[int, int, int | None]]] = {}
-        for i, cat, cur, price, specs in rows:
-            self.by_group.setdefault((cat, cur), []).append((i, price, (specs or {}).get("ram_gb")))
+        self.group: dict[tuple, list[int]] = {}
+        self.ram_group: dict[tuple, list[int]] = {}
+        for _, cat, cur, price, specs in rows:
+            self.group.setdefault((cat, cur), []).append(price)
+            ram = (specs or {}).get("ram_gb")
+            if ram is not None:
+                self.ram_group.setdefault((cat, cur, ram), []).append(price)
+        for d in (self.group, self.ram_group):
+            for v in d.values():
+                v.sort()
 
-    def peers(self, l: Listing) -> tuple[list[int], str]:
-        group = [(i, p, r) for i, p, r in self.by_group.get((l.category, l.currency), []) if i != l.id]
+    @staticmethod
+    def _median_without(vals: list[int], own: int | None) -> tuple[int, float | None]:
+        """(count, median) of the sorted list with one occurrence of `own` removed."""
+        n, pos = len(vals), None
+        if own is not None:
+            i = bisect_left(vals, own)
+            if i < n and vals[i] == own:
+                pos, n = i, n - 1
+        if n == 0:
+            return 0, None
+        at = lambda k: vals[k] if pos is None or k < pos else vals[k + 1]
+        return n, (at(n // 2) if n % 2 else (at(n // 2 - 1) + at(n // 2)) / 2)
+
+    def peers(self, l: Listing) -> tuple[int, float | None, str]:
+        own = l.price_minor if l.active else None
         ram = (l.specs or {}).get("ram_gb")
         if ram is not None:
-            same_ram = [p for _, p, r in group if r == ram]
-            if len(same_ram) >= config.MIN_PEERS:
-                return same_ram, f"{len(same_ram)} {l.category or 'similar'} listings with {ram}GB RAM"
-        prices = [p for _, p, _ in group]
-        return prices, f"{len(prices)} {l.category or 'similar'} listings"
+            n, med = self._median_without(self.ram_group.get((l.category, l.currency, ram), []), own)
+            if n >= config.MIN_PEERS:
+                return n, med, f"{n} {l.category or 'similar'} listings with {ram}GB RAM"
+        n, med = self._median_without(self.group.get((l.category, l.currency), []), own)
+        return n, med, f"{n} {l.category or 'similar'} listings"
 
 
 class HistoryContext:
@@ -137,7 +158,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
     # 1. own history
     if not has_history:
         comps.append(Component("history_drop", 0, 40, "none",
-                               f"only {len(hist)} distinct collection(s) over {span_days:.0f} day(s); need "
+                               f"only {len(hist)} distinct collection(s) over {span_days:.1f} day(s); need "
                                f"{config.MIN_HISTORY_OBS}+ over {config.MIN_HISTORY_SPAN_DAYS}+ days"))
         ds.warnings.append("Not enough price history to confirm any discount is genuine.")
     elif not prior:
@@ -155,15 +176,14 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
                                f"{ref_price/100:.2f} held {ref_days:.0f} days"))
 
     # 2. peers
-    peer_prices, basis = ctx.peers(listing)
-    if len(peer_prices) >= config.MIN_PEERS:
-        med = median(peer_prices)
+    n_peers, med, basis = ctx.peers(listing)
+    if n_peers >= config.MIN_PEERS:
         pts = max(0.0, min(1.0, (1 - price / med) / 0.4)) * 40
         rel = (price / med - 1) * 100
         comps.append(Component("peer_value", round(pts, 1), 40, "estimated",
                                f"{abs(rel):.0f}% {'below' if rel < 0 else 'above'} the median ({med/100:.2f}) of {basis}"))
     else:
-        comps.append(Component("peer_value", 0, 40, "none", f"only {len(peer_prices)} comparable listing(s); need {config.MIN_PEERS}+"))
+        comps.append(Component("peer_value", 0, 40, "none", f"only {n_peers} comparable listing(s); need {config.MIN_PEERS}+"))
 
     # 3. markdown claim
     orig = listing.original_price_minor
@@ -184,7 +204,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
 
     ds.score = round(sum(c.points for c in comps), 1)
     hist_pts, peer_pts = comps[0].points, comps[1].points
-    ds.confidence = "high" if has_history else ("medium" if len(peer_prices) >= config.MIN_PEERS else "low")
+    ds.confidence = "high" if has_history else ("medium" if n_peers >= config.MIN_PEERS else "low")
     if is_stale(listing, now):
         ds.label, ds.confidence = "Stale data", "low"
         ds.warnings.append(f"Last observed {listing.last_observed_at:%Y-%m-%d}: older than the source's freshness window.")
@@ -195,7 +215,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
     elif peer_pts >= 15:
         ds.label = "Below typical price (estimate)"
     else:
-        ds.label = "Typical price" if len(peer_prices) >= config.MIN_PEERS else "Insufficient data"
+        ds.label = "Typical price" if n_peers >= config.MIN_PEERS else "Insufficient data"
     return ds
 
 

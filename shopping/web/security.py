@@ -32,17 +32,22 @@ def token_ok(candidate: str | None) -> bool:
 
 def is_admin(request: Request) -> bool:
     tok = config.ADMIN_TOKEN
-    if not tok:
-        return False  # fail closed: no token configured => admin disabled
+    if not tok or len(tok) < MIN_TOKEN_LEN:
+        return False  # fail closed: no (or weak) token configured => admin disabled
     if token_ok(request.headers.get("x-admin-token")):
         return True
     c = request.cookies.get(COOKIE_ADMIN)
     return bool(c) and hmac.compare_digest(c, admin_cookie_value(tok))
 
 
+MIN_TOKEN_LEN = 20
+
+
 def require_admin(request: Request) -> None:
     if not config.ADMIN_TOKEN:
         raise HTTPException(403, "Admin is disabled. Set WATCHTOWER_ADMIN_TOKEN to enable it.")
+    if len(config.ADMIN_TOKEN) < MIN_TOKEN_LEN:
+        raise HTTPException(403, f"Admin is disabled: WATCHTOWER_ADMIN_TOKEN must be at least {MIN_TOKEN_LEN} characters.")
     if not is_admin(request):
         if request.method == "GET" and "application/json" not in request.headers.get("accept", ""):
             raise HTTPException(303, headers={"Location": "/admin/login"})
