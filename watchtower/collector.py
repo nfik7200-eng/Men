@@ -16,10 +16,11 @@ from urllib.parse import urlparse
 
 from sqlalchemy import func, select
 
-from . import policy
+from . import config, policy
 from .db import Database
 from .fetcher import FetchBlocked, FetchError, FetchGone, Fetcher
 from .ingest import _event, ingest_listing, mark_removed, reconfirm
+from .matching import demote_ambiguous
 from .models import CollectionRun, CrawlUrl, Event, Listing, Source, utcnow
 from .policy import SourceNotApproved, ensure_policies
 from .sources import ADAPTERS
@@ -78,7 +79,8 @@ def run_source(db: Database, key: str, fetcher: Fetcher | None = None, max_pages
     ready, missing = adapter.configured()
     if not ready:
         raise SourceNotConfigured(f"{key} is not configured; missing: {', '.join(missing)}")
-    fetcher = fetcher or Fetcher(allowed_hosts=adapter.allowed_hosts(), respect_robots=not adapter.official_api)
+    fetcher = fetcher or Fetcher(allowed_hosts=adapter.allowed_hosts(), respect_robots=not adapter.official_api,
+                                 min_delay=max(config.MIN_REQUEST_DELAY_S, config.MIN_LIVE_DELAY_S) if adapter.kind == "live" else None)
     policy.gate(db, adapter, fetcher, now_fn())  # raises SourceNotApproved
     with db.session() as s:
         src = s.query(Source).filter_by(key=key).one()
@@ -180,6 +182,7 @@ def _crawl(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                 errors.append(f"no items parsed from {start}")
                 complete = False
         run.bytes_fetched, run.pages_failed = nbytes, ex["failed"]
+        demote_ambiguous(s, src.id)
         if run.items_seen == 0 and status != "blocked":
             status = "failed"
         elif errors and status == "ok":
@@ -231,9 +234,10 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
             row.lastmod_seen = e.lastmod or row.lastmod_seen
         s.commit()
         discovered = {normalise_url(e.loc) for e in entries}
+        prio = {normalise_url(e.loc): e.priority for e in entries}
         # 2. due URLs: never-fetched first, then oldest-checked; this run's budget is `cap` product pages
         due = [c for c in known.values() if c.url in discovered and not c.gone and (c.next_check_at is None or c.next_check_at <= now)]
-        due.sort(key=lambda c: (c.last_fetched_at is not None, c.last_fetched_at or now))
+        due.sort(key=lambda c: (c.last_fetched_at is not None, prio.get(c.url, 9), c.last_fetched_at or now))
         for crawl in due[:cap]:
             try:
                 res = fetcher.get_ex(crawl.url, etag=crawl.etag, last_modified=crawl.last_modified)
@@ -303,6 +307,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
                     run.items_invalid += 1
             s.commit()
         run.bytes_fetched = nbytes
+        demote_ambiguous(s, src.id)
         if run.pages_fetched == 0 and status != "blocked":
             status = "ok" if not due else ("failed" if errors else "ok")  # nothing due is a healthy no-op
         elif errors and status == "ok":

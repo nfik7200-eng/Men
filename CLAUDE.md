@@ -5,7 +5,7 @@ Modular monolith (Python 3.11+): `watchtower/` = shared engine (sources, fetcher
 
 ## Commands
 - Install: `pip install -r requirements.txt`
-- Collect real data: `WATCHTOWER_CONTACT=you@example.com python -m watchtower.cli collect [--source K] [--max-pages N]`
+- Collect real data: `WATCHTOWER_CONTACT=contact@your-org.net python -m watchtower.cli collect [--source K] [--max-pages N]`
 - Run app: `uvicorn main:app --port 8000`   · Tests: `python -m pytest`
 
 ## Rules that must not be broken
@@ -19,4 +19,7 @@ Modular monolith (Python 3.11+): `watchtower/` = shared engine (sources, fetcher
 - Fetcher: every URL (start, next, redirect) must be on the source's host allowlist; adapters never fetch directly. API adapters must expose `configured()` and never log credentials.
 - Deal labels: 'Verified' needs the evidence rules in `watchtower/deals.py` docstring; stale data never ranks. Currency is never converted without a recorded, attributed FX rate.
 - eBay adapter is scaffolding (mock-tested). Do not describe it as live until it has run against the eBay sandbox/production and the API License Agreement has been read.
+- Live sources run ONLY through `watchtower/policy.py` (approved + current + robots-compliant + real contact). Never add a source without a reviewed entry in `data/source_policies.json`; robots.txt alone is not permission (read the terms). Never store descriptions/images. Demo/sandbox data never enters real-data views, deal ranking or peer statistics.
+- Matching: hard-conflict vetoes apply at every stage including identifier matches; the merchant SKU is never an identifier; ambiguous candidates go to review.
+- Product-page crawls only sample: never infer removals from absence; a 304 must still record an observation.
 - Docs: SPEC.md, ARCHITECTURE.md, TECHNICAL_DECISIONS.md, COMMERCIAL_ROADMAP.md, PROJECT_PROGRESS.md — update when decisions change.

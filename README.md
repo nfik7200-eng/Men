@@ -1,16 +1,17 @@
 # Watchtower — AI Shopping & Market Intelligence (MVP)
 
+**Strategy: free, permitted web scraping first. No paid APIs, proxies or data contracts.** Real merchants today: Adafruit and SparkFun (see `docs/SOURCE_DISCOVERY.md`); demo catalogues are test fixtures only.
+
 Collects public product listings, remembers every price it sees, matches products across stores, scores deals with
 an explainable method, and answers shopping questions from its own database (no LLM required).
 
-> **Data honesty:** the only sources collected today are two public *scraping-practice* sites (`webscraper.io` test site,
-> `books.toscrape.com`). Pipeline is real; prices are demo data. The UI says so. See `docs/SPEC.md`.
+> **Data honesty:** two real merchants (Adafruit, SparkFun — `kind=live`) plus two scraping-practice sites (`kind=demo`, never mixed into real results). The UI badges every listing as *Real retailer*, *Demo catalogue* or *API sandbox*. `docs/SOURCE_DISCOVERY.md` lists every source evaluated, approved, rejected or unverified and why.
 
 ## Quick start
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-export WATCHTOWER_CONTACT="you@example.com"        # identifies the crawler to site owners
+export WATCHTOWER_CONTACT="contact@your-org.net"        # identifies the crawler to site owners
 python -m watchtower.cli collect --max-pages 6      # real collection (≈30 s, polite 1.5 s delay)
 uvicorn main:app --port 8000                        # open http://localhost:8000
 python -m pytest                                    # 143 tests, no network needed
@@ -47,3 +48,14 @@ Without credentials the source reports "not configured" and fetches nothing. Rea
 
 ## Docs
 `docs/AUDIT_REPORT.md` · `DATA_SOURCE_RESEARCH.md` · `COMMERCIAL_ROADMAP.md` · `TECHNICAL_DECISIONS.md` · `ARCHITECTURE.md` · `PROJECT_PROGRESS.md`
+
+## Real-source collection (mission 003)
+```bash
+export WATCHTOWER_CONTACT="contact@your-org.net"   # REQUIRED for live sources: identifies the crawler; a placeholder is refused
+python -m watchtower.cli policy                # which sources are approved (compliance gate)
+python -m watchtower.cli collect --source adafruit --max-pages 100
+python -m watchtower.cli collect --source sparkfun --max-pages 60   # honours SparkFun's Crawl-delay: 10 s (~1 page / 10 s)
+python -m watchtower.cli health                # per-source success rate, freshness, throughput
+python -m watchtower.cli rematch               # re-run cross-store matching after matcher/identifier changes
+```
+Re-running is incremental: each URL is re-checked on its own schedule (conditional GET; HTTP 304 still records an observation), so repeat runs never duplicate listings. A source is only collected if its policy in `data/source_policies.json` is `approved`, its review is < 90 days old, and robots.txt still allows the required paths (checked every run; a newly disallowed path auto-rejects the source). Descriptions and images are never stored.

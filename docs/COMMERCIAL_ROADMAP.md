@@ -48,3 +48,28 @@ Margin is determined by traffic and affiliate conversion, not infrastructure: at
 
 ## 6. Key risks (ranked)
 1. Data-license terms may forbid price history (gate 1). 2. Affiliate approval/country eligibility. 3. Thin electronics commissions. 4. Matching quality on messy real titles. 5. Time to accumulate history. 6. Unverified duty/tax data for the East-Africa angle.
+
+---
+# Update — 2026-11-06 (mission 003): free-source scraping strategy
+**Strategy shift:** independent data collection from free, permitted public sources instead of API/affiliate dependence. Affiliate, subscriptions, business monitoring, API/data products and sponsored placements remain *compatible* (schema and link infrastructure unchanged) but none is a prerequisite.
+
+## What this changes economically
+| Item | Before (API-first) | Now (free-source scraping) |
+|---|---|---|
+| Data cost | API fees [U] + approvals | **$0** (public pages, 1 request per 1.5–10 s per merchant) |
+| Infrastructure | $0–10/mo | **$0 measured** (SQLite, one process, this sandbox); a $5 VM when hosted |
+| Proxies / scraping services / LLM | — | **none** (and never used to evade blocks) |
+| Main risk | approval & license | **legal/permission per merchant**: terms can forbid scraping even where robots.txt allows (The Pi Hut), merchants can opt out, EU/UK database rights, catalogue size per merchant is bounded by politeness (SparkFun's 10 s crawl-delay ⇒ ≈360 pages/hour) |
+| Coverage speed | fast once approved | **slow by design**: ~100–400 pages/merchant/day; breadth comes from more merchants, not faster crawling |
+
+## Gates (replace the API gates for the scraping path)
+1. **Per-merchant permission review** (`data/source_policies.json`): robots + terms read; re-review every 90 days; opt-out honoured immediately (`source disable`).
+2. **Legal review before any public launch or data product**: scraped *facts* (price, availability) are lower-risk than descriptions/images (not stored), but database-right and contract exposure for a *public comparison site or API* is a lawyer's call, not ours.
+3. **≥4 weeks of daily observations** before any "verified deal" claim (rules already enforced in code).
+4. Merchant outreach: ask approved merchants for a product feed or written permission — a feed beats scraping on every axis (accuracy, stock, GTINs, legality).
+
+## Next highest-value milestones
+1. **Daily scheduled collection** for Adafruit + SparkFun (cron/systemd; ~25 min/day) to start the history clock, then run until week 4.
+2. **Add 2–3 more approved merchants** in the same categories (each needs a policy review; many UK/EU shops use Shopify terms that forbid scraping — prefer merchants with explicit permission or feeds).
+3. **Review-queue UX** for ambiguous matches (accept/reject exists in admin) and a GTIN/MPN enrichment source if a licensed/open one fits.
+4. Only then: accounts + alerts → pro tier; business monitoring pilot on the same engine.

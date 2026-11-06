@@ -33,6 +33,7 @@ def normalise_url(url: str) -> str:
 class SitemapEntry:
     loc: str
     lastmod: str | None = None
+    priority: int = 9  # crawl order hint (lower = earlier); set by adapters that can tell which pages matter most
 
 
 def parse_sitemap(xml: str) -> tuple[list[str], list[SitemapEntry]]:

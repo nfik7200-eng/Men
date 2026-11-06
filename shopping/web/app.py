@@ -131,7 +131,9 @@ def create_app(db: Database | None = None) -> FastAPI:
                  "runs": count(select(func.count()).select_from(CollectionRun)),
                  "merchants": count(select(func.count(func.distinct(Listing.source_id))).join(Source, Source.id == Listing.source_id).where(Source.kind == "live")),
                  "multi_obs": count(select(func.count()).select_from(
-                     select(Observation.listing_id).group_by(Observation.listing_id).having(func.count() > 1).subquery()))}
+                     select(Observation.listing_id).join(Listing, Listing.id == Observation.listing_id)
+                     .join(Source, Source.id == Listing.source_id).where(*((Source.kind == "live",) if live else ()))
+                     .group_by(Observation.listing_id).having(func.count() > 1).subquery()))}
         multi = s.execute(select(Listing.product_id, func.count(func.distinct(Listing.source_id)).label("m"))
                           .join(Source, Source.id == Listing.source_id)
                           .where(Listing.active.is_(True), Listing.product_id.is_not(None), *( (Source.kind == "live",) if live else () ))

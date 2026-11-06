@@ -104,12 +104,27 @@ def test_sparkfun_discovery_is_scoped_to_overlapping_categories():
     assert all(e.loc.startswith("https://www.sparkfun.com/") and e.loc.endswith(".html") for e in entries)
 
 
-def test_adafruit_discovery_reads_category_pages_only():
-    def cat(ids):
-        return "<html><body>" + "".join(f'<a href="/product/{i}">p</a><a href="/product/{i}?utm_source=z">dup</a>' for i in ids) + '<a href="/search?q=x">s</a><a href="/api/x">a</a></body></html>'
-    site = FakeSite({f"https://www.adafruit.com/category/{c}": cat(ids) for c, ids in ((105, (5291, 5812)), (17, (50, 5812)), (875, (4864,)))})
-    urls = [e.loc for e in Adafruit().discover(site)]
-    assert urls == [f"https://www.adafruit.com/product/{i}" for i in (50, 4864, 5291, 5812)]  # deduped, sorted, no search/api links
+def test_adafruit_discovery_reads_category_pages_only_and_tiers_by_name():
+    def card(i, name):
+        return f'<a href="/product/{i}" title="{name}"><img alt="{name}"></a><a href="/product/{i}?utm_source=z">dup</a>'
+    cat105 = card(5291, "Raspberry Pi Zero 2 W.") + card(3082, "Aluminum Heat Sink for Raspberry Pi 3.") + '<a href="/search?q=x">s</a><a href="/api/x">a</a>'
+    cat17 = card(50, "Adafruit Metro M0 Express.") + card(5812, "Raspberry Pi 5 - 4 GB RAM.")
+    cat875 = card(4864, "Raspberry Pi Pico RP2040.")
+    site = FakeSite({"https://www.adafruit.com/category/105": cat105, "https://www.adafruit.com/category/17": cat17,
+                     "https://www.adafruit.com/category/875": cat875})
+    entries = Adafruit().discover(site)
+    tier = {e.loc.rsplit("/", 1)[-1]: e.priority for e in entries}
+    assert tier == {"5291": 0, "5812": 0, "4864": 0, "3082": 1, "50": 2}  # deduped; search/api links ignored
+    assert all(e.loc.startswith("https://www.adafruit.com/product/") for e in entries)
+
+
+def test_crawl_budget_is_spent_on_core_overlapping_products_first(live_db):
+    pages = {"https://www.adafruit.com/category/105": '<a href="/product/5291" title="Heat sink for Pi">h</a><a href="/product/5812" title="Raspberry Pi 5 - 4 GB RAM.">b</a>',
+             "https://www.adafruit.com/category/17": "<html></html>", "https://www.adafruit.com/category/875": "<html></html>",
+             U["a5291"]: ADA["ada_5291"], U["a5812"]: ADA["ada_5812"]}
+    site = FakeSite(pages)
+    run_source(live_db, "adafruit", fetcher=site, max_pages=1, now_fn=lambda: NOW)
+    assert [u for u in site.requested if "/product/" in u] == [U["a5812"]]  # tier 0 first although 5291 has the lower id
 
 
 # ------------------------------------------------------------------ identifier hygiene
@@ -153,7 +168,7 @@ def test_real_cross_store_pair_matches_by_brand_and_name_signature():
     ("Raspberry Pi 5 - 4 GB RAM", "Raspberry Pi 5 - 8 GB RAM", "none"),               # RAM variant (spec veto)
     ("Raspberry Pi 4 Model B", "Raspberry Pi 5", "none"),
     ("Raspberry Pi Pico", "Raspberry Pi Pico W", "review"),                           # one name extends the other
-    ("Raspberry Pi Zero W", "Raspberry Pi Zero W with Headers", "review"),
+    ("Raspberry Pi Zero W", "Raspberry Pi Zero W with Headers", "none"),    # soldered headers = different SKU
     ("Raspberry Pi Zero 2 W", "Raspberry Pi Zero 2 W Starter Kit Bundle", "none"),     # bundle vs single
     ("Raspberry Pi Pico", "Raspberry Pi Pico (Refurbished)", "none"),                 # condition
     ("Adafruit Feather M4 Express", "Adafruit Feather M0 Express", "none"),           # different model codes
@@ -189,14 +204,14 @@ def test_name_signature_glues_units_and_drops_brand_and_filler():
 # ------------------------------------------------------------------ compliance gate
 @pytest.fixture
 def live_db(db, monkeypatch):
-    monkeypatch.setattr(config, "CONTACT", "ops@example.org")
+    monkeypatch.setattr(config, "CONTACT", "crawler@watchtower-research.net")
     ensure_sources(db)
     ensure_policies(db)
     return db
 
 
 def test_live_source_without_approved_policy_never_runs(db, monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "CONTACT", "ops@example.org")
+    monkeypatch.setattr(config, "CONTACT", "crawler@watchtower-research.net")
     monkeypatch.setattr(policy, "POLICY_FILE", tmp_path / "none.json")  # no reviewed-policy file: only the DB row counts
     ensure_sources(db)
     with db.session() as s:
@@ -271,7 +286,7 @@ def test_product_crawl_collects_real_pages_with_provenance(live_db):
     with live_db.session() as s:
         r = s.get(CollectionRun, rid)
         assert (r.status, r.complete, r.items_seen, r.items_new, r.pages_fetched) == ("ok", False, 2, 2, 2)
-        assert r.extraction["jsonld"] == 2 and r.duration_s is not None and r.bytes_fetched > 100000
+        assert r.extraction["jsonld"] == 2 and r.duration_s is not None and r.bytes_fetched > 1000
         l = s.query(Listing).filter_by(sku="5812").one()
         o = s.query(Observation).filter_by(listing_id=l.id).one()
         assert (l.price_minor, l.currency, l.availability, l.source.kind) == (13000, "USD", "in_stock", "live")

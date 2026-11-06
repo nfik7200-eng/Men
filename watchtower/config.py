@@ -1,5 +1,6 @@
 """Runtime configuration (environment variables, no secrets in code)."""
 import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,3 +32,19 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 
 AFFILIATE_CONFIG = os.getenv("AFFILIATE_CONFIG", str(ROOT / "data" / "affiliate.json"))
 IMPORT_RULES = os.getenv("IMPORT_RULES", str(ROOT / "data" / "import_rules.json"))
+
+MIN_LIVE_DELAY_S = 2.0  # floor for REAL merchants, whatever WATCHTOWER_MIN_DELAY says (crawl-delay can only raise it)
+
+_PLACEHOLDER_HOSTS = {"example.com", "example.org", "example.net", "localhost", "invalid", "test", "domain.com", "yourdomain.com", "email.com"}
+
+
+def contact_ok(contact: str | None = None) -> bool:
+    """A real, reachable-looking contact (email or http(s) URL) that is not a documentation placeholder."""
+    c = (CONTACT if contact is None else contact).strip()
+    if not c or c.startswith("set-"):
+        return False
+    m = re.fullmatch(r"[^@\s]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})", c) or re.fullmatch(r"https?://([A-Za-z0-9.-]+\.[A-Za-z]{2,})(/\S*)?", c)
+    if not m:
+        return False
+    host = m.group(1).lower()
+    return not any(host == h or host.endswith("." + h) for h in _PLACEHOLDER_HOSTS)

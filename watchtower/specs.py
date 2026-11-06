@@ -23,10 +23,17 @@ _OS = ["Windows 11", "Windows 10", "Windows 8.1", "Windows 7", "Windows", "Linux
        "FreeDOS", "DOS", "macOS", "Mac OS", "Chrome OS", "Android", "iOS"]
 
 
+_THIRD_PARTY = re.compile(r"(for|compatible with|fits|fit|works with|designed for|suitable for|supports?)\s+(the\s+)?$")
+
+
 def detect_brand(title: str) -> str | None:
+    """Brand named in the title — unless it only appears as 'for <brand>' / 'compatible with <brand>' (an accessory by
+    someone else; naming the platform it fits does not make it that brand's product)."""
     low = title.lower()
     for b in BRANDS:
-        if re.search(rf"\b{re.escape(b.lower())}\b", low):
+        for m in re.finditer(rf"\b{re.escape(b.lower())}\b", low):
+            if _THIRD_PARTY.search(low[max(0, m.start() - 20):m.start()]):
+                continue
             return _BRAND_ALIAS.get(b.lower(), b)
     return None
 

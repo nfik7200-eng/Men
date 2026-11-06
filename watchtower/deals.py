@@ -49,18 +49,31 @@ class DealScore:
     n_obs: int = 0
 
 
+_GENERIC_CATEGORIES = {None, "", "maker-electronics"}
+
+
 class PeerContext:
-    """Sorted price lists by (category, currency[, RAM]) built once; per-listing peer median is O(log N)
-    (the listing's own price is excluded without rebuilding anything)."""
+    """Peer prices for the 'peer_value' component.
+
+    * Same product at OTHER merchants (needs only 1: that is direct evidence) — the fair comparison for real retail data.
+    * Category peers (>=MIN_PEERS, grouped by RAM) only for specific categories like 'laptop'. Broad buckets such as
+      'maker-electronics' are NOT comparable (a cable is always 'below the median' of boards), so they get no peers.
+    Peers never cross data classes (live vs demo/sandbox) or currencies."""
 
     def __init__(self, s: Session):
-        rows = s.execute(select(Listing.id, Listing.category, Listing.currency, Listing.price_minor, Listing.specs, Source.kind)
+        rows = s.execute(select(Listing.id, Listing.category, Listing.currency, Listing.price_minor, Listing.specs, Source.kind,
+                                Listing.product_id, Listing.source_id)
                          .join(Source, Source.id == Listing.source_id)
                          .where(Listing.active.is_(True), Listing.price_minor.is_not(None))).all()
         self.group: dict[tuple, list[int]] = {}
         self.ram_group: dict[tuple, list[int]] = {}
-        for _, cat, cur, price, specs, kind in rows:
+        self.by_product: dict[tuple, list[tuple[int, int]]] = {}
+        for _, cat, cur, price, specs, kind, pid, sid in rows:
             dc = data_class(kind)
+            if pid is not None:
+                self.by_product.setdefault((dc, pid, cur), []).append((sid, price))
+            if cat in _GENERIC_CATEGORIES:
+                continue
             self.group.setdefault((dc, cat, cur), []).append(price)
             ram = (specs or {}).get("ram_gb")
             if ram is not None:
@@ -82,16 +95,24 @@ class PeerContext:
         at = lambda k: vals[k] if pos is None or k < pos else vals[k + 1]
         return n, (at(n // 2) if n % 2 else (at(n // 2 - 1) + at(n // 2)) / 2)
 
-    def peers(self, l: Listing) -> tuple[int, float | None, str]:
+    def peers(self, l: Listing) -> tuple[int, float | None, str, int]:
+        """-> (n_peers, median_price, basis_text, peers_needed)"""
         own = l.price_minor if l.active else None
-        ram = (l.specs or {}).get("ram_gb")
         dc = data_class(l.source.kind if l.source is not None else None)
+        if l.product_id is not None:
+            others = [p for sid, p in self.by_product.get((dc, l.product_id, l.currency), []) if sid != l.source_id]
+            if others:
+                med = median(others)
+                return len(others), med, f"{len(others)} other merchant(s) selling this same product", 1
+        if l.category in _GENERIC_CATEGORIES:
+            return 0, None, "no other merchant sells this product in our data", 1
+        ram = (l.specs or {}).get("ram_gb")
         if ram is not None:
             n, med = self._median_without(self.ram_group.get((dc, l.category, l.currency, ram), []), own)
             if n >= config.MIN_PEERS:
-                return n, med, f"{n} {l.category or 'similar'} listings with {ram}GB RAM"
+                return n, med, f"{n} {l.category} listings with {ram}GB RAM", config.MIN_PEERS
         n, med = self._median_without(self.group.get((dc, l.category, l.currency), []), own)
-        return n, med, f"{n} {l.category or 'similar'} listings"
+        return n, med, f"{n} {l.category} listings", config.MIN_PEERS
 
 
 class HistoryContext:
@@ -185,14 +206,14 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
                                f"{ref_price/100:.2f} held {ref_days:.0f} days"))
 
     # 2. peers
-    n_peers, med, basis = ctx.peers(listing)
-    if n_peers >= config.MIN_PEERS:
-        pts = max(0.0, min(1.0, (1 - price / med) / 0.4)) * 40
+    n_peers, med, basis, need = ctx.peers(listing)
+    if n_peers >= need and med:
+        pts = max(0.0, min(1.0, (1 - price / med) / 0.4)) * (40 if need > 1 else 25)  # a single other merchant: weaker evidence, capped
         rel = (price / med - 1) * 100
         comps.append(Component("peer_value", round(pts, 1), 40, "estimated",
                                f"{abs(rel):.0f}% {'below' if rel < 0 else 'above'} the median ({med/100:.2f}) of {basis}"))
     else:
-        comps.append(Component("peer_value", 0, 40, "none", f"only {n_peers} comparable listing(s); need {config.MIN_PEERS}+"))
+        comps.append(Component("peer_value", 0, 40, "none", f"{basis}" if n_peers == 0 else f"only {n_peers} comparable listing(s); need {need}+"))
 
     # 3. markdown claim
     orig = listing.original_price_minor
@@ -213,7 +234,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
 
     ds.score = round(sum(c.points for c in comps), 1)
     hist_pts, peer_pts = comps[0].points, comps[1].points
-    ds.confidence = "high" if has_history else ("medium" if n_peers >= config.MIN_PEERS else "low")
+    ds.confidence = "high" if has_history else ("medium" if n_peers >= need and med else "low")
     if is_stale(listing, now):
         ds.label, ds.confidence = "Stale data", "low"
         ds.warnings.append(f"Last observed {listing.last_observed_at:%Y-%m-%d}: older than the source's freshness window.")
@@ -224,7 +245,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
     elif peer_pts >= 15:
         ds.label = "Below typical price (estimate)"
     else:
-        ds.label = "Typical price" if n_peers >= config.MIN_PEERS else "Insufficient data"
+        ds.label = "Typical price" if (n_peers >= need and med) else "Insufficient data"
     return ds
 
 

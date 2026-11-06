@@ -3,6 +3,7 @@ import argparse
 import logging
 
 from .collector import SourceBusy, SourceDisabled, SourceNotConfigured, ensure_sources, run_source, set_enabled
+from .fetcher import FetchError
 from .policy import SourceNotApproved, ensure_policies
 from .db import Database
 from .models import CollectionRun, Listing, Observation, Source
@@ -41,7 +42,7 @@ def main(argv=None):
         for key in ([args.source] if args.source else ADAPTERS):
             try:
                 rid = run_source(db, key, max_pages=args.max_pages)
-            except (SourceNotConfigured, SourceDisabled, SourceBusy, SourceNotApproved) as ex:
+            except (SourceNotConfigured, SourceDisabled, SourceBusy, SourceNotApproved, FetchError) as ex:
                 print(f"{key}: SKIPPED — {ex}")
                 continue
             with db.session() as s:

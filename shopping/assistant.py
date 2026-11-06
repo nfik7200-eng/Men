@@ -43,6 +43,7 @@ class Pick:
     misses: list[str] = field(default_factory=list)
     unknown: list[str] = field(default_factory=list)
     deal: DealScore | None = None
+    relevant: bool = True  # mentions every product word the user used that appears in any candidate
     price_status: str = "verified"
     import_estimate: dict | None = None
 
@@ -107,6 +108,12 @@ def parse_query(q: str) -> dict:
     m = re.search(r"(\d{2}(?:\.\d)?)\s*(?:-?inch|\"|in\b)", low)
     if m:
         out["req_screen_in"] = float(m.group(1))
+    # model tokens: bare numbers / single letters that name a model ('zero 2 w'), outside budgets and spec phrases
+    spec_free = re.sub(r"\d[\d,.]*\s*(gb|tb|mb|ghz|mhz|inch|in\b|\"|hours?|hrs?|days?|years?|yrs?|mah|%|w\b(?=\s*(ac|power|psu|supply)))", " ", low)
+    spec_free = re.sub(r"[$£€]\s*\d[\d,.]*|\d[\d,.]*\s*(usd|gbp|eur|dollars?|pounds?|euros?)", " ", spec_free)
+    spent = {str(int(v / 100)) for v in (out.get("budget_max_minor"), out.get("budget_min_minor")) if v}
+    out["model_tokens"] = [t for t in re.findall(r"[a-z0-9]+", spec_free)
+                           if ((t.isdigit() and len(t) <= 2) or (len(t) == 1 and t.isalpha() and t not in "aI")) and t not in spent]
     # negation then keywords
     out["excluded"] = sorted({w for w in _NEG.findall(low) if w not in STOP})
     neg_words = set(out["excluded"])
@@ -178,7 +185,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     intent = parse_query(question)
     caveats: list[str] = list(intent["assumptions"])
     stmt = select(Listing).options(joinedload(Listing.source)).where(
-        Listing.active.is_(True), Listing.price_minor.is_not(None), Listing.availability.notin_(("out_of_stock", "backorder", "preorder")))
+        Listing.active.is_(True), Listing.price_minor.is_not(None))
     if intent["category"]:
         stmt = stmt.where(Listing.category == intent["category"])
     cands = list(s.scalars(stmt).unique())
@@ -192,8 +199,14 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
 
     # keywords: brands are hard requirements; other words are soft preferences (reported if nothing matched)
     brands = {(l.brand or "").lower() for l in cands} - {""}
-    brand_kw = [k for k in intent["keywords"] if k in brands]
-    soft_kw = [k for k in intent["keywords"] if k not in brands]
+    kwset = set(intent["keywords"])
+    brand_kw, brand_words = [], set()
+    for b in brands:  # a brand is requested when ALL its words appear ('raspberry pi'), not only for one-word brands
+        words = re.findall(r"[a-z0-9:]+", b)
+        if words and all(w in kwset for w in words):
+            brand_kw.append(b)
+            brand_words |= set(words)
+    soft_kw = [k for k in intent["keywords"] if k not in brand_words and k not in brands]
     if brand_kw:
         cands = [l for l in cands if (l.brand or "").lower() in brand_kw]
     text_of = lambda l: f"{l.title} {l.description} {l.brand or ''}".lower()
@@ -227,13 +240,26 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     ctx = PeerContext(s)
     picks = [_fit(l, intent) for l in cands]
     for p in picks:
+        av = p.listing.availability
+        if av in ("out_of_stock", "backorder", "preorder"):  # shown, never hidden — but flagged and ranked below available items
+            p.fit -= 5
+            p.misses.append({"out_of_stock": "out of stock at last check", "backorder": "on backorder at last check",
+                             "preorder": "pre-order only"}[av])
         p.fit += 0.75 * sum(k in text_of(p.listing) for k in soft_kw)
         p.deal = score_listing(s, p.listing, ctx, now)
         p.price_status = price_status(p.listing, p.listing.source, now)
-    ranked = sorted(picks, key=lambda p: (-p.fit, p.listing.price_minor))
-    qualified = [p for p in ranked if not p.misses]
-    pool = qualified or ranked
-    if (intent["programming"] or intent.get("req_ram_gb") or intent.get("req_storage_gb")) and not qualified and ranked:
+    kw_present = [k for k in soft_kw if any(k in text_of(l) for l in cands)]  # words that name something we actually hold
+    word_in = lambda t, l: re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", text_of(l)) is not None
+    model_present = [t for t in intent.get("model_tokens", []) if any(word_in(t, l) for l in cands)]
+    for p in picks:
+        p.relevant = all(k in text_of(p.listing) for k in kw_present) and all(word_in(t, p.listing) for t in model_present)
+    ranked = sorted(picks, key=lambda p: (not p.relevant, -p.fit, p.listing.price_minor))
+    relevant = [p for p in ranked if p.relevant] or ranked  # relevance to the user's words outranks availability
+    qualified = [p for p in relevant if not p.misses]
+    pool = qualified or relevant
+    if relevant and not qualified and all(any("stock" in m or "backorder" in m or "pre-order" in m for m in p.misses) for p in relevant):
+        caveats.append("Matching listings exist but none is in stock at its last check; shown with their stock status.")
+    elif (intent["programming"] or intent.get("req_ram_gb") or intent.get("req_storage_gb")) and not qualified and relevant:
         caveats.append("No listing fully meets your requirements; showing the closest matches with their shortfalls.")
     top = pool[:3]
     alternatives: list[Pick] = []

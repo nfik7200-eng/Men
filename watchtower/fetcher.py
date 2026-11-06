@@ -4,12 +4,12 @@ import hashlib
 import ipaddress
 import time
 from dataclasses import dataclass
-import urllib.robotparser
 from urllib.parse import urljoin, urlparse
 
 import httpx
 
 from . import config
+from .robots import Robots
 
 MAX_REDIRECTS = 4
 _REDIRECT = (301, 302, 303, 307, 308)
@@ -59,8 +59,9 @@ class Fetcher:
         self.allowed_hosts = allowed_hosts
         # robots.txt governs crawlers. Official, authenticated APIs are governed by their API agreement instead.
         self.respect_robots = respect_robots
-        self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        self._robots: dict[str, Robots | None] = {}
         self._robots_sha: dict[str, str | None] = {}
+        self._robots_unreliable: dict[str, bool] = {}
         self._crawl_delay: dict[str, float] = {}
         self._last: dict[str, float] = {}
 
@@ -88,25 +89,37 @@ class Fetcher:
         p = urlparse(url)
         origin = f"{p.scheme}://{p.netloc}"
         if origin not in self._robots:
-            rp = urllib.robotparser.RobotFileParser()
+            r = None
             try:
-                r = self.client.get(f"{origin}/robots.txt")
-                if r.status_code == 200:
-                    rp.parse(r.text.splitlines())
-                    self._robots[origin] = rp
-                    self._robots_sha[origin] = hashlib.sha256(r.text.encode()).hexdigest()
-                    cd = rp.crawl_delay(config.USER_AGENT)
-                    if cd:
-                        self._crawl_delay[p.netloc] = float(cd)  # honour the site's own request pacing
-                elif r.status_code in (404, 410):
-                    self._robots[origin] = None  # no robots.txt => no published restrictions
-                    self._robots_sha[origin] = None
-                else:  # 401/403/5xx/redirect: be conservative, treat as disallow-all
-                    rp.parse(["User-agent: *", "Disallow: /"])
-                    self._robots[origin] = rp
+                for attempt in range(3):  # a transient 5xx must not be mistaken for "disallow everything"
+                    r = self.client.get(f"{origin}/robots.txt")
+                    if r.status_code < 500:
+                        break
+                    self._sleep(2.0 * (attempt + 1))
             except httpx.HTTPError as e:
                 raise FetchError(f"robots.txt unreachable for {origin}: {e}") from e
+            self._robots_unreliable[origin] = False
+            if r.status_code == 200:
+                rb = Robots(r.text)
+                self._robots[origin] = rb
+                self._robots_sha[origin] = hashlib.sha256(r.text.encode()).hexdigest()
+                cd = rb.crawl_delay(config.USER_AGENT)
+                if cd:
+                    self._crawl_delay[p.netloc] = float(cd)  # honour the site's own request pacing
+            elif r.status_code in (404, 410):
+                self._robots[origin] = None  # no robots.txt => no published restrictions
+                self._robots_sha[origin] = None
+            else:  # 401/403 or persistent 5xx/redirect: conservative disallow-all, flagged as unreliable (not a policy decision)
+                self._robots[origin] = Robots("User-agent: *\nDisallow: /")
+                self._robots_sha[origin] = None
+                self._robots_unreliable[origin] = True
         return self._robots[origin]
+
+    def robots_unreliable(self, url: str) -> bool:
+        """True when robots.txt could not be read properly (auth error / persistent 5xx): not evidence of a prohibition."""
+        self._robots_for(url)
+        p = urlparse(url)
+        return self._robots_unreliable.get(f"{p.scheme}://{p.netloc}", False)
 
     def robots_info(self, url: str) -> tuple[str | None, float | None]:
         """(sha256 of robots.txt or None if absent, Crawl-delay seconds or None). Fetches robots.txt if not cached."""

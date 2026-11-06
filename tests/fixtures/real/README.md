@@ -1,4 +1,6 @@
-Real captured pages (2026-11-06) fetched with User-Agent `WatchtowerBot/0.1 (price-research; contact: ...)`, honouring robots.txt and crawl-delay.
-- `ada_*.html`: full pages from adafruit.com. `spark_*.html`: sparkfun.com pages with non-JSON-LD scripts, styles, svg and comments removed (otherwise unchanged).
-- `*_sitemap_excerpt.xml`: first/selected `<url>` entries of the real sitemaps. `*.robots.txt`: complete robots.txt files.
-Used only as parser/regression fixtures; prices in them are historical observations, not current.
+Real captures (2026-11-06), fetched with User-Agent `WatchtowerBot/0.1 (price-research; contact: ...)`, honouring robots.txt and crawl-delay.
+- `ada_*.html`, `spark_*.html` are REDUCED captures of real product pages: only the elements our parsers read are kept (title, price meta, JSON-LD
+  with description/image fields blanked, breadcrumbs, stock badge, product id). Product descriptions and images were removed on purpose: we do not
+  store them (copyright), so the repository must not either. Structure and values of everything kept are unchanged.
+- `*_sitemap_excerpt.xml`: selected `<url>` entries of the real sitemaps. `*.robots.txt`: complete robots.txt files.
+Prices in these files are historical observations, not current.

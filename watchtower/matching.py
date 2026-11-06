@@ -58,7 +58,8 @@ def _norm_id(v) -> str:
 
 # --- hard-conflict features: any difference means "different product/offer", never an auto-merge ----------------
 VARIANT_WORDS = {"ultra", "pro", "plus", "max", "mini", "lite", "fe", "se", "air", "xl", "edge", "fold", "flip",
-                 "neo", "turbo", "note", "prime", "classic", "premium", "slim"}
+                 "neo", "turbo", "note", "prime", "classic", "premium", "slim",
+                 "wifi", "wireless", "bluetooth", "no", "non", "headers", "header", "poe", "lte"}  # hardware options change the product
 COLOURS = {"black", "white", "silver", "gray", "grey", "blue", "red", "green", "gold", "rose", "pink", "purple",
            "yellow", "orange", "bronze", "navy", "graphite", "midnight", "starlight", "titanium", "lavender", "beige"}
 _USED = re.compile(r"refurb|renewed|reconditioned|pre-?owned|\bused\b|open[- ]box|for parts|like new|\bb-?grade\b|\bgood condition\b")
@@ -104,9 +105,41 @@ _STOP = {"the", "a", "an", "and", "with", "for", "of", "to", "in", "on", "by", "
 _GENERIC_CATEGORIES = {None, "", "maker-electronics"}
 
 
+_ALIASES = [(r"\brev(?:ision)?\.?\s*(\d)", r"r\1"), (r"\bzero\s*2\s*w(h?)\b", r"zero 2 w\1"), (r"\bpicow(h?)\b", r"pico w\1")]
+_UNIT = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?:\s*(gb|tb|mb|ghz|mhz|mah|inch|in|mm|cm)(?![a-z0-9])|(v|a|w)(?![a-z0-9]))")
+
+
+def _norm_title(title: str) -> str:
+    t = title.lower()
+    for pat, rep in _ALIASES:
+        t = re.sub(pat, rep, t)
+    return t
+
+
+def unit_values(title: str) -> dict[str, set[float]]:
+    """Numbers carrying units (capacity, volts, amps, watts, GHz, mAh, inches, mm) and bare version numbers (1.3, 2.0),
+    keyed by kind. These distinguish products ('32GB' vs '64GB', '3A' vs '5A', 'Camera 1.3' vs '2.1')."""
+    t, out = title.lower(), {}
+    for num, unit1, unit2 in _UNIT.findall(t):
+        unit, v = unit1 or unit2, float(num)
+        key = {"in": "in", "inch": "in", "tb": "cap", "gb": "cap"}.get(unit, unit)
+        out.setdefault(key, set()).add(round(v * 1024 if unit == "tb" else v, 3))
+    for m in re.finditer(r"(?<![\w.])(\d+\.\d+)(?![\w.])", _UNIT.sub(" ", t)):
+        out.setdefault("ver", set()).add(round(float(m.group(1)), 3))
+    return out
+
+
+def unit_conflict(a: str, b: str) -> str | None:
+    ua, ub = unit_values(a), unit_values(b)
+    for k in ua.keys() & ub.keys():
+        if not (ua[k] <= ub[k] or ub[k] <= ua[k]):  # neither states a subset of the other: different products
+            return f"{k} differs ({sorted(ua[k])} vs {sorted(ub[k])})"
+    return None
+
+
 def name_signature(title: str, brand: str | None) -> frozenset[str]:
     """Normalised bag of distinguishing words: units glued ('4 GB' == '4GB'), brand and filler removed."""
-    t = re.sub(r"(\d+)\s*(gb|tb|mb|ghz|mhz)\b", r"\1\2", title.lower())
+    t = re.sub(r"(\d+)\s*(gb|tb|mb|ghz|mhz)\b", r"\1\2", _norm_title(title))
     toks = re.findall(r"[a-z0-9]+(?:\.[0-9]+)?", t)
     drop = set(re.findall(r"[a-z0-9]+", canon_brand(brand))) | _STOP
     # spec-like tokens (4gb, 15.6, 5v) are compared via Listing.specs, not as part of the model name
@@ -135,6 +168,9 @@ def hard_conflict(a: Listing, b: Listing) -> str | None:
     ca, cb = colour_set(a.title), colour_set(b.title)
     if ca and cb and ca != cb:
         return f"colour differs ({sorted(ca)} vs {sorted(cb)})"
+    uc = unit_conflict(a.title, b.title)
+    if uc:
+        return f"spec value {uc}"
     conflicts = []
     for key, tol in (("screen_in", 0.15), ("ram_gb", 0), ("storage_gb", 0), ("cpu_family", None)):
         va, vb = a.specs.get(key), b.specs.get(key)
@@ -170,11 +206,17 @@ def match_score(a: Listing, b: Listing) -> MatchResult:
 
     reasons: list[str] = []
     sa, sb = name_signature(a.title, a.brand), name_signature(b.title, b.brand)
-    if ba and ba == bb and sa and sa == sb and len(sa) >= 2:  # stage 3: brand + identical normalised model name
-        agree_specs = sum(1 for k in ("screen_in", "ram_gb", "storage_gb", "cpu_family")
-                          if a.specs.get(k) is not None and a.specs.get(k) == b.specs.get(k))
-        return MatchResult(0.95, "auto", [f"same brand {a.brand} and identical normalised name {sorted(sa)}",
-                                          f"{agree_specs} agreeing spec(s); no shared GTIN/MPN published"])
+    agree_specs = sum(1 for k in ("screen_in", "ram_gb", "storage_gb", "cpu_family")
+                      if a.specs.get(k) is not None and a.specs.get(k) == b.specs.get(k))
+    agree_units = sum(1 for k in unit_values(a.title).keys() & unit_values(b.title).keys())
+    if ba and ba == bb and sa and sa == sb:  # stage 3: brand + identical normalised model name
+        if len(sa) >= 2 or agree_specs + agree_units >= 1:
+            return MatchResult(0.95, "auto", [f"same brand {a.brand} and identical normalised name {sorted(sa)}",
+                                              f"{agree_specs + agree_units} agreeing spec value(s); no shared GTIN/MPN published"])
+        return MatchResult(0.6, "review", [f"identical one-word name {sorted(sa)} but nothing else agrees (RAM/size missing?)"])
+    if (not ba or not bb) and sa and sa == sb and len(sa) >= 2:
+        return MatchResult(0.55, "review", [f"identical names {sorted(sa)} but the brand is missing on one side"])
+
     ma_t, mb_t = model_tokens(a.title), model_tokens(b.title)
     shares_code = bool(ma_t and mb_t and len(ma_t & mb_t) / len(ma_t | mb_t) >= 0.5)
     if ba and ba == bb and sa and sb and sa != sb and not shares_code:
@@ -207,7 +249,7 @@ def match_score(a: Listing, b: Listing) -> MatchResult:
     if fa and fb and not (fa & fb) and any(x.startswith(y + "-") or y.startswith(x + "-") for x in fa for y in fb):
         cap_review = True  # same code with an extra suffix (region/SKU variant): a human decides
         reasons.append("model code differs only by a suffix (region/SKU variant?)")
-    if score >= AUTO_THRESHOLD and (jacc or 0) >= 0.5 and agree >= 2 and not cap_review:
+    if score >= AUTO_THRESHOLD and (jacc or 0) >= 0.5 and agree >= 2 and not cap_review and ba and ba == bb:
         return MatchResult(round(score, 3), "auto", reasons)
     if score >= REVIEW_THRESHOLD and ((jacc or 0) > 0 or ratio >= 0.8):
         return MatchResult(round(score, 3), "review", reasons)
@@ -216,69 +258,132 @@ def match_score(a: Listing, b: Listing) -> MatchResult:
     return MatchResult(round(score, 3), "none", reasons)
 
 
+def _drop_product_if_empty(s: Session, pid: int | None, keep_listing_id: int) -> None:
+    """Delete a product left with no listings, FIRST closing any pending candidates that point at it (otherwise the
+    foreign key breaks the commit — reproduced by the review)."""
+    if pid is None or s.scalar(select(Listing.id).where(Listing.product_id == pid, Listing.id != keep_listing_id)):
+        return
+    for c in s.scalars(select(MatchCandidate).where(MatchCandidate.product_id == pid)).all():
+        s.delete(c)
+    p = s.get(Product, pid)
+    if p:
+        s.delete(p)
+
+
+def _members(s: Session, pid: int) -> list[Listing]:
+    return list(s.scalars(select(Listing).where(Listing.product_id == pid, Listing.active.is_(True))))
+
+
+def _queue(s: Session, listing: Listing, product_id: int, score: float, reasons: list[str]) -> None:
+    if not s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == listing.id, MatchCandidate.product_id == product_id)):
+        s.add(MatchCandidate(listing_id=listing.id, product_id=product_id, score=score, reasons=reasons))
+
+
 def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
-    """Compare a new listing to listings of OTHER sources. Auto-attach, queue for review, or leave alone."""
-    q = select(Listing).where(
-        Listing.source_id != listing.source_id, Listing.active.is_(True),
-        Listing.product_id.is_not(None), Listing.product_id != listing.product_id)
+    """Compare a listing to listings of OTHER sources. Auto-attach only when the evidence is unambiguous; otherwise queue
+    for review. Guards: (1) a product holds at most ONE listing per merchant, (2) equally good candidates are
+    ambiguous, (3) the listing must not conflict with ANY member of the target product (no transitive drift),
+    (4) human rejections are never re-queued."""
+    q = select(Listing).where(Listing.source_id != listing.source_id, Listing.active.is_(True),
+                              Listing.product_id.is_not(None), Listing.product_id != listing.product_id)
     if listing.category:
         q = q.where((Listing.category == listing.category) | Listing.category.is_(None))
-    pool = s.scalars(q).all()
-    best: tuple[MatchResult, Listing] | None = None
-    for other in pool:
+    rejected = {(c.listing_id, c.product_id) for c in s.scalars(select(MatchCandidate).where(MatchCandidate.status == "rejected"))}
+    scored: list[tuple[MatchResult, Listing]] = []
+    for other in s.scalars(q).all():
+        if (listing.id, other.product_id) in rejected or (other.id, listing.product_id) in rejected:
+            continue
         r = match_score(listing, other)
-        if r.decision != "none" and (best is None or r.score > best[0].score):
-            best = (r, other)
-    if not best:
+        if r.decision != "none":
+            scored.append((r, other))
+    if not scored:
         return None
-    r, other = best
+    scored.sort(key=lambda x: -x[0].score)
+    r, other = scored[0]
     if r.decision == "auto":
+        tied = [(rr, o) for rr, o in scored if rr.decision == "auto" and abs(rr.score - r.score) < 0.02 and o.product_id != other.product_id]
+        problem = None
+        if tied:
+            problem = f"ambiguous: {len(tied) + 1} equally good candidates ({', '.join(sorted({o.title[:40] for _, o in [(r, other)] + tied}))})"
+        else:
+            members = _members(s, other.product_id)
+            if any(m.source_id == listing.source_id and m.id != listing.id for m in members):
+                problem = "the target product already has a listing from this merchant (identical names for different variants?)"
+            else:
+                bad = next((m for m in members if m.source_id != listing.source_id and match_score(listing, m).decision == "none"), None)
+                if bad is not None:
+                    problem = f"conflicts with another listing of the target product ('{bad.title[:50]}')"
+        if problem:
+            reasons = [problem] + r.reasons
+            listing.match_status, listing.match_confidence, listing.match_reasons = "review", min(r.score, 0.6), reasons
+            for rr, o in ([(r, other)] + tied):
+                _queue(s, listing, o.product_id, min(rr.score, 0.6), reasons)
+            return MatchResult(min(r.score, 0.6), "review", reasons)
         old = listing.product_id
         listing.product_id = other.product_id
         listing.match_status, listing.match_confidence, listing.match_reasons = "auto", r.score, r.reasons
-        if old and not s.scalar(select(Listing.id).where(Listing.product_id == old, Listing.id != listing.id)):
-            p = s.get(Product, old)
-            if p:
-                s.delete(p)
+        _drop_product_if_empty(s, old, listing.id)
     else:
         listing.match_status, listing.match_confidence, listing.match_reasons = "review", r.score, r.reasons
-        if not s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == listing.id,
-                                                        MatchCandidate.product_id == other.product_id)):
-            s.add(MatchCandidate(listing_id=listing.id, product_id=other.product_id, score=r.score, reasons=r.reasons))
+        _queue(s, listing, other.product_id, r.score, r.reasons)
     return r
 
 
 def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
-    """Human review decision. Accepting merges the listing into the candidate product."""
+    """Human review decision. Accepting merges the listing into the candidate product (overriding the automatic guards)."""
     c = s.get(MatchCandidate, cand_id)
     if not c or c.status != "pending":
         return
+    l, target = c.listing, c.product_id
     c.status = "accepted" if accept else "rejected"
-    l = c.listing
     if accept:
         old = l.product_id
-        l.product_id = c.product_id
-        l.match_status = "confirmed"
-        if old and not s.scalar(select(Listing.id).where(Listing.product_id == old, Listing.id != l.id)):
-            p = s.get(Product, old)
-            if p:
-                s.delete(p)
+        l.product_id, l.match_status = target, "confirmed"
+        s.flush()
+        _drop_product_if_empty(s, old, l.id)  # also closes other pending candidates pointing at the vanished product
     else:
-        l.match_status = "self"
+        l.match_status = "self" if not s.scalar(select(MatchCandidate.id).where(
+            MatchCandidate.listing_id == l.id, MatchCandidate.status == "pending", MatchCandidate.id != c.id)) else "review"
+
+
+def demote_ambiguous(s: Session, source_id: int) -> int:
+    """If a merchant lists several items with the SAME normalised name (e.g. one title for cables of different lengths),
+    no cross-merchant auto-match involving that name can be trusted: detach those listings into their own products and
+    send the old pairing to review. Returns the number demoted."""
+    rows = s.scalars(select(Listing).where(Listing.source_id == source_id, Listing.active.is_(True))).all()
+    groups: dict[tuple, list[Listing]] = {}
+    for l in rows:
+        sig = name_signature(l.title, l.brand)
+        if sig:
+            groups.setdefault((canon_brand(l.brand), sig), []).append(l)
+    n = 0
+    for (_, sig), items in groups.items():
+        if len(items) < 2:
+            continue
+        for l in items:
+            if l.match_status != "auto":
+                continue
+            reasons = [f"this merchant lists {len(items)} identically named items {sorted(sig)}: cannot tell which one matches"] + (l.match_reasons or [])
+            old = l.product_id
+            newp = Product(title=l.title, brand=l.brand, category=l.category)
+            s.add(newp)
+            s.flush()
+            l.product_id, l.match_status, l.match_reasons = newp.id, "review", reasons
+            l.match_confidence = min(l.match_confidence or 0.6, 0.6)
+            _queue(s, l, old, l.match_confidence, reasons)
+            n += 1
+    return n
 
 
 def rematch_all(s: Session) -> dict:
-    """Re-run matching for every listing not yet matched or confirmed (e.g. after matcher/identifier changes).
-    Rejected candidates are never re-queued. Returns counts."""
-    out = {"checked": 0, "auto": 0, "review": 0}
-    rejected = {(c.listing_id, c.product_id) for c in s.scalars(select(MatchCandidate).where(MatchCandidate.status == "rejected"))}
+    """Re-run matching for every listing not yet matched or confirmed (after matcher/identifier changes). Rejected
+    pairs are never re-queued or auto-merged (enforced inside attach_or_queue). Returns counts."""
+    out = {"checked": 0, "auto": 0, "review": 0, "demoted": 0}
     for l in s.scalars(select(Listing).where(Listing.match_status.in_(("self", "review")), Listing.active.is_(True)).order_by(Listing.id)).all():
         out["checked"] += 1
-        before = l.product_id
         r = attach_or_queue(s, l)
-        if r and r.decision == "auto":
-            out["auto"] += 1
-        elif r and r.decision == "review":
-            out["review"] += 1
-        _ = before, rejected
+        out["auto"] += int(bool(r and r.decision == "auto"))
+        out["review"] += int(bool(r and r.decision == "review"))
+    for sid in {x for (x,) in s.execute(select(Listing.source_id).distinct())}:
+        out["demoted"] += demote_ambiguous(s, sid)
     return out
