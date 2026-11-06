@@ -231,3 +231,19 @@ def test_uncollected_disclosure_excludes_other_models_and_non_product_pages(db):
         s.flush()
         r = assistant.answer(s, "pi pico w", now=T0, use_llm=False)
         assert [u["url"].rsplit("/", 1)[1] for u in r["uncollected"]] == ["raspberry-pi-pico-w.html"]
+
+
+def test_a_pending_human_review_is_not_reported_as_no_other_shop_nor_compared(db):
+    """Independent consult: 'Pi 3 A+' vs 'Model 3 A+' is an UNVERIFIED possible match, which is neither 'no other shop' nor a comparison."""
+    from watchtower.matching import rematch_all
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        x, *_ = ingest_listing(s, a, None, _raw("a1", "Raspberry Pi 3 A+", 2500), T0)
+        y, *_ = ingest_listing(s, b, None, _raw("b1", "Raspberry Pi Model 3 A+", 2400), T0)
+        rematch_all(s)
+        s.flush()
+        assert x.match_status == "review" and x.product_id != y.product_id
+        text = assistant.answer(s, "raspberry pi 3 a+", now=T0, use_llm=False)["text"]
+        assert "No other shop" not in text and "Also sold at" not in text
+        assert "awaiting human review" in text and "not counted" in text

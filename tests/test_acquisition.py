@@ -237,3 +237,39 @@ def test_a_differing_model_number_is_family_evidence_not_a_strong_match(live_db)
         pts = lambda k: next(c.points for c in ranked[k].components if c.name == "cross_merchant")
         assert pts("raspberry-pi-pico-w.html") == acquisition.CROSS_EXACT
         assert pts("raspberry-pi-pico-2-w.html") <= acquisition.CROSS_FAMILY
+
+
+def test_a_single_letter_variant_is_family_evidence_not_a_strong_match(live_db):
+    """'Pico' vs 'Pico W', 'Zero' vs 'Zero W': one-letter differences are different products (the mission-003 matcher vetoes them)."""
+    ensure_sources(live_db)
+    with live_db.session() as s:
+        _ada_listing(s, "Raspberry Pi Pico W", "5526")
+        _ada_listing(s, "Raspberry Pi Zero", "2885")
+        src, rows = _spark_rows(s, ["raspberry-pi-pico", "raspberry-pi-zero-w", "raspberry-pi-pico-w", "raspberry-pi-zero"])
+        hints = {c.url: acquisition.hint_from_url(c.url) for c in rows}
+        r = {x.crawl.url.rsplit("/", 1)[1]: x for x in acquisition.rank_fresh(s, src, rows, {c.url: 0 for c in rows}, hints, NOW)}
+        pts = lambda k: next(c.points for c in r[k].components if c.name == "cross_merchant")
+        assert pts("raspberry-pi-pico.html") <= acquisition.CROSS_FAMILY and pts("raspberry-pi-zero-w.html") <= acquisition.CROSS_FAMILY
+        assert pts("raspberry-pi-pico-w.html") == pts("raspberry-pi-zero.html") == acquisition.CROSS_EXACT
+
+
+def test_starvation_is_bounded_across_mixed_tiers(live_db):
+    """A tier-2 URL waits for the finite tier-0/1 pool to drain (aging cap 15 < tier gap 35) but is then reached."""
+    ensure_sources(live_db)
+    with live_db.session() as s:
+        src, rows = _spark_rows(s, [f"zz-board-{i:02d}" for i in range(6)])
+        tiers = {c.url: (0 if i < 12 else 2) for i, c in enumerate(rows)}  # placeholder, replaced below
+        more = _spark_rows(s, [f"raspberry-pi-model-{i:02d}" for i in range(12)])[1]
+        allrows = rows + more
+        tiers = {c.url: (2 if c in rows else 0) for c in allrows}
+        picked = {}
+        for run in range(30):
+            plan = _plan(s, src, allrows, now=NOW + timedelta(days=run), cap=4, tiers=tiers)
+            for c in plan.fresh:
+                picked.setdefault(c.url, run)
+                c.last_fetched_at, c.next_check_at = NOW + timedelta(days=run), NOW + timedelta(days=run + 400)
+            if len(picked) == len(allrows):
+                break
+        assert len(picked) == len(allrows)
+        assert max(picked[c.url] for c in more) < min(picked[c.url] for c in rows)  # tier 0 drains first ...
+        assert max(picked.values()) <= 18  # ... and everything is reached within pool/slots runs (18 URLs / 2 slots = 9, generous x2)

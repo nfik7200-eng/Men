@@ -21,13 +21,34 @@ from sqlalchemy.orm import Session
 
 from .acquisition import CROSS_STRONG, MAX_FAILS
 from .health import source_health
+from .structured import normalise_url
 from .models import CollectionRun, CrawlUrl, Listing, Source, utcnow
 
 _FAILED = ("parse_error", "ingest_invalid", "fetch_error")
 
 
-def _classify(c: CrawlUrl) -> str:
+def duplicate_ids(s: Session, rows: list[CrawlUrl]) -> set[int]:
+    """Rows that point at a listing ALREADY claimed by another row (legacy aliases). The canonical row is the one whose URL
+    is the listing's own URL, else the lowest id; the rest are duplicates, not extra products."""
+    by_listing: dict[int, list[CrawlUrl]] = {}
+    for c in rows:
+        if c.listing_id is not None and not c.gone:
+            by_listing.setdefault(c.listing_id, []).append(c)
+    dups: set[int] = set()
+    for lid, group in by_listing.items():
+        if len(group) < 2:
+            continue
+        l = s.get(Listing, lid)
+        own = normalise_url(l.url) if l is not None else None
+        keep = next((c for c in sorted(group, key=lambda c: c.id) if c.url == own), min(group, key=lambda c: c.id))
+        dups |= {c.id for c in group if c.id != keep.id}
+    return dups
+
+
+def _classify(c: CrawlUrl, dups: frozenset[int] | set[int] = frozenset()) -> str:
     o = c.last_outcome
+    if c.id in dups:
+        return "duplicate"
     if c.gone or o == "gone":
         return "gone"
     if o == "disallowed":
@@ -54,8 +75,9 @@ def source_coverage(s: Session, src: Source, now: datetime | None = None) -> dic
     rows = list(s.scalars(select(CrawlUrl).where(CrawlUrl.source_id == src.id)))
     kinds: dict[str, int] = {}
     cls = {}
+    dups = duplicate_ids(s, rows)
     for c in rows:
-        cls[c.id] = k = _classify(c)
+        cls[c.id] = k = _classify(c, dups)
         kinds[k] = kinds.get(k, 0) + 1
     n = lambda k: kinds.get(k, 0)
     rejected = {k: n(k) for k in ("gone", "disallowed", "retry_limit") if n(k)}

@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from watchtower.deals import DealScore, PeerContext, score_listing
-from watchtower.models import CrawlUrl, Listing, Source, utcnow
+from watchtower.models import CrawlUrl, Listing, MatchCandidate, Source, utcnow
 from watchtower.money import fmt_money
 from watchtower.quality import price_status
 from watchtower.acquisition import hint_from_url
@@ -51,6 +51,7 @@ class Pick:
     relevant: bool = True  # mentions every product word the user used that appears in any candidate
     price_status: str = "verified"
     import_estimate: dict | None = None
+    possible: list[dict] = field(default_factory=list)  # unverified candidates awaiting human review: NOT compared
     also: list[dict] = field(default_factory=list)  # the same product at other shops: source, price, how sure we are
 
 
@@ -358,6 +359,19 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     for u in uncollected:
         caveats.append(f"Not collected yet: {u['source']} has a page at {u['url']} whose address suggests this product, but we have not "
                        "read it, so its price and stock are unknown. It is not counted as a comparison.")
+    for p in top + alternatives:  # unverified possible matches (pending human review): disclosed, never compared
+        l = p.listing
+        if l.product_id is not None:
+            cs = s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending", (MatchCandidate.listing_id == l.id) |
+                                                        (MatchCandidate.product_id == l.product_id))).all()
+            seen = set()
+            for c in cs:
+                others = ([m for m in s.scalars(select(Listing).options(joinedload(Listing.source)).where(
+                    Listing.product_id == c.product_id, Listing.active.is_(True)))] if c.listing_id == l.id else [c.listing])
+                for o in others:
+                    if o.source_id != l.source_id and o.id not in seen:
+                        seen.add(o.id)
+                        p.possible.append({"source": o.source.name, "title": o.title, "listing_id": o.id})
     for p in top + alternatives:  # the same product at other shops, with how sure the match is
         if p.listing.product_id is not None and p.listing.source.kind == "live":
             for o in s.scalars(select(Listing).options(joinedload(Listing.source)).where(
@@ -414,7 +428,10 @@ def render_text(r: dict) -> str:
                          + ("" if p.deal.label == "Verified price drop" else "; a verified price drop needs 3+ observations over 7+ days"))
         if p.also:
             lines.append("   Also sold at: " + "; ".join(f"{a['source']} {a['price']} ({a['sure']})" for a in p.also))
-        elif p.listing.source.kind == "live" and p.listing.product_id is not None:
+        if p.possible:
+            lines.append("   Possible match, awaiting human review (not counted as the same product): "
+                         + "; ".join(f"{a['source']} '{a['title'][:50]}'" for a in p.possible))
+        elif not p.also and p.listing.source.kind == "live" and p.listing.product_id is not None:
             lines.append("   No other shop in our data sells this product (yet).")
         if p.import_estimate and p.import_estimate.get("available"):
             e = p.import_estimate

@@ -86,8 +86,9 @@ def _cross_merchant(hint: str | None, pool: list[Listing]) -> Component:
             continue
         if sh == sl:
             pts, level = CROSS_EXACT, "exact"
-        elif (sh < sl or sl < sh) and len(sh ^ sl) <= 1 and all(w.isalpha() for w in sh ^ sl):
-            # one extra WORD ('Zero 2 W' vs 'Zero 2 W Mini'); a differing number ('Pico W' vs 'Pico 2 W') is a different model
+        elif (sh < sl or sl < sh) and len(sh ^ sl) <= 1 and all(w.isalpha() and len(w) >= 3 for w in sh ^ sl):
+            # one extra real WORD ('Zero 2 W' vs 'Zero 2 W Mini'). A differing number ('Pico W' vs 'Pico 2 W') or a
+            # one/two-letter suffix ('Pico' vs 'Pico W', 'Zero' vs 'Zero WH') is a different model: family evidence only
             pts, level = CROSS_STRONG, "strong"
         else:
             pts, level = CROSS_FAMILY, "family"

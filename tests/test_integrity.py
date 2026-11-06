@@ -86,3 +86,29 @@ def test_verify_reports_a_non_database_file_instead_of_crashing(tmp_path, capsys
     bad.write_bytes(b"garbage" * 100)
     assert cli.main(["verify", "--db", str(bad)]) == 2
     assert "cannot read" in capsys.readouterr().out
+
+
+def test_observations_are_append_only(tmp_path):
+    import pytest
+    from watchtower.db import ImmutableObservation
+    path = _db(tmp_path)
+    db = Database(f"sqlite:///{path}")
+    with db.session() as s:
+        o = s.query(Observation).first()
+        n = s.query(Observation).count()
+    with pytest.raises(ImmutableObservation):
+        with db.session() as s:
+            s.query(Observation).first().price_minor = 1  # rewriting history
+    with pytest.raises(ImmutableObservation):
+        with db.session() as s:
+            s.delete(s.query(Observation).first())
+    with db.session() as s:
+        assert s.query(Observation).count() == n and s.query(Observation).first().price_minor == o.price_minor
+        s.add(Observation(listing_id=o.listing_id, observed_at=T0, price_minor=2400, currency="USD"))  # appending is the way
+    with db.session() as s:
+        assert s.query(Observation).count() == n + 1
+
+
+def test_verify_reports_legacy_alias_rows_as_a_metric(tmp_path):
+    path = _db(tmp_path)
+    assert integrity_report(path)["metrics"]["crawl_rows_sharing_a_listing"] == 0

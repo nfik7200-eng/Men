@@ -53,6 +53,10 @@ def _count(c, sql):
     return c.execute(sql).fetchone()[0] or 0
 
 
+def _has_table(c, name: str) -> bool:
+    return bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone())
+
+
 def integrity_report(path) -> dict:
     path = Path(path)
     if not path.is_file():
@@ -79,6 +83,10 @@ def integrity_report(path) -> dict:
                                                    "julianday(max(o.observed_at)) - julianday(min(o.observed_at)) >= 7)"),
             "multi_merchant_products": _count(c, "SELECT count(*) FROM (SELECT 1 FROM listings l " + _LIVE +
                                                  " AND l.product_id IS NOT NULL GROUP BY l.product_id HAVING count(DISTINCT l.source_id) > 1)"),
+            # legacy aliases: several crawl URLs pointing at one listing (metric, not an invariant: old data has them)
+            "crawl_rows_sharing_a_listing": _count(c, "SELECT coalesce(sum(n - 1), 0) FROM (SELECT count(*) n FROM crawl_urls "
+                                                      "WHERE listing_id IS NOT NULL AND gone = 0 GROUP BY listing_id HAVING n > 1)")
+            if _has_table(c, "crawl_urls") else 0,
             "pending_review_candidates": _count(c, "SELECT count(*) FROM match_candidates WHERE status = 'pending'"),
             "price_change_events_live": _count(c, f"SELECT count(*) FROM events e JOIN listings l ON l.id = e.listing_id {_LIVE} "
                                                   "AND e.kind IN ('price_drop', 'price_rise')"),

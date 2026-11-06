@@ -11,6 +11,10 @@ class Base(DeclarativeBase):
     pass
 
 
+class ImmutableObservation(RuntimeError):
+    pass
+
+
 class Database:
     def __init__(self, url: str | None = None):
         url = url or config.DB_URL
@@ -26,6 +30,14 @@ class Database:
                 dbapi.execute("PRAGMA foreign_keys=ON")
                 dbapi.execute("PRAGMA journal_mode=WAL")
         self.Session = sessionmaker(self.engine, expire_on_commit=False)
+
+        @event.listens_for(self.Session, "before_flush")
+        def _observations_are_immutable(session, flush_context, instances):
+            """Price history is evidence: an observation is only ever INSERTED. A changed price is a new observation."""
+            from .models import Observation
+            if any(isinstance(o, Observation) for o in session.deleted) or any(
+                    isinstance(o, Observation) and session.is_modified(o) for o in session.dirty):
+                raise ImmutableObservation("observations are append-only: record a new observation instead of changing history")
 
     def init(self):
         from . import models  # noqa: F401  (register tables)

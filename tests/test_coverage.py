@@ -11,10 +11,11 @@ from watchtower.models import CollectionRun, CrawlUrl, Source
 def _world(s):
     """SparkFun with 10 discovered URLs in every state we must tell apart; Adafruit has one matching listing."""
     _ada_listing(s, "Raspberry Pi Zero 2 W", "5291")
+    _ada_listing(s, "Raspberry Pi 5 - 4 GB RAM", "5812")
     src, rows = _spark_rows(s, [f"item-{i}" for i in range(10)])
     st = lambda i, **kw: [setattr(rows[i], k, v) for k, v in kw.items()]
     st(0, last_fetched_at=NOW, last_outcome="ok", listing_id=1)                     # acquired
-    st(1, last_fetched_at=NOW, last_outcome="not_modified", listing_id=1)           # acquired (re-confirmed)
+    st(1, last_fetched_at=NOW, last_outcome="not_modified", listing_id=2)           # acquired (re-confirmed)
     st(2, last_fetched_at=NOW, last_outcome="no_product")                           # fetched, not a product
     st(3, last_fetched_at=NOW, last_outcome="parse_error")                          # fetched, extraction failed
     st(4, last_outcome="fetch_error", fail_count=2)                                 # request failed: pending retry
@@ -111,3 +112,18 @@ def test_cli_coverage_refuses_the_live_database_and_reports_a_copy(tmp_path, cap
     monkeypatch.setattr(config, "DB_URL", f"sqlite:///{tmp_path / 'other.db'}")
     assert cli.main(["coverage", "--db", str(path)]) == 0
     assert "live merchants=0" in capsys.readouterr().out
+
+
+def test_two_urls_of_one_listing_count_once_legacy_aliases_included(live_db):
+    """Independent consult: on the real snapshot 195 Adafruit rows pointed at 192 listings (aliases from before the alias fix)."""
+    ensure_sources(live_db)
+    with live_db.session() as s:
+        l = _ada_listing(s, "Raspberry Pi Zero 2 W", "5291")
+        src = s.get(Source, l.source_id)
+        l.url = "https://www.adafruit.com/product/5291"
+        for u in ("https://www.adafruit.com/product/5291", "https://www.adafruit.com/product/5291?x=1"):
+            s.add(CrawlUrl(source_id=src.id, url=u, listing_id=l.id, last_fetched_at=NOW, last_outcome="ok", first_seen_at=NOW))
+        s.flush()
+        c = coverage.source_coverage(s, src, NOW)
+        assert c["acquired"] == 1 and c["duplicates"] == 1 and c["eligible"] == 1  # the row matching listing.url is the canonical one
+        assert c["eligible_coverage"] == 1.0
