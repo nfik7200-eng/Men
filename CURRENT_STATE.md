@@ -1,8 +1,14 @@
 # Current State
 
-_Last updated: 2026-11-04 (Stage 5, Build Prompt 06)_
+_Last updated: 2026-11-06 (UI integration, Milestone A: specification only)_
 
 ## Phase
+**UI integration, Milestone A (2026-11-06): specification only. No code changed.**
+- Produced `docs/FRONTEND_ARCHITECTURE.md` (design system, grouped navigation, global search, wallet workspace, research persistence and traceability, responsive and touch rules, states) and `docs/FRONTEND_API_MAP.md` (page → endpoint map, gaps).
+- Investigated the audit's console 404. It is the expected `404 not_found` for an unstored wallet, handled by the UI. A latent defect was found: unmatched routes return the same code. A fix is proposed in ADR-031.
+- Milestones B–E are not started.
+
+Previous phase:
 **Stage 5: ML wallet classification and AI research**, on top of Stage 4. Built and verified offline.
 - **No real ML model is trained.** No real, provenance-backed labelled wallets exist, so training on stored labels honestly returns `insufficient_data`. Classification uses the deterministic `bip-rules` baseline, plus an `experimental_synthetic` model only where someone explicitly trained the labelled synthetic demo set (this is enabled only on the fixture backend).
 - **No LLM is configured** (`BIP_AI__PROVIDER=none`). Investigations produce deterministic reports with that limitation stated. LLM synthesis is tested with a deterministic fake provider only.
@@ -43,6 +49,7 @@ Earlier phase:
 | ML classification: taxonomy (10 account types, 25 roles), 27 versioned features (missing ≠ zero, as-of leakage control), rules baseline, scikit-learn training (out-of-time split, calibration, validated thresholds, Isolation Forest, HDBSCAN), abstention, contracts | Implemented and tested. **Only synthetic-trained models exist; no real-world metrics** | `tests/stage5/test_ml.py` |
 | AI research: interpreter, fixed planner, 10 typed tools with permissions, 8 specialists, claims with statuses, LLM synthesis (validated and screened), budgets, cancellation, recovery, rerun, reports | Implemented and tested with a fake LLM. **No real LLM used** | `tests/stage5/test_research.py`, `test_pipeline.py` |
 | AI Research page (classification, plan preview, progress and cancel, report, model registry and evaluation, AI provider status) | Implemented and tested | Vitest, e2e Phase B |
+| UI integration Milestones B–E (grouped navigation, global search, wallet workspace, research history page, case ↔ research links, label curation UI, wallet status endpoint) | **Specified, not implemented** | `docs/FRONTEND_ARCHITECTURE.md` |
 | Real-data intelligence output | **None yet**: every analysed record so far is an offline fixture (labelled "Demo data") | — |
 | AI research, historical crawler, live followers, Parquet lake | Planned | — |
 
@@ -62,7 +69,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 - `claude/nifty-ptolemy-1emo3n`: separate Graphify developer tooling. Not merged, not part of BIP code.
 
 ## Awaiting owner approval
-1. ADRs 001–029 (all Proposed). ADR-027 to ADR-029 (scikit-learn plus rules baseline; deterministic planner with LLM synthesis only; in-process bounded research runs) are implemented provisionally. ADR-025/026 (budgeted manual prober; reliability sample rules) are implemented provisionally. ADR-021 to ADR-024 (provider independence groups, on-demand SQLite intelligence, reproducible runs, research leads not recommendations) are implemented provisionally. Already implemented provisionally: ADR-004, ADR-014 to ADR-016, and ADR-017 to ADR-020 (TOML registry, stdlib transport, synchronous bounded ingestion, log-based Ethereum discovery).
+1. ADRs 001–031 (all Proposed). ADR-030/031 (wallet workspace and research ↔ case link; wallet status endpoint and `route_not_found`) are specified, not implemented. ADR-027 to ADR-029 (scikit-learn plus rules baseline; deterministic planner with LLM synthesis only; in-process bounded research runs) are implemented provisionally. ADR-025/026 (budgeted manual prober; reliability sample rules) are implemented provisionally. ADR-021 to ADR-024 (provider independence groups, on-demand SQLite intelligence, reproducible runs, research leads not recommendations) are implemented provisionally. Already implemented provisionally: ADR-004, ADR-014 to ADR-016, and ADR-017 to ADR-020 (TOML registry, stdlib transport, synchronous bounded ingestion, log-based Ethereum discovery).
 2. Storage target beyond the ~5 GB prototype cap.
 3. Free accounts: Alchemy, Infura, Chainstack, Helius, Etherscan, GitHub PAT, Google Cloud BigQuery sandbox.
 4. Where Postgres (and later Redis) run, and with what resource limits.
@@ -70,6 +77,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 6. Alert channel (Stage 12).
 7. Web-fetcher User-Agent contact string.
 8. Remote LLM providers allowed, or local Ollama only.
+9. UI: self-hosted IBM Plex fonts or system fonts (default); confirm transaction-hash search stays out of scope (`docs/FRONTEND_ARCHITECTURE.md` §12).
 
 ## Known limitations
 - Ethereum wallet history is discovered only through Transfer logs in the last 2,000 blocks (configurable). Plain ETH transfers without logs, internal transfers and ERC-1155 are not covered.

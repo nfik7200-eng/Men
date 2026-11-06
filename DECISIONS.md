@@ -235,3 +235,41 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - Every state change is persisted, and cancellation is checked between steps.
 - Runs left unfinished at restart are marked failed.
 - No queue service is used (ADR-006 still governs any future queue).
+
+## ADR-030 Wallet workspace, grouped navigation and research ↔ case links (Proposed)
+**Context.**
+- The UI has 11 flat navigation items.
+- Flows, Graph, Opportunities and Research depend on a wallet passed in the query string.
+- Persisted research runs are not listable.
+- Manual cases (Stage 1b) and AI research runs (Stage 5) are not linked.
+- The audit is in `docs/FRONTEND_API_MAP.md`.
+
+**Decision.**
+- Navigation is grouped Monitor / Explore / Intelligence / Cases / Settings. The owner approved this on 2026-11-06.
+- The theme stays dark only (owner decision, 2026-11-06).
+- The wallet page becomes a tabbed workspace with path-addressed tabs (`/wallets/:chain/:address/:tab`). Old query-string routes redirect.
+- Research runs get a persisted index and a deep-linkable run page (`/research/runs/:runKey`).
+- New additive migration v6: table `investigation_research_runs (investigation_id, run_key, attached_at, note)`. Deleting a case removes only links; runs and reports are never deleted or rewritten.
+- Reports gain feature digest, taxonomy version, as-of and model dataset version, with a `report_version` bump. Older reports show "not recorded"; they are never back-filled from current models.
+
+**Consequences.**
+- No new frontend dependencies.
+- Existing URLs keep working.
+- One additive table.
+- Specification: `docs/FRONTEND_ARCHITECTURE.md`.
+
+## ADR-031 Wallet status endpoint and distinct route-not-found code (Proposed)
+**Context.**
+- `GET /wallets/{chain}/{address}` returns `404 not_found` for a valid but unstored wallet, which shows up as a console 404 on every first visit.
+- Unmatched routes return the same `404 not_found`, so the UI cannot tell "nothing stored" from a client/server mismatch.
+- Investigation: `docs/FRONTEND_ARCHITECTURE.md` §9.
+
+**Decision.**
+- Add `GET /wallets/{chain}/{address}/status`. It returns `200` for any valid address and reports `stored`, counts (`null` when not stored, never 0), related classifications, research runs, watchlists and cases.
+- Unmatched routes return `404 route_not_found`.
+- The client branches on the error code, not on the status alone.
+- The existing endpoint's behaviour is unchanged (backwards compatible).
+
+**Consequences.**
+- Global search and the workspace render without expected errors.
+- A missing endpoint is shown as an error instead of as "no data".

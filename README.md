@@ -60,6 +60,8 @@ See [`CURRENT_STATE.md`](CURRENT_STATE.md).
 | [docs/AI_RESEARCH_METHODOLOGY.md](docs/AI_RESEARCH_METHODOLOGY.md) | Orchestration, tools, claims, LLM safety, budgets |
 | [docs/PROVIDER_CAPABILITY_METHODOLOGY.md](docs/PROVIDER_CAPABILITY_METHODOLOGY.md) | Capability probing, budgets, failure classification, reliability, consistency |
 | [docs/INTELLIGENCE_METHODOLOGY.md](docs/INTELLIGENCE_METHODOLOGY.md) | How profiles, rules, detectors, flows, graphs, leads and verification are computed |
+| [docs/FRONTEND_ARCHITECTURE.md](docs/FRONTEND_ARCHITECTURE.md) | UI design system, navigation, wallet workspace, search, responsive rules (Milestone A specification) |
+| [docs/FRONTEND_API_MAP.md](docs/FRONTEND_API_MAP.md) | Which page calls which endpoint; gaps and planned endpoints |
 
 ## Proposed stack (awaiting approval — see DECISIONS.md)
 

@@ -2,6 +2,49 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-06 — UI integration, Milestone A: architecture and design specification
+
+**Starting point:** `8e7fc29`, clean tree, same commit on the remote. Owner decisions: dark theme only; grouped navigation approved; Milestones A–E approved, with only A to be carried out now.
+
+**Done (documentation only; no application code changed)**
+- **`docs/FRONTEND_ARCHITECTURE.md`:**
+  - scope and constraints;
+  - grouped navigation and the route plan (old URLs redirect);
+  - global wallet search (Ethereum and Solana by format, transaction hashes recognised and declined, never triggers ingestion);
+  - wallet workspace with path-addressed tabs;
+  - research history, run page and the report provenance panel;
+  - dark design system with measured contrast and the evidence-grade component;
+  - responsive and touch rules; states and copy; accessibility checklist; milestone verification plan.
+- **`docs/FRONTEND_API_MAP.md`:** every page mapped to its endpoints. 79 backend route+method pairs; 58 client methods, of which 53 are called (unused: `provider`, `network`, `job`, `researchRuns`, `attachFinding`). Gaps and planned endpoints are listed.
+- **ADR-030 and ADR-031 (Proposed):** workspace, research ↔ case link in an additive migration v6, and report traceability fields; wallet status endpoint and `route_not_found`.
+- Roadmap progress row, `CURRENT_STATE.md` and the README document index were updated.
+
+**404 investigation (reproduced in a browser against the offline fixture backend)**
+- The browser sweep logged every response with status ≥ 400. The only one was `GET /api/v1/wallets/ethereum/0x…aa` (404) on the first visit to a wallet with nothing stored.
+- The backend raises `RecordNotFoundError`, which becomes `not_found`. `WalletProfilePage` (`frontend/src/pages/Wallets.tsx:215`) shows "No data stored for this address yet". Verdict: expected, and handled.
+- Latent defect: `GET /api/v1/nonexistent` also returns `404 not_found`, and the UI checks only the status. A missing endpoint would therefore read as "nothing stored". The fix is planned for Milestone C (ADR-031).
+
+**Other measured findings**
+- **Contrast:** `--faint` #5a6b71 is 3.0–3.5:1 (fails AA for text). The control border `--line-2` is 1.5:1 (fails the 3:1 non-text minimum). All other tokens pass (5.4–14.7:1).
+- **Address validation:** BIP has no EIP-55 checksum validation (no Keccak). The spec states this instead of promising checksum checks.
+- **Persistence:** research runs, reports and claims are already persisted (migration v5). The gap is UI only. Reports lack feature digest, taxonomy version, as-of and model dataset version; adding them is planned.
+
+**Checks (docs-only change; full suites run to confirm no regression)**
+```
+$ uv run ruff check .            -> All checks passed!
+$ uv run ruff format --check .   -> 157 files already formatted
+$ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q               -> 498 passed in 53.95s
+$ npx vitest run                 -> Tests 49 passed (49)
+$ npx eslint .                   -> no output (clean)
+$ npx tsc -b --noEmit            -> exit 0
+$ gitleaks dir . / git --staged  -> no leaks found
+```
+- Browser audit: the existing built frontend (`vite preview`) and `tests.stage2.serve_offline` (offline fixtures), 12 routes at 1360 px and 390 px. Scripts and screenshots are kept in the session scratchpad, not in the repository.
+
+**Not done (by design)**
+- No frontend or backend code changes; Milestone B waits for owner review.
+
 ## 2026-11-04 — Stage 5 (Build Prompt 06): ML wallet classification and AI research
 
 **Starting point:** `4894453`, clean tree, same commit on the remote.
