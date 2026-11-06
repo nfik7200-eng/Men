@@ -285,9 +285,27 @@ def _members(s: Session, pid: int) -> list[Listing]:
     return list(s.scalars(select(Listing).where(Listing.product_id == pid, Listing.active.is_(True))))
 
 
+def _reverse_pending(s: Session, listing: Listing, product_id: int) -> list[MatchCandidate]:
+    """Pending candidates asking the SAME question from the other side: a member of `product_id` proposed for the
+    listing's own product. (l -> P) and (m -> l's product) with m in P are one human decision, not two."""
+    return list(s.scalars(select(MatchCandidate).join(Listing, Listing.id == MatchCandidate.listing_id).where(
+        MatchCandidate.status == "pending", MatchCandidate.product_id == listing.product_id,
+        Listing.product_id == product_id, MatchCandidate.listing_id != listing.id)))
+
+
+def _under_review(s: Session, l: Listing) -> bool:
+    """A listing awaits a decision if it has a pending candidate, or a pending candidate proposes a merge INTO its product."""
+    return bool(s.scalar(select(MatchCandidate.id).where(MatchCandidate.status == "pending", MatchCandidate.listing_id == l.id))
+                or s.scalar(select(MatchCandidate.id).where(MatchCandidate.status == "pending", MatchCandidate.product_id == l.product_id,
+                                                            MatchCandidate.listing_id != l.id)))
+
+
 def _queue(s: Session, listing: Listing, product_id: int, score: float, reasons: list[str]) -> None:
-    if not s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == listing.id, MatchCandidate.product_id == product_id)):
-        s.add(MatchCandidate(listing_id=listing.id, product_id=product_id, score=score, reasons=reasons))
+    if s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == listing.id, MatchCandidate.product_id == product_id)):
+        return
+    if _reverse_pending(s, listing, product_id):
+        return  # the pair is already in the queue from the other side
+    s.add(MatchCandidate(listing_id=listing.id, product_id=product_id, score=score, reasons=reasons))
 
 
 def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
@@ -356,20 +374,31 @@ def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
 
 
 def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
-    """Human review decision. Accepting merges the listing into the candidate product (overriding the automatic guards)."""
+    """Human review decision. Accepting merges the listing into the candidate product (overriding the automatic guards).
+    The decision also answers the mirrored question (a member of the target product proposed for this listing's
+    product), so that candidate is closed the same way: a rejected pair can never be accepted from the other side."""
     c = s.get(MatchCandidate, cand_id)
     if not c or c.status != "pending":
         return
     l, target = c.listing, c.product_id
+    mirrors = _reverse_pending(s, l, target)
+    partners = [m.listing for m in mirrors]
     c.status = "accepted" if accept else "rejected"
+    for m in mirrors:
+        m.status = c.status
     if accept:
         old = l.product_id
         l.product_id, l.match_status = target, "confirmed"
         s.flush()
         _drop_product_if_empty(s, old, l.id)  # also closes other pending candidates pointing at the vanished product
+        s.flush()
+        for p in partners:  # the partner's question was answered by this decision
+            if p.product_id == target and not _under_review(s, p):
+                p.match_status = "confirmed"
     else:
-        l.match_status = "self" if not s.scalar(select(MatchCandidate.id).where(
-            MatchCandidate.listing_id == l.id, MatchCandidate.status == "pending", MatchCandidate.id != c.id)) else "review"
+        s.flush()
+        for x in [l] + partners:
+            x.match_status = "review" if _under_review(s, x) else "self"
 
 
 def demote_ambiguous(s: Session, source_id: int) -> int:
@@ -457,8 +486,17 @@ def prune_candidates(s: Session) -> dict:
         else:
             c.score, c.reasons = best.score, best.reasons
     s.flush()
+    # one question per pair: of mirrored pending candidates keep the best-scored (then the oldest), drop the others
+    pending = sorted(s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all(), key=lambda c: (-c.score, c.id))
+    kept: set[tuple[int, int]] = set()  # (from product, to product) of kept candidates
+    for c in pending:
+        if (c.product_id, c.listing.product_id) in kept:  # exact mirror of a kept question
+            s.delete(c); out["candidates_dropped"] += 1
+        else:
+            kept.add((c.listing.product_id, c.product_id))
+    s.flush()
     for l in s.scalars(select(Listing).where(Listing.match_status == "review", Listing.active.is_(True))).all():
-        if not s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == l.id, MatchCandidate.status == "pending")):
+        if not _under_review(s, l):
             l.match_status, l.match_reasons = "self", []
             out["review_to_self"] += 1
     for l in s.scalars(select(Listing).where(Listing.match_status == "auto", Listing.active.is_(True))).all():
