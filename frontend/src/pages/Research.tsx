@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api/client";
 import type { Classification, LabelResult, MLModel, ResearchClaim, ResearchPreview, ResearchRun } from "../api/types";
 import { DataOriginBanner, WalletPicker } from "../components/intel";
@@ -345,6 +345,29 @@ function ModelsPanel() {
   );
 }
 
+/** Persisted research runs (all wallets), newest first. Reports survive reloads and restarts. */
+function RecentRuns() {
+  const runs = useApi(() => api.researchHistory({ limit: 20 }), []);
+  return (
+    <Panel title="Recent research runs">
+      {runs.status === "loading" ? <Loading /> : null}
+      {runs.status === "error" ? <ErrorState error={runs.error} onRetry={runs.reload} /> : null}
+      {runs.status === "ready" && runs.data.items.length === 0 ? <p className="muted">No research runs yet.</p> : null}
+      {runs.status === "ready" && runs.data.items.length > 0 ? (
+        <ul className="list">
+          {runs.data.items.map((r) => (
+            <li key={r.run_id}>
+              <Link to={`/research/runs/${encodeURIComponent(r.run_id)}`}>{r.question}</Link>
+              <Pill tone={r.state.startsWith("completed") ? "ok" : r.state === "failed" ? "bad" : "info"}>{humanize(r.state)}</Pill>
+              <span className="muted">{chainLabel(r.chain)} {shortId(r.address)} · {fmtTime(r.created_at)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </Panel>
+  );
+}
+
 export default function Research() {
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState<"wallet" | "models">("wallet");
@@ -363,7 +386,10 @@ export default function Research() {
             <WalletPicker key={`${chain}:${address}`} initialChain={chain || "ethereum"} initialAddress={address} submitLabel="Open wallet" onPick={(c, a) => setParams({ chain: c, address: a })} />
           </Panel>
           {chain && address ? <WalletWorkspace key={`${chain}:${address}`} chain={chain} address={address} /> : (
-            <EmptyState title="Choose a wallet">Enter a wallet whose activity BIP has retrieved.</EmptyState>
+            <>
+              <EmptyState title="Choose a wallet">Enter a wallet whose activity BIP has retrieved.</EmptyState>
+              <RecentRuns />
+            </>
           )}
         </>
       )}

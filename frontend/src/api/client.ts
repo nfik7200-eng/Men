@@ -47,6 +47,7 @@ import type {
   LabelInput,
   LabelPage,
   ReviewInput,
+  CaseResearchLink,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -207,6 +208,11 @@ export const api = {
   capabilityHistory: (id: string) => request<JsonObject>(`/providers/${enc(id)}/capabilities/history`),
   providerReliability: (id: string) => request<JsonObject>(`/providers/${enc(id)}/reliability`),
   providerConsistency: (id: string) => request<JsonObject>(`/providers/${enc(id)}/consistency`),
+  caseResearchRuns: (id: number) => request<{ items: CaseResearchLink[] }>(`/investigations/${id}/research-runs`),
+  linkResearchRun: (id: number, runId: string, note: string | null) =>
+    request<JsonObject>(`/investigations/${id}/research-runs`, { method: "POST", ...json({ run_id: runId, note }) }),
+  unlinkResearchRun: (id: number, runId: string) =>
+    request<undefined>(`/investigations/${id}/research-runs/${enc(runId)}`, { method: "DELETE" }),
   providerProfiles: () => request<ProviderProfiles>("/providers/profiles"),
   providerProfile: (id: string) => request<ProviderProfileDetail>(`/providers/${enc(id)}/profile`),
   probePreview: (providers: string[]) =>

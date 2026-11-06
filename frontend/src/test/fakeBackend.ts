@@ -195,7 +195,7 @@ export function intelResponse(path: string, method: string, opts: IntelOptions):
   return null;
 }
 
-export type ResearchOptions = { llm?: boolean; models?: boolean };
+export type ResearchOptions = { llm?: boolean; models?: boolean; seeded?: boolean; traced?: boolean; fixtureRuns?: boolean };
 
 const lr = (label: string, status: string, confidence: number | null, source: string, extra: Json = {}) => ({
   label, status, confidence, source, model_status: source.startsWith("wallet-classifier") ? "experimental_synthetic" : null,
@@ -244,16 +244,25 @@ export function researchResponse(path: string, method: string, opts: ResearchOpt
     return { request: {}, plan: { focus: ["classification", "evidence"], steps: [{ seq: 1, specialist: "classification_analyst", tool: "wallet_classification" },
       { seq: 2, specialist: "evidence_reviewer", tool: "transaction_evidence" }], skipped_over_budget: [], synthesis: "x" }, budget,
       llm: { provider: llm ? "ollama" : "none", model: llm ? "llama3:8b" : null, available: llm, reason: llm ? "ok" : "No AI provider is configured." } };
-  const run = (st: string) => ({ run_id: "aaaaaaaa-0000-0000-0000-000000000001", parent_run_id: null, chain: "ethereum", address: ETH_WALLET, question: "q",
+  const RUN1 = "aaaaaaaa-0000-0000-0000-000000000001";
+  const RUN2 = "aaaaaaaa-0000-0000-0000-000000000002";
+  const run = (st: string, id = RUN1) => ({ run_id: id, parent_run_id: id === RUN2 ? RUN1 : null, chain: "ethereum", address: ETH_WALLET, question: "q",
     request: { focus: ["classification"], use_llm: true }, state: st, progress: st === "collecting_evidence" ? { step: 1, of: 2, tool: "wallet_classification" } : null,
-    budget, usage: st.startsWith("completed") ? { tool_calls: 2, model_calls: llm ? 1 : 0 } : null, data_origin: "stored_observations",
+    budget, usage: st.startsWith("completed") ? { tool_calls: 2, model_calls: llm ? 1 : 0 } : null, data_origin: opts.fixtureRuns ? "offline_fixture" : "stored_observations",
     cancel_requested: state.cancelled, created_at: now, finished_at: null, error: null, limitations: [] });
   if (path === "/research/runs" && method === "POST") { state.started = true; state.polls = 0; return run("queued"); }
   if (path.endsWith("/cancel")) { state.cancelled = true; return { cancel_requested: true }; }
+  if (path.includes("/missing")) return null;
+  if (path.endsWith("/rerun") && method === "POST") return run("queued", RUN2);
   if (path.endsWith("/report"))
     return { bytes: 1200, markdown: "# report", report: {
       executive_summary: "Deterministic summary: model predictions are inferences.", summary_source: "deterministic", question: "q",
-      subject: { chain: "ethereum", address: ETH_WALLET }, classification: { account_type: null, behavioural_roles: [], model: null, status: null },
+      subject: { chain: "ethereum", address: ETH_WALLET }, classification: opts.traced
+        ? { account_type: null, behavioural_roles: [], status: "classified", classification_id: "cls-1", feature_version: "1.0.0", feature_digest: "d".repeat(64), taxonomy_version: "1.0.0", as_of: now,
+            rules: { name: "bip-rules", version: "1.0.0", feature_version: "1.0.0", status: "rule_based", data_kind: "stored_observations", dataset_version: null },
+            model: { name: "wallet-classifier-ethereum", version: "1.0.1", feature_version: "1.0.0", status: "experimental_synthetic", data_kind: "synthetic", dataset_version: "e".repeat(64) } }
+        : { account_type: null, behavioural_roles: [], model: null, status: null },
+      ...(opts.traced ? { report_version: "1.1.0", plan: { focus: ["classification"], steps: 2 }, llm: null } : {}),
       sections: {
         observations: [{ claim_key: "c-1", specialist: "flow_analyst", kind: "blockchain_observation", status: "unverified", statement: "Asset native: in 2, out 0.", confidence: null, evidence: [{ type: "transaction", ref: TX }], contradicts: [] }],
         classification: [{ claim_key: "c-2", specialist: "classification_analyst", kind: "model_prediction", status: "inferred", statement: "Behavioural role 'automated_bot' — model prediction, not a verified fact.", confidence: "low", evidence: [{ type: "classification", ref: "c1" }], contradicts: [] }],
@@ -263,13 +272,14 @@ export function researchResponse(path: string, method: string, opts: ResearchOpt
       limitations: ["No AI model available (No AI provider is configured.). The report contains deterministic analysis and wallet classification only (see its rules and model provenance)."],
       legend: {}, disclaimer: "No identity attribution and no financial advice. Predictions and interpretations are not facts.", evidence_references: ["transaction:" + TX] } };
   if (path.startsWith("/research/runs?")) {
-    const items = state.started ? [run(state.cancelled ? "cancelled" : "completed_with_limitations")] : [];
+    const items = state.started || opts.seeded ? [run(state.cancelled ? "cancelled" : "completed_with_limitations")] : [];
     return { items, total: items.length, limit: 20, offset: 0 };
   }
   if (path.startsWith("/research/runs/")) {
     state.polls += 1;
-    if (state.cancelled) return run("cancelled");
-    return run(state.polls < 2 ? "collecting_evidence" : "completed_with_limitations");
+    const id = path.includes(RUN2) ? RUN2 : RUN1;
+    if (state.cancelled) return run("cancelled", id);
+    return run(state.polls < 2 ? "collecting_evidence" : "completed_with_limitations", id);
   }
   return null;
 }

@@ -10,6 +10,7 @@ import Opportunities from "./pages/Opportunities";
 import Overview from "./pages/Overview";
 import Providers from "./pages/Providers";
 import Research from "./pages/Research";
+import RunPage from "./pages/research/RunPage";
 import Settings from "./pages/Settings";
 import Wallets from "./pages/Wallets";
 import WalletWorkspacePage from "./pages/wallet/Workspace";
@@ -69,6 +70,7 @@ function Shell() {
           <Route path="/graph" element={<GraphPage />} />
           <Route path="/opportunities" element={<Opportunities />} />
           <Route path="/research" element={<Research />} />
+          <Route path="/research/runs/:runId" element={<RunPage />} />
           <Route path="/investigations" element={<Investigations />} />
           <Route path="/investigations/:id" element={<InvestigationDetail />} />
           <Route path="/providers" element={<Providers />} />

@@ -610,7 +610,7 @@ export type LabelResult = {
   caveat: string | null;
 };
 
-export type ModelRef = { name: string; version: string; feature_version: string; status: string; data_kind: string };
+export type ModelRef = { name: string; version: string; feature_version: string; status: string; data_kind: string; dataset_version?: string | null };
 
 export type Classification = {
   classification_id: string; wallet_address: string; chain: string; classification_timestamp: string; as_of: string;
@@ -665,7 +665,14 @@ export type ResearchReport = {
   report: {
     executive_summary: string; summary_source: string; question: string;
     subject: { chain: string; address: string };
-    classification: { account_type: LabelResult | null; behavioural_roles: LabelResult[]; model: ModelRef | null; status: string | null };
+    classification: {
+      account_type: LabelResult | null; behavioural_roles: LabelResult[]; model: ModelRef | null; status: string | null;
+      // report_version >= 1.1.0 only; absent on older reports (shown as "not recorded")
+      rules?: ModelRef | null; classification_id?: string | null; feature_version?: string | null;
+      feature_digest?: string | null; taxonomy_version?: string | null; as_of?: string | null;
+    };
+    report_version?: string; plan?: { focus: string[]; steps: number } | null;
+    llm?: { provider?: string; model?: string | null } | null;
     sections: Record<string, ResearchClaim[]>; contradictions: ResearchClaim[];
     claim_status_counts: Record<string, number>; next_steps: string[]; limitations: string[];
     legend: Record<string, string>; disclaimer: string; evidence_references: string[]; truncated?: boolean;
@@ -718,3 +725,8 @@ export type LabelPage = {
 };
 export type ReviewInput = { decision: "accepted" | "rejected" | "needs_evidence"; reviewer: string; note: string | null };
 export type JsonObject = Record<string, unknown>;
+
+export type CaseResearchLink = {
+  run_id: string; state: string; question: string; chain: string; address: string;
+  created_at: string; note: string | null; attached_at: string;
+};
