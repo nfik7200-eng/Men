@@ -25,3 +25,6 @@ data/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+
+# Superpowers plan workspaces (local scratch)
+.superpowers/
