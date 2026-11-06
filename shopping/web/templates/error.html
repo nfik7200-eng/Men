@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Error {{ code }}{% endblock %}
+{% block body %}
+<h1>{{ 'Page not found' if code == 404 else ('Too many requests' if code == 429 else 'Something went wrong') }}</h1>
+<div class="card"><p>{{ detail }}</p><p><a class="btn" href="/">Back to home</a> <a class="btn secondary" href="/search">Browse products</a></p></div>
+{% endblock %}

@@ -42,16 +42,29 @@ def parse_specs(title: str, description: str, category: str | None = None) -> di
         if re.search(pat, low):
             specs["cpu_family"] = fam
             break
-    # capacities in order of appearance. Convention in retail copy: RAM first, then storage.
-    caps = [int(n) * (1024 if u.upper() == "TB" else 1)
-            for n, u in re.findall(r"\b(\d{1,4})\s*(GB|TB)\b", text, re.I)]
-    if len(caps) >= 2 and caps[0] <= 64:
-        specs["ram_gb"] = caps[0]
-        specs["storage_gb"] = max(caps[1:])
-    elif len(caps) == 1:
-        # ambiguous single figure: small => RAM, large => storage
-        small_is_ram = caps[0] <= 32 and category not in ("tablet", "phone")
-        specs["ram_gb" if small_is_ram else "storage_gb"] = caps[0]
+    # capacities: labels beat position ("128GB SSD 4GB RAM"); unlabeled figures fall back to retail order (RAM, storage)
+    ram = storage = None
+    unlabeled: list[int] = []
+    for m in re.finditer(r"\b(\d{1,4})\s*(GB|TB)\b(?:\s*(?:of\s+)?(SSD|HDD|eMMC|NVMe|storage|flash|ROM|RAM|memory|DDR\w*|LPDDR\w*))?", text, re.I):
+        val = int(m.group(1)) * (1024 if m.group(2).upper() == "TB" else 1)
+        tag = (m.group(3) or "").lower()
+        if tag in ("ram", "memory") or tag.startswith(("ddr", "lpddr")):
+            ram = ram if ram is not None else val
+        elif tag:
+            storage = max(storage or 0, val)
+        else:
+            unlabeled.append(val)
+    for val in unlabeled:
+        if ram is None and storage is None and len(unlabeled) >= 2 and val <= 64 and val == unlabeled[0]:
+            ram = val
+        elif storage is None and (ram is not None or len(unlabeled) >= 2 or category in ("tablet", "phone") or val > 32):
+            storage = max(storage or 0, val) if val != ram else storage
+        elif ram is None and val <= 32 and category not in ("tablet", "phone"):
+            ram = val
+    if ram is not None:
+        specs["ram_gb"] = ram
+    if storage:
+        specs["storage_gb"] = storage
     if re.search(r"\bssd\b|nvme", low):
         specs["storage_type"] = "ssd"
     elif re.search(r"\bhdd\b", low):

@@ -28,7 +28,7 @@ def client(seeded):
 
 # ---------------- pages ----------------
 @pytest.mark.parametrize("path", ["/", "/search", "/search?q=lenovo", "/search?category=book&sort=price_desc",
-                                  "/deals", "/research", "/watchlist", "/admin", "/health"])
+                                  "/deals", "/research", "/watchlist", "/admin/login", "/health"])
 def test_pages_render(client, path):
     r = client.get(path)
     assert r.status_code == 200, path
@@ -85,8 +85,10 @@ def test_watch_target_and_plan_limit(seeded):
         price = s.get(Listing, ids[0]).price_minor
     r = c.post(f"/watch/{ids[0]}", data={"target": f"{price / 100 + 1:.2f}"}, follow_redirects=False)
     assert r.status_code == 303
+    owner = c.cookies.get("wt_owner")
+    assert owner and len(owner) == 32
     with seeded.session() as s:
-        st = monitor.evaluate(s)[0]
+        st = monitor.evaluate(s, owner)[0]
         assert st.triggered and "Target reached" in st.reasons[0]
     for i in ids[1:6]:
         c.post(f"/watch/{i}", data={"target": ""})
@@ -107,23 +109,17 @@ def test_restock_alert(seeded):
         assert any("Back in stock" in r for r in monitor.evaluate(s)[0].reasons)
 
 
-# ---------------- admin protection ----------------
-def test_admin_requires_loopback_or_token(seeded, monkeypatch):
-    c = TestClient(create_app(seeded))
-    assert c.get("/admin").status_code == 200  # testclient == loopback
-    monkeypatch.setattr(config, "ADMIN_TOKEN", "s3cret")
-    assert c.get("/admin").status_code == 403
-    assert c.get("/admin?token=s3cret").status_code == 200
-    assert c.post("/admin/collect/books_toscrape", data={}, follow_redirects=False).status_code == 403
-    assert c.post("/admin/match/1/accept", data={}).status_code == 403
+# ---------------- admin protection: see test_audit_web.py ----------------
 
 
-def test_review_queue_accept_merges(seeded):
+def test_review_queue_accept_merges(seeded, monkeypatch):
     with seeded.session() as s:
         a, b = s.query(Listing).filter(Listing.price_minor.is_not(None)).limit(2).all()
         s.add(MatchCandidate(listing_id=b.id, product_id=a.product_id, score=0.7, reasons=["test"]))
         aid, bid = a.product_id, b.id
+    monkeypatch.setattr(config, "ADMIN_TOKEN", "t" * 32)
     c = TestClient(create_app(seeded))
+    assert c.post("/admin/login", data={"token": "t" * 32}, follow_redirects=False).status_code == 303
     assert "possibly the same" in c.get("/admin").text
     c.post("/admin/match/1/accept", data={})
     with seeded.session() as s:
@@ -161,9 +157,9 @@ def test_import_cost_marks_estimates_and_missing_shipping():
 # ---------------- assistant ----------------
 def test_parse_query():
     i = assistant.parse_query("Find me the best programming laptop under $700, estimate importing to Uganda. Compare build quality")
-    assert i["budget_minor"] == 70000 and i["currency"] == "USD" and i["category"] == "laptop"
+    assert i["budget_max_minor"] == 70000 and i["currency"] == "USD" and i["category"] == "laptop"
     assert i["programming"] and i["want_import"] and i["destination"] == "UG" and "build quality" in i["gaps"]
-    assert "assumed USD" in assistant.parse_query("laptop under 500")["assumptions"][0]
+    assert assistant.parse_query("laptop under 500")["currency"] is None  # never silently assumed; resolved against the catalogue
 
 
 def test_assistant_uses_real_rows_and_respects_budget(seeded):
@@ -205,7 +201,7 @@ def test_llm_is_optional_and_failure_safe(monkeypatch):
 
     c = httpx.Client(transport=httpx.MockTransport(h))
     assert llm.summarise({"picks": []}, "q", c) == "Short summary."
-    assert "ONLY the JSON facts" in seen["body"]["system"] and seen["body"]["stream"] is False
+    assert "UNTRUSTED" in seen["body"]["system"] and seen["body"]["stream"] is False
     bad = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     assert llm.summarise({}, "q", bad) is None  # failure => deterministic answer only
 

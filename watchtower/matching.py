@@ -53,22 +53,83 @@ def _norm_id(v) -> str:
     return re.sub(r"[^0-9a-z]", "", str(v).lower())
 
 
-def match_score(a: Listing, b: Listing) -> MatchResult:
-    # 1. strong identifiers
-    for k in _ID_KEYS:
-        if a.identifiers.get(k) and b.identifiers.get(k) and _norm_id(a.identifiers[k]) == _norm_id(b.identifiers[k]):
-            return MatchResult(1.0, "auto", [f"shared {k}: {a.identifiers[k]}"])
-    brand_a, brand_b = (a.brand or "").lower(), (b.brand or "").lower()
-    if a.identifiers.get("mpn") and b.identifiers.get("mpn") and \
-            _norm_id(a.identifiers["mpn"]) == _norm_id(b.identifiers["mpn"]) and (not brand_a or not brand_b or brand_a == brand_b):
-        return MatchResult(0.98, "auto", [f"shared MPN {a.identifiers['mpn']} (brand compatible)"])
+# --- hard-conflict features: any difference means "different product/offer", never an auto-merge ----------------
+VARIANT_WORDS = {"ultra", "pro", "plus", "max", "mini", "lite", "fe", "se", "air", "xl", "edge", "fold", "flip",
+                 "neo", "turbo", "note", "prime", "classic", "premium", "slim"}
+COLOURS = {"black", "white", "silver", "gray", "grey", "blue", "red", "green", "gold", "rose", "pink", "purple",
+           "yellow", "orange", "bronze", "navy", "graphite", "midnight", "starlight", "titanium", "lavender", "beige"}
+_USED = re.compile(r"refurb|renewed|reconditioned|pre-?owned|\bused\b|open[- ]box|for parts|like new|\bb-?grade\b|\bgood condition\b")
+_BUNDLE = re.compile(r"bundle|combo|\bkit\b|\bpack of \d|\b\d+[- ]?pack\b|\b(?:set|lot) of\b|"
+                     r"\bwith (?:free )?\w+ (?:bag|mouse|case|charger|cover|keyboard|headphones?|earbuds)|"
+                     r"\+\s*(?:\w+\s+){0,2}(?:bag|mouse|case|charger|cover|keyboard|stand|dock|headphones?|earbuds|sleeve)")
+_GEN = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)[ -]?gen\b|\bgen(?:eration)?[ -]?(\d{1,2})\b")
 
-    reasons: list[str] = []
+
+def _words(title: str) -> set[str]:
+    return set(re.findall(r"[a-z]+", title.lower()))
+
+
+def variant_set(title: str) -> set[str]:
+    v = _words(title) & VARIANT_WORDS
+    if re.search(r"[a-z0-9]\+(?![a-z0-9])", title.lower()):
+        v.add("plus")
+    return v
+
+
+def condition_of(l: Listing) -> str:
+    c = (getattr(l, "condition", None) or "").lower()
+    if c:
+        return "new" if c == "new" else "used"
+    return "used" if _USED.search(l.title.lower()) else "new"
+
+
+def colour_set(title: str) -> set[str]:
+    return _words(title) & COLOURS
+
+
+def generation_set(title: str) -> set[str]:
+    return {a or b for a, b in _GEN.findall(title.lower())}
+
+
+def full_codes(title: str) -> set[str]:
+    """Whole hyphenated model codes ('a315-51-31gk'), used to detect suffix/region variants."""
+    return {t for t in _tokens(title) if "-" in t and re.search(r"[a-z]", t) and re.search(r"\d", t) and len(t) >= 6}
+
+
+def _strong_id(a: Listing, b: Listing) -> tuple[str, str] | None:
+    for k in _ID_KEYS:
+        va, vb = a.identifiers.get(k), b.identifiers.get(k)
+        if va and vb and len(_norm_id(va)) >= 8 and _norm_id(va) == _norm_id(vb):
+            return k, str(va)
+    return None
+
+
+def match_score(a: Listing, b: Listing) -> MatchResult:
+    # 1. strong, validated identifiers (GTIN-length); a shared GTIN names the same product
+    sid = _strong_id(a, b)
+    if sid:
+        return MatchResult(1.0, "auto", [f"shared {sid[0]}: {sid[1]}"])
+    brand_a, brand_b = (a.brand or "").lower(), (b.brand or "").lower()
+    # 2. hard conflicts first (category/brand) — they also veto MPN matches
     if a.category and b.category and a.category != b.category:
         return MatchResult(0.0, "none", [f"category differs ({a.category} vs {b.category})"])
     if brand_a and brand_b and brand_a != brand_b:
         return MatchResult(0.0, "none", [f"brand differs ({a.brand} vs {b.brand})"])
+    ma_id, mb_id = a.identifiers.get("mpn"), b.identifiers.get("mpn")
+    if ma_id and mb_id and len(_norm_id(ma_id)) >= 5 and _norm_id(ma_id) == _norm_id(mb_id) and brand_a and brand_a == brand_b:
+        return MatchResult(0.98, "auto", [f"shared MPN {ma_id} (same brand)"])
 
+    for label, fa, fb in (("variant", variant_set(a.title), variant_set(b.title)),
+                          ("condition", {condition_of(a)}, {condition_of(b)}),
+                          ("bundle", {bool(_BUNDLE.search(a.title.lower()))}, {bool(_BUNDLE.search(b.title.lower()))}),
+                          ("generation", generation_set(a.title), generation_set(b.title))):
+        if fa != fb:
+            return MatchResult(0.15, "none", [f"{label} differs ({sorted(fa, key=str)} vs {sorted(fb, key=str)})"])
+    ca, cb = colour_set(a.title), colour_set(b.title)
+    if ca and cb and ca != cb:
+        return MatchResult(0.15, "none", [f"colour differs ({sorted(ca)} vs {sorted(cb)})"])
+
+    reasons: list[str] = []
     ma, mb = model_tokens(a.title), model_tokens(b.title)
     jacc = (len(ma & mb) / len(ma | mb)) if ma and mb else None
     agree, conflicts = 0, []
@@ -93,18 +154,28 @@ def match_score(a: Listing, b: Listing) -> MatchResult:
     reasons += [f"title similarity {ratio:.2f}", f"{agree} agreeing spec(s), 0 conflicts"]
     if brand_a and brand_a == brand_b:
         reasons.append(f"same brand {a.brand}")
-    if score >= AUTO_THRESHOLD and (jacc or 0) >= 0.5 and agree >= 2:
+    cap_review = False
+    fa, fb = full_codes(a.title), full_codes(b.title)
+    if fa and fb and not (fa & fb) and any(x.startswith(y + "-") or y.startswith(x + "-") for x in fa for y in fb):
+        cap_review = True  # same code with an extra suffix (region/SKU variant): a human decides
+        reasons.append("model code differs only by a suffix (region/SKU variant?)")
+    if score >= AUTO_THRESHOLD and (jacc or 0) >= 0.5 and agree >= 2 and not cap_review:
         return MatchResult(round(score, 3), "auto", reasons)
     if score >= REVIEW_THRESHOLD and ((jacc or 0) > 0 or ratio >= 0.8):
         return MatchResult(round(score, 3), "review", reasons)
+    if cap_review and jacc:
+        return MatchResult(round(max(score, REVIEW_THRESHOLD), 3), "review", reasons)
     return MatchResult(round(score, 3), "none", reasons)
 
 
 def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
     """Compare a new listing to listings of OTHER sources. Auto-attach, queue for review, or leave alone."""
-    pool = s.scalars(select(Listing).where(
+    q = select(Listing).where(
         Listing.source_id != listing.source_id, Listing.active.is_(True),
-        Listing.product_id.is_not(None), Listing.product_id != listing.product_id)).all()
+        Listing.product_id.is_not(None), Listing.product_id != listing.product_id)
+    if listing.category:
+        q = q.where((Listing.category == listing.category) | Listing.category.is_(None))
+    pool = s.scalars(q).all()
     best: tuple[MatchResult, Listing] | None = None
     for other in pool:
         r = match_score(listing, other)

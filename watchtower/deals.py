@@ -1,21 +1,26 @@
 """Explainable deal scoring (0-100). Every point is traceable to a component with an evidence level.
 
-Components
-  history_drop (<=40, verified)  latest price vs median of earlier observed prices; needs >=MIN_HISTORY_OBS
-                                 observations spanning >=MIN_HISTORY_SPAN_DAYS days, else 0 + warning
-  peer_value   (<=40, estimated) price vs median of comparable listings (same category/currency/RAM)
-  markdown     (<=20)            claimed original price; credited fully ONLY if history shows that price
-                                 really existed; capped at 5 and flagged "unverified" without history
-A "Verified deal" label requires history evidence. Without it the best label is an *estimate*.
+What counts as evidence (audit-hardened, see docs/AUDIT_REPORT.md):
+  * Observations less than MIN_OBS_GAP_HOURS apart are ONE observation (bursts / duplicates are not history).
+  * history_drop (<=40, verified): needs >=MIN_HISTORY_OBS collections spanning >=MIN_HISTORY_SPAN_DAYS days, AND
+      - the current price must be LOWER than every price seen before the current price began (so a spike that
+        merely returns to normal is not a "drop"), AND
+      - the reference ("usual") price is the price that held longest before the change, and it must have held
+        for >=MIN_REFERENCE_DAYS days.
+  * markdown (<=20): a claimed original price is credited only if it matches that observed reference price
+      (within 5%) which held >=7 days; otherwise it is flagged suspicious / unverified and earns nothing.
+  * peer_value (<=40, estimated): vs median of comparable listings; never counts as verification.
+  * Stale listings are labelled "Stale data" and excluded from rankings.
 """
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from statistics import median
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from . import config
-from .models import Listing, Observation
+from .models import Listing, Observation, utcnow
 
 
 @dataclass
@@ -59,37 +64,95 @@ class PeerContext:
         return prices, f"{len(prices)} {l.category or 'similar'} listings"
 
 
+class HistoryContext:
+    """Bulk-loaded observation series (one query) for many listings."""
+
+    def __init__(self, s: Session, listing_ids_stmt):
+        self.by_listing: dict[int, list[Observation]] = {}
+        q = select(Observation).where(Observation.listing_id.in_(listing_ids_stmt), Observation.price_minor.is_not(None)) \
+            .order_by(Observation.listing_id, Observation.observed_at)
+        for o in s.scalars(q):
+            self.by_listing.setdefault(o.listing_id, []).append(o)
+
+
+def collapse(hist: list[Observation], gap_hours: float | None = None) -> list[Observation]:
+    """Observations closer than the gap are one collection: keep the latest of each burst."""
+    gap = timedelta(hours=config.MIN_OBS_GAP_HOURS if gap_hours is None else gap_hours)
+    out: list[Observation] = []
+    for o in hist:
+        if out and o.observed_at - out[-1].observed_at < gap:
+            out[-1] = o
+        else:
+            out.append(o)
+    return out
+
+
 def priced_history(s: Session, listing: Listing) -> list[Observation]:
-    return [o for o in s.scalars(select(Observation).where(Observation.listing_id == listing.id)
-                                 .order_by(Observation.observed_at)).all()
-            if o.price_minor is not None and o.currency == listing.currency]
+    return [o for o in s.scalars(select(Observation).where(Observation.listing_id == listing.id, Observation.price_minor.is_not(None))
+                                 .order_by(Observation.observed_at)).all() if o.currency == listing.currency]
 
 
-def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None) -> DealScore:
+def _reference(hist: list[Observation]):
+    """Split history at the start of the CURRENT price. Returns (prior_obs, ref_price, ref_days, prior_min)."""
+    i = len(hist) - 1
+    while i > 0 and hist[i - 1].price_minor == hist[-1].price_minor:
+        i -= 1
+    prior = hist[:i]
+    if not prior:
+        span = (hist[-1].observed_at - hist[0].observed_at).total_seconds() / 86400
+        return [], hist[-1].price_minor, span, None
+    dur: dict[int, float] = {}
+    for k, o in enumerate(prior):
+        end = prior[k + 1].observed_at if k + 1 < len(prior) else hist[i].observed_at
+        dur[o.price_minor] = dur.get(o.price_minor, 0.0) + (end - o.observed_at).total_seconds() / 86400
+    ref_price = max(dur, key=dur.get)
+    return prior, ref_price, dur[ref_price], min(o.price_minor for o in prior)
+
+
+def is_stale(listing: Listing, now: datetime) -> bool:
+    if listing.last_observed_at is None:
+        return True
+    hours = listing.source.stale_after_hours if listing.source is not None else 72
+    return now - listing.last_observed_at > timedelta(hours=hours)
+
+
+def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, now: datetime | None = None,
+                  hist_ctx: HistoryContext | None = None) -> DealScore:
+    now = now or utcnow()
     ds = DealScore(listing.id, None, "No price", "none")
     if listing.price_minor is None:
         ds.warnings.append("Price unavailable at last collection — not treated as zero.")
         return ds
     ctx = ctx or PeerContext(s)
-    hist = priced_history(s, listing)
+    raw_hist = hist_ctx.by_listing.get(listing.id, []) if hist_ctx else priced_history(s, listing)
+    hist = collapse([o for o in raw_hist if o.currency == listing.currency])
     ds.n_obs = len(hist)
     price = listing.price_minor
     comps = ds.components
 
-    # 1. own history
     span_days = (hist[-1].observed_at - hist[0].observed_at).total_seconds() / 86400 if len(hist) > 1 else 0
     has_history = len(hist) >= config.MIN_HISTORY_OBS and span_days >= config.MIN_HISTORY_SPAN_DAYS
-    if has_history:
-        base = median(o.price_minor for o in hist[:-1])
-        pts = max(0.0, min(1.0, (1 - price / base) / 0.25)) * 40
-        comps.append(Component("history_drop", round(pts, 1), 40, "verified",
-                               f"latest {price/100:.2f} vs median {base/100:.2f} of {len(hist)-1} earlier observations "
-                               f"over {span_days:.0f} days"))
-    else:
+    prior, ref_price, ref_days, prior_min = _reference(hist) if has_history else ([], None, 0, None)
+
+    # 1. own history
+    if not has_history:
         comps.append(Component("history_drop", 0, 40, "none",
-                               f"only {len(hist)} observation(s) over {span_days:.0f} day(s); need "
+                               f"only {len(hist)} distinct collection(s) over {span_days:.0f} day(s); need "
                                f"{config.MIN_HISTORY_OBS}+ over {config.MIN_HISTORY_SPAN_DAYS}+ days"))
         ds.warnings.append("Not enough price history to confirm any discount is genuine.")
+    elif not prior:
+        comps.append(Component("history_drop", 0, 40, "none", f"price unchanged over {span_days:.0f} days — no drop"))
+    elif not price < prior_min:
+        comps.append(Component("history_drop", 0, 40, "none",
+                               f"not lower than the lowest earlier price ({prior_min/100:.2f}); returning to a usual price is not a drop"))
+    elif ref_days < config.MIN_REFERENCE_DAYS:
+        comps.append(Component("history_drop", 0, 40, "none",
+                               f"earlier reference price only held {ref_days:.1f} days (need {config.MIN_REFERENCE_DAYS}+)"))
+    else:
+        pts = max(0.0, min(1.0, (1 - price / ref_price) / 0.25)) * 40
+        comps.append(Component("history_drop", round(pts, 1), 40, "verified",
+                               f"now {price/100:.2f}, below every earlier price (lowest {prior_min/100:.2f}); usual price "
+                               f"{ref_price/100:.2f} held {ref_days:.0f} days"))
 
     # 2. peers
     peer_prices, basis = ctx.peers(listing)
@@ -106,14 +169,13 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None) 
     orig = listing.original_price_minor
     if orig and orig > price:
         claimed = (orig - price) / orig
-        seen_high = max((o.price_minor for o in hist), default=0)
-        if has_history and seen_high >= 0.95 * orig:
+        if has_history and ref_price and abs(orig - ref_price) <= 0.05 * orig and ref_days >= 7:
             comps.append(Component("markdown", round(min(1, claimed / 0.4) * 20, 1), 20, "verified",
-                                   f"claimed {claimed*100:.0f}% off; the original price was observed in our history"))
+                                   f"claimed {claimed*100:.0f}% off; the usual price {ref_price/100:.2f} was observed for {ref_days:.0f} days"))
         elif has_history:
             comps.append(Component("markdown", 0, 20, "none",
-                                   f"claims {claimed*100:.0f}% off but highest price we ever observed is {seen_high/100:.2f}"))
-            ds.warnings.append("Suspicious original price: never observed in our history.")
+                                   f"claims {claimed*100:.0f}% off ({orig/100:.2f}) but the price that actually held was {ref_price/100:.2f}"))
+            ds.warnings.append("Suspicious original price: not the price this item usually sold at in our history.")
         else:
             comps.append(Component("markdown", round(min(5, claimed * 20), 1), 20, "unverified",
                                    f"claims {claimed*100:.0f}% off; cannot verify without history (credit capped)"))
@@ -121,10 +183,12 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None) 
         comps.append(Component("markdown", 0, 20, "none", "no original/list price stated"))
 
     ds.score = round(sum(c.points for c in comps), 1)
-    hist_pts = comps[0].points
-    peer_pts = comps[1].points
+    hist_pts, peer_pts = comps[0].points, comps[1].points
     ds.confidence = "high" if has_history else ("medium" if len(peer_prices) >= config.MIN_PEERS else "low")
-    if listing.availability == "out_of_stock":
+    if is_stale(listing, now):
+        ds.label, ds.confidence = "Stale data", "low"
+        ds.warnings.append(f"Last observed {listing.last_observed_at:%Y-%m-%d}: older than the source's freshness window.")
+    elif listing.availability == "out_of_stock":
         ds.label = "Out of stock"
     elif has_history and hist_pts >= 10 and ds.score >= 40:
         ds.label = "Verified price drop"
@@ -135,13 +199,18 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None) 
     return ds
 
 
-def top_deals(s: Session, limit: int = 12, category: str | None = None) -> list[tuple[Listing, DealScore]]:
-    q = select(Listing).where(Listing.active.is_(True), Listing.price_minor.is_not(None),
-                              Listing.availability != "out_of_stock")
+def top_deals(s: Session, limit: int = 12, category: str | None = None, now: datetime | None = None
+              ) -> list[tuple[Listing, DealScore]]:
+    now = now or utcnow()
+    q = select(Listing).options(joinedload(Listing.source)).where(
+        Listing.active.is_(True), Listing.price_minor.is_not(None), Listing.availability != "out_of_stock")
     if category:
         q = q.where(Listing.category == category)
+    cands = [l for l in s.scalars(q).unique() if not is_stale(l, now)]
     ctx = PeerContext(s)
-    scored = [(l, score_listing(s, l, ctx)) for l in s.scalars(q).all()]
+    hist_ctx = HistoryContext(s, select(Listing.id).where(Listing.id.in_([l.id for l in cands]))) if len(cands) <= 800 \
+        else HistoryContext(s, select(Listing.id).where(Listing.active.is_(True)))
+    scored = [(l, score_listing(s, l, ctx, now, hist_ctx)) for l in cands]
     scored = [x for x in scored if x[1].score is not None and x[1].score > 0]
     scored.sort(key=lambda x: x[1].score, reverse=True)
     return scored[:limit]

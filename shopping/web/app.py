@@ -1,10 +1,14 @@
 """FastAPI app: server-rendered pages + JSON API under /api/v1. Modular monolith: no business logic here."""
+import math
 import threading
-from datetime import datetime
 from pathlib import Path
+from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -13,7 +17,8 @@ from shopping import affiliate, assistant, importcost, plans
 from shopping.search import SORTS, facets, same_product, search_listings
 from shopping.web.charts import price_chart
 from watchtower import config, deals, monitor
-from watchtower.collector import ensure_sources, run_source
+from shopping.web import security
+from watchtower.collector import SourceBusy, SourceDisabled, ensure_sources, run_source, set_enabled
 from watchtower.db import Database
 from watchtower.matching import resolve_candidate
 from watchtower.models import (AffiliateClick, CollectionRun, Event, Listing, MatchCandidate, Observation, Source,
@@ -23,7 +28,8 @@ from watchtower.quality import freshness, price_status
 from watchtower.sources import ADAPTERS
 
 HERE = Path(__file__).parent
-OWNER = "local"  # single-tenant until accounts exist (P1)
+Money = Annotated[float | None, Query(ge=0, le=1e9, allow_inf_nan=False)]
+Text = Annotated[str, Query(max_length=200)]
 _running: set[str] = set()
 _lock = threading.Lock()
 
@@ -34,6 +40,7 @@ def create_app(db: Database | None = None) -> FastAPI:
     ensure_sources(db)
     app = FastAPI(title="Watchtower Shopping Intelligence", version="0.1.0")
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    security.install(app)
     tpl = Jinja2Templates(directory=HERE / "templates")
     tpl.env.filters["money"] = fmt_money
     tpl.env.filters["dt"] = lambda d: d.strftime("%Y-%m-%d %H:%M UTC") if d else "never"
@@ -43,16 +50,13 @@ def create_app(db: Database | None = None) -> FastAPI:
         with db.session() as s:
             yield s
 
-    def admin(request: Request):
-        tok = request.headers.get("x-admin-token") or request.query_params.get("token") or request.cookies.get("wt_admin")
-        if config.ADMIN_TOKEN:
-            if tok != config.ADMIN_TOKEN:
-                raise HTTPException(403, "admin token required")
-        elif (request.client.host if request.client else "") not in ("127.0.0.1", "::1", "testclient"):
-            raise HTTPException(403, "admin is loopback-only unless WATCHTOWER_ADMIN_TOKEN is set")
+    admin = security.require_admin
+
+    def owner_of(request: Request) -> str:
+        return request.state.owner
 
     def render(request, name, **ctx):
-        return tpl.TemplateResponse(request, name, {"now": utcnow(), "plan": plans.plan_for(OWNER), **ctx})
+        return tpl.TemplateResponse(request, name, {"now": utcnow(), "plan": plans.plan_for(owner_of(request)), **ctx})
 
     def banner(s):
         kinds = {k for (k,) in s.execute(select(Source.kind).where(Source.enabled.is_(True))).all()}
@@ -62,6 +66,33 @@ def create_app(db: Database | None = None) -> FastAPI:
         ctx = deals.PeerContext(s)
         return [{"l": l, "deal": deals.score_listing(s, l, ctx), "pstatus": price_status(l, l.source),
                  "fresh": freshness(l, l.source)} for l in rows]
+
+    def wants_json(request: Request) -> bool:
+        return request.url.path.startswith("/api/")
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException):
+        if exc.status_code == 303 and exc.headers and "Location" in exc.headers:
+            return RedirectResponse(exc.headers["Location"], status_code=303)
+        if wants_json(request):
+            return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+        return tpl.TemplateResponse(request, "error.html", {"code": exc.status_code, "detail": exc.detail, "banner": None,
+                                                           "plan": plans.PLANS["free"]}, status_code=exc.status_code)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        msg = "; ".join(f"{'.'.join(str(x) for x in e['loc'][1:])}: {e['msg']}" for e in exc.errors())[:300]
+        if wants_json(request):
+            return JSONResponse({"error": "invalid parameters", "detail": msg}, status_code=422)
+        return tpl.TemplateResponse(request, "error.html", {"code": 422, "detail": f"Some inputs were not valid ({msg}).",
+                                                           "banner": None, "plan": plans.PLANS["free"]}, status_code=422)
+
+    @app.exception_handler(Exception)
+    async def server_error(request: Request, exc: Exception):
+        if wants_json(request):
+            return JSONResponse({"error": "internal error"}, status_code=500)
+        return tpl.TemplateResponse(request, "error.html", {"code": 500, "detail": "Something went wrong on our side.",
+                                                           "banner": None, "plan": plans.PLANS["free"]}, status_code=500)
 
     # ------------------------------------------------------------------ pages
     @app.get("/health", response_class=PlainTextResponse)
@@ -84,9 +115,9 @@ def create_app(db: Database | None = None) -> FastAPI:
                                                                    > x.stale_after_hours if x.last_success_at else True for x in sources})
 
     @app.get("/search")
-    def search(request: Request, q: str = "", category: str = "", source: str = "", currency: str = "",
-               min_price: float | None = None, max_price: float | None = None, in_stock: bool = False,
-               sort: str = "price_asc", page: int = Query(1, ge=1), s=Depends(get_s)):
+    def search(request: Request, q: Text = "", category: Text = "", source: Text = "", currency: Text = "",
+               min_price: Money = None, max_price: Money = None, in_stock: bool = False,
+               sort: Text = "price_asc", page: int = Query(1, ge=1, le=1000), s=Depends(get_s)):
         rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
                                       in_stock, sort, page)
         return render(request, "search.html", items=with_status(s, rows), total=total, page=page, per_page=24,
@@ -95,7 +126,8 @@ def create_app(db: Database | None = None) -> FastAPI:
                       facets=facets(s), banner=banner(s))
 
     @app.get("/listing/{listing_id}")
-    def listing_page(request: Request, listing_id: int, dest: str = "", ship: float | None = None, s=Depends(get_s)):
+    def listing_page(request: Request, listing_id: int, dest: Annotated[str, Query(max_length=2)] = "", ship: Money = None,
+                     s=Depends(get_s)):
         l = s.get(Listing, listing_id)
         if not l:
             raise HTTPException(404, "listing not found")
@@ -110,15 +142,15 @@ def create_app(db: Database | None = None) -> FastAPI:
         return render(request, "listing.html", l=l, obs=obs, chart=price_chart(pts, l.currency), npts=len(pts), events=events,
                       deal=ds, others=same_product(s, l), est=est, dest=dest, ship=ship, link=link,
                       pstatus=price_status(l, l.source), fresh=freshness(l, l.source), banner=banner(s),
-                      watching=bool(s.scalar(select(WatchItem.id).where(WatchItem.owner == OWNER, WatchItem.listing_id == l.id))))
+                      watching=bool(s.scalar(select(WatchItem.id).where(WatchItem.owner == owner_of(request), WatchItem.listing_id == l.id))))
 
     @app.get("/deals")
-    def deals_page(request: Request, category: str = "", s=Depends(get_s)):
+    def deals_page(request: Request, category: Text = "", s=Depends(get_s)):
         return render(request, "deals.html", top=deals.top_deals(s, 30, category or None), category=category,
                       facets=facets(s), banner=banner(s))
 
     @app.get("/research")
-    def research(request: Request, q: str = "", ship: float | None = None, s=Depends(get_s)):
+    def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):
         res = assistant.answer(s, q, shipping_minor=round(ship * 100) if ship is not None else None) if q.strip() else None
         return render(request, "research.html", q=q, res=res, ship=ship, banner=banner(s))
 
@@ -127,67 +159,109 @@ def create_app(db: Database | None = None) -> FastAPI:
         l = s.get(Listing, listing_id)
         if not l:
             raise HTTPException(404)
-        return RedirectResponse(affiliate.record_click(s, l).url, status_code=302)
+        target = affiliate.record_click(s, l).url
+        if urlparse(target).scheme not in ("http", "https"):
+            raise HTTPException(404, "no safe outbound link for this listing")
+        return RedirectResponse(target, status_code=302)
 
     @app.get("/watchlist")
-    def watchlist(request: Request, msg: str = "", s=Depends(get_s)):
-        return render(request, "watchlist.html", items=monitor.evaluate(s, OWNER), msg=msg, banner=banner(s))
+    def watchlist(request: Request, msg: Annotated[str, Query(max_length=200)] = "", s=Depends(get_s)):
+        return render(request, "watchlist.html", items=monitor.evaluate(s, owner_of(request)), msg=msg, banner=banner(s))
+
+    def parse_target(text: str) -> int | None:
+        if not text.strip():
+            return None
+        v = float(text)
+        if not math.isfinite(v) or not (0 < v <= 1e9):
+            raise ValueError("target out of range")
+        return round(v * 100)
 
     @app.post("/watch/{listing_id}")
-    def watch(listing_id: int, target: str = Form(""), s=Depends(get_s)):
-        ok, why = plans.can_add_watch(s, OWNER)
-        exists = s.scalar(select(WatchItem.id).where(WatchItem.owner == OWNER, WatchItem.listing_id == listing_id))
+    def watch(request: Request, listing_id: int, target: str = Form("", max_length=20), s=Depends(get_s)):
+        owner = owner_of(request)
+        ok, why = plans.can_add_watch(s, owner)
+        exists = s.scalar(select(WatchItem.id).where(WatchItem.owner == owner, WatchItem.listing_id == listing_id))
         if not ok and not exists:
             return RedirectResponse(f"/watchlist?msg={why}", status_code=303)
         try:
-            tp = round(float(target) * 100) if target.strip() else None
-            if tp is not None and tp <= 0:
-                raise ValueError
-            monitor.add_watch(s, listing_id, OWNER, tp)
+            monitor.add_watch(s, listing_id, owner, parse_target(target))
         except ValueError:
             return RedirectResponse("/watchlist?msg=Invalid target price or listing", status_code=303)
         return RedirectResponse("/watchlist", status_code=303)
 
     @app.post("/watch/{listing_id}/remove")
-    def unwatch(listing_id: int, s=Depends(get_s)):
-        w = s.scalar(select(WatchItem).where(WatchItem.owner == OWNER, WatchItem.listing_id == listing_id))
+    def unwatch(request: Request, listing_id: int, s=Depends(get_s)):
+        w = s.scalar(select(WatchItem).where(WatchItem.owner == owner_of(request), WatchItem.listing_id == listing_id))
         if w:
             s.delete(w)
         return RedirectResponse("/watchlist", status_code=303)
 
     # ------------------------------------------------------------------ admin
+    @app.get("/admin/login")
+    def login_page(request: Request, err: str = ""):
+        return render(request, "login.html", enabled=bool(config.ADMIN_TOKEN), err=err, banner=None)
+
+    @app.post("/admin/login")
+    def login(request: Request, token: str = Form("", max_length=200)):
+        if not security.token_ok(token):
+            return RedirectResponse("/admin/login?err=1", status_code=303)
+        r = RedirectResponse("/admin", status_code=303)
+        r.set_cookie(security.COOKIE_ADMIN, security.admin_cookie_value(config.ADMIN_TOKEN), max_age=8 * 3600, httponly=True,
+                     samesite="strict", path="/admin", secure=request.url.scheme == "https" or config.COOKIE_SECURE)
+        return r
+
+    @app.post("/admin/logout")
+    def logout():
+        r = RedirectResponse("/admin/login", status_code=303)
+        r.delete_cookie(security.COOKIE_ADMIN, path="/admin")
+        return r
+
     @app.get("/admin", dependencies=[Depends(admin)])
-    def admin_page(request: Request, s=Depends(get_s)):
+    def admin_page(request: Request, msg: Annotated[str, Query(max_length=200)] = "", s=Depends(get_s)):
         return render(request, "admin.html", sources=s.scalars(select(Source).order_by(Source.name)).all(),
                       runs=s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10)).all(),
                       queue=s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all(),
                       clicks=s.scalar(select(func.count()).select_from(AffiliateClick)), running=sorted(_running),
-                      token=request.query_params.get("token", ""), banner=banner(s))
+                      msg=msg, banner=banner(s))
 
     def _collect(key: str):
         try:
             run_source(db, key)
+        except (SourceBusy, SourceDisabled):
+            pass
+        except Exception:  # already recorded on the run row by the collector
+            pass
         finally:
             with _lock:
                 _running.discard(key)
 
     @app.post("/admin/collect/{key}", dependencies=[Depends(admin)])
-    def admin_collect(key: str, bg: BackgroundTasks, token: str = Form("")):
+    def admin_collect(key: str, bg: BackgroundTasks, s=Depends(get_s)):
         if key not in ADAPTERS:
             raise HTTPException(404, "unknown source")
+        src = s.scalar(select(Source).where(Source.key == key))
+        if src is not None and not src.enabled:
+            return RedirectResponse("/admin?msg=Source is disabled", status_code=303)
         with _lock:
             if key in _running:
-                return RedirectResponse(f"/admin?token={token}", status_code=303)
+                return RedirectResponse("/admin?msg=Already running", status_code=303)
             _running.add(key)
         bg.add_task(_collect, key)
-        return RedirectResponse(f"/admin?token={token}", status_code=303)
+        return RedirectResponse("/admin?msg=Collection started", status_code=303)
+
+    @app.post("/admin/source/{key}/{state}", dependencies=[Depends(admin)])
+    def admin_toggle(key: str, state: str):
+        if key not in ADAPTERS or state not in ("enable", "disable"):
+            raise HTTPException(404)
+        set_enabled(db, key, state == "enable")
+        return RedirectResponse(f"/admin?msg=Source {state}d", status_code=303)
 
     @app.post("/admin/match/{cand_id}/{decision}", dependencies=[Depends(admin)])
-    def admin_match(cand_id: int, decision: str, token: str = Form(""), s=Depends(get_s)):
+    def admin_match(cand_id: int, decision: str, s=Depends(get_s)):
         if decision not in ("accept", "reject"):
             raise HTTPException(400)
         resolve_candidate(s, cand_id, decision == "accept")
-        return RedirectResponse(f"/admin?token={token}", status_code=303)
+        return RedirectResponse("/admin", status_code=303)
 
     # ------------------------------------------------------------------ JSON API (v1)
     def listing_json(l: Listing, deal: deals.DealScore | None = None):
@@ -204,9 +278,9 @@ def create_app(db: Database | None = None) -> FastAPI:
         return d
 
     @app.get("/api/v1/listings")
-    def api_listings(q: str = "", category: str = "", source: str = "", currency: str = "", min_price: float | None = None,
-                     max_price: float | None = None, in_stock: bool = False, sort: str = "price_asc",
-                     page: int = Query(1, ge=1), per_page: int = Query(24, ge=1, le=100), s=Depends(get_s)):
+    def api_listings(q: Text = "", category: Text = "", source: Text = "", currency: Text = "", min_price: Money = None,
+                     max_price: Money = None, in_stock: bool = False, sort: Text = "price_asc",
+                     page: int = Query(1, ge=1, le=1000), per_page: int = Query(24, ge=1, le=100), s=Depends(get_s)):
         rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
                                       in_stock, sort, page, per_page)
         return {"total": total, "page": page, "items": [listing_json(l) for l in rows]}
@@ -228,7 +302,7 @@ def create_app(db: Database | None = None) -> FastAPI:
              "currency": o.currency, "availability": o.availability, "shipping_minor": o.shipping_minor} for o in obs]}
 
     @app.get("/api/v1/deals")
-    def api_deals(category: str = "", limit: int = Query(20, ge=1, le=100), s=Depends(get_s)):
+    def api_deals(category: Text = "", limit: int = Query(20, ge=1, le=100), s=Depends(get_s)):
         return {"items": [listing_json(l, d) for l, d in deals.top_deals(s, limit, category or None)]}
 
     @app.get("/api/v1/events")
@@ -243,7 +317,7 @@ def create_app(db: Database | None = None) -> FastAPI:
                            "last_status": x.last_status, "terms_note": x.terms_note} for x in s.scalars(select(Source))]}
 
     @app.get("/api/v1/research")
-    def api_research(q: str = Query(..., min_length=3), ship: float | None = None, s=Depends(get_s)):
+    def api_research(q: str = Query(..., min_length=3, max_length=500), ship: Money = None, s=Depends(get_s)):
         r = assistant.answer(s, q, shipping_minor=round(ship * 100) if ship is not None else None)
         return JSONResponse({"text": r["text"], "interpretation": r["interpretation"], "caveats": r["caveats"],
                              "gaps": r["gaps"], "retrieved_listing_ids": r["retrieved_listing_ids"],

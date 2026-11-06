@@ -2,7 +2,7 @@
 import hashlib
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .matching import attach_or_queue
@@ -16,8 +16,8 @@ def validate(raw: RawListing) -> tuple[RawListing | None, list[str]]:
     problems = []
     if not raw.external_id or not raw.title or not raw.title.strip():
         return None, ["missing id/title"]
-    if not raw.url:
-        return None, ["missing url"]
+    if not raw.url or not raw.url.lower().startswith(("http://", "https://")):
+        return None, ["missing or non-http(s) url"]
     if not (raw.currency and len(raw.currency) == 3):
         return None, ["bad currency"]
     if raw.price_minor is not None and raw.price_minor <= 0:
@@ -51,6 +51,9 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
         return None, False, problems  # type: ignore[return-value]
     listing = s.scalar(select(Listing).where(Listing.source_id == source.id, Listing.external_id == raw.external_id))
     dh = _hash(raw.description)
+    if listing is not None and run is not None and s.scalar(
+            select(Observation.id).where(Observation.listing_id == listing.id, Observation.run_id == run.id)):
+        return listing, False, []  # same listing twice in one run: one observation per (listing, run)
     is_new = listing is None
     if is_new:
         product = Product(title=raw.title, brand=raw.brand, category=raw.category, created_at=now)
@@ -60,7 +63,8 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
             source_id=source.id, external_id=raw.external_id, product_id=product.id, url=raw.url, title=raw.title,
             brand=raw.brand, category=raw.category, description=raw.description, image_url=raw.image_url,
             specs=raw.specs, identifiers=raw.identifiers, rating=raw.rating, review_count=raw.review_count,
-            desc_hash=dh, first_seen_at=now, last_seen_at=now, currency=raw.currency)
+            desc_hash=dh, first_seen_at=now, last_seen_at=now, currency=raw.currency, condition=raw.condition,
+            ships_to=raw.ships_to, location_country=raw.location_country, affiliate_url=raw.affiliate_url)
         s.add(listing)
         s.flush()
         _event(s, listing, run, "new_listing", new=raw.title, now=now)
@@ -69,6 +73,8 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
             listing.active = True
             _event(s, listing, run, "reappeared", now=now)
         old_p, new_p = listing.price_minor, raw.price_minor
+        if listing.currency != raw.currency:
+            _event(s, listing, run, "currency_change", listing.currency, raw.currency, now=now)
         if listing.currency == raw.currency:
             if old_p is not None and new_p is not None and old_p != new_p:
                 pct = (new_p - old_p) / old_p * 100
@@ -87,23 +93,38 @@ def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: R
         listing.image_url, listing.specs = raw.image_url or listing.image_url, raw.specs or listing.specs
         listing.rating, listing.review_count = raw.rating, raw.review_count
         listing.currency = raw.currency
+        listing.condition = raw.condition or listing.condition
+        listing.ships_to = raw.ships_to if raw.ships_to is not None else listing.ships_to
+        listing.location_country = raw.location_country or listing.location_country
+        listing.affiliate_url = raw.affiliate_url or listing.affiliate_url
         listing.last_seen_at = now
 
     s.add(Observation(listing_id=listing.id, run_id=run.id if run else None, observed_at=now,
                       price_minor=raw.price_minor, original_price_minor=raw.original_price_minor,
                       currency=raw.currency, availability=raw.availability, shipping_minor=raw.shipping_minor))
     listing.price_minor, listing.original_price_minor = raw.price_minor, raw.original_price_minor
+    listing.shipping_minor = raw.shipping_minor
     listing.availability, listing.last_observed_at = raw.availability, now
     if is_new:
         attach_or_queue(s, listing)
     return listing, is_new, problems
 
 
-def mark_removed(s: Session, source: Source, run: CollectionRun, now: datetime) -> int:
-    """Only call after a COMPLETE crawl; a capped/failed crawl proves nothing about absence."""
+REMOVAL_GUARD_MIN = 5
+REMOVAL_GUARD_FRACTION = 0.5
+
+
+def mark_removed(s: Session, source: Source, run: CollectionRun, now: datetime) -> tuple[int, str | None]:
+    """Only call after a COMPLETE crawl; a capped/failed crawl proves nothing about absence.
+    Removal guard: if more than half of the active listings (and >5) vanish at once, assume a scraping
+    problem, change nothing, and return an explanatory message instead of mass-removing."""
+    active = s.scalar(select(func.count()).select_from(Listing).where(
+        Listing.source_id == source.id, Listing.active.is_(True))) or 0
     gone = s.scalars(select(Listing).where(Listing.source_id == source.id, Listing.active.is_(True),
                                            Listing.last_seen_at < run.started_at)).all()
+    if len(gone) > max(REMOVAL_GUARD_MIN, REMOVAL_GUARD_FRACTION * active):
+        return 0, f"removal guard: {len(gone)} of {active} active listings missing; nothing marked removed"
     for l in gone:
         l.active = False
         _event(s, l, run, "removed", now=now)
-    return len(gone)
+    return len(gone), None

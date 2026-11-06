@@ -21,6 +21,10 @@ class RawListing:
     rating: float | None = None
     review_count: int | None = None
     shipping_minor: int | None = None
+    condition: str | None = None  # new | used | refurbished
+    ships_to: list | None = None
+    location_country: str | None = None
+    affiliate_url: str | None = None
 
 
 class SourceAdapter(ABC):
@@ -35,6 +39,16 @@ class SourceAdapter(ABC):
     terms_note: str = ""
     stale_after_hours: int = 72
     default_max_pages: int = 5
+    parse_errors: list[str] = []  # per-card extraction failures from the LAST parse_page call (card skipped, page kept)
+
+    def allowed_hosts(self) -> set[str]:
+        """Hosts the fetcher may contact for this source (initial URLs, next links, redirects)."""
+        from urllib.parse import urlparse
+        return {urlparse(self.base_url).hostname or ""}
+
+    def listing_hosts(self) -> set[str]:
+        """Registrable hosts a listing's public URL may point to (suffix match). Defaults to fetch hosts."""
+        return self.allowed_hosts()
 
     @abstractmethod
     def start_urls(self) -> list[str]: ...

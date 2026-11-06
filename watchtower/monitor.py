@@ -22,7 +22,7 @@ def add_watch(s: Session, listing_id: int, owner: str = "local", target_price_mi
     w = s.scalar(select(WatchItem).where(WatchItem.owner == owner, WatchItem.listing_id == listing_id))
     if w is None:
         w = WatchItem(owner=owner, listing_id=listing_id, baseline_price_minor=l.price_minor,
-                      baseline_availability=l.availability)
+                      baseline_availability=l.availability, baseline_currency=l.currency)
         s.add(w)
     w.target_price_minor, w.notify_restock = target_price_minor, notify_restock
     s.flush()
@@ -33,6 +33,13 @@ def evaluate(s: Session, owner: str = "local") -> list[WatchStatus]:
     out = []
     for w in s.scalars(select(WatchItem).where(WatchItem.owner == owner).order_by(WatchItem.created_at.desc())):
         l, st = w.listing, WatchStatus(w)
+        if w.baseline_currency and l.currency != w.baseline_currency:
+            st.reasons.append(f"Currency changed {w.baseline_currency} → {l.currency}: target and price comparisons are "
+                              "paused until you set a new target (no conversion is applied)")
+            if not l.active:
+                st.reasons.append("Listing no longer found at the source")
+            out.append(st)
+            continue
         if w.target_price_minor and l.price_minor is not None and l.price_minor <= w.target_price_minor:
             st.triggered = True
             st.reasons.append(f"Target reached: {l.price_minor/100:.2f} ≤ {w.target_price_minor/100:.2f} {l.currency}")

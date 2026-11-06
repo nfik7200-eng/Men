@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -25,27 +26,38 @@ class BooksToScrape(SourceAdapter):
 
     def parse_page(self, html, url):
         soup = BeautifulSoup(html, "lxml")
-        out = []
+        out, self.parse_errors = [], []
         for art in soup.select("article.product_pod"):
-            a = art.select_one("h3 a")
-            if not a:
+            try:
+                item = self._card(art, url)
+            except Exception as e:  # one malformed card must not discard the rest of the page
+                self.parse_errors.append(f"card skipped: {type(e).__name__}: {e}"[:160])
                 continue
-            href = urljoin(url, a["href"])
-            ext_id = href.rstrip("/").split("/")[-2]  # e.g. a-light-in-the-attic_1000
-            price = parse_money((art.select_one("p.price_color") or {}).get_text() if art.select_one("p.price_color") else None,
-                                self.currency)
-            av = art.select_one("p.availability")
-            avail_txt = av.get_text(" ", strip=True).lower() if av else ""
-            availability = "in_stock" if "in stock" in avail_txt else ("out_of_stock" if avail_txt else "unknown")
-            star = art.select_one("p.star-rating")
-            rating = next((_STARS[c] for c in (star.get("class") or []) if c in _STARS), None) if star else None
-            img = art.select_one("img")
-            out.append(RawListing(
-                external_id=ext_id, url=href, title=(a.get("title") or a.get_text()).strip(),
-                price_minor=price[0] if price else None, currency=price[1] if price else self.currency,
-                availability=availability, category="book",
-                image_url=urljoin(url, img["src"]) if img and img.get("src") else None,
-                rating=float(rating) if rating else None,
-            ))
+            if item:
+                out.append(item)
         nxt = soup.select_one("li.next a")
         return out, (urljoin(url, nxt["href"]) if nxt else None)
+
+    def _card(self, art, url):
+        a = art.select_one("h3 a")
+        if not a:
+            return None
+        href = urljoin(url, a["href"])
+        m = re.search(r"/([^/]+)/index\.html$", href)
+        if not m:
+            raise ValueError(f"unrecognised product link {href[:60]!r}")
+        price_el = art.select_one("p.price_color")
+        price = parse_money(price_el.get_text() if price_el else None, self.currency)
+        av = art.select_one("p.availability")
+        avail_txt = av.get_text(" ", strip=True).lower() if av else ""
+        availability = "in_stock" if "in stock" in avail_txt else ("out_of_stock" if avail_txt else "unknown")
+        star = art.select_one("p.star-rating")
+        rating = next((_STARS[c] for c in (star.get("class") or []) if c in _STARS), None) if star else None
+        img = art.select_one("img")
+        return RawListing(
+            external_id=m.group(1), url=href, title=(a.get("title") or a.get_text()).strip(),
+            price_minor=price[0] if price else None, currency=price[1] if price else self.currency,
+            availability=availability, category="book",
+            image_url=urljoin(url, img["src"]) if img and img.get("src") else None,
+            rating=float(rating) if rating else None,
+        )

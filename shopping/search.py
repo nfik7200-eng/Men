@@ -13,10 +13,12 @@ def search_listings(s: Session, q: str | None = None, category: str | None = Non
                     currency: str | None = None, min_price: float | None = None, max_price: float | None = None,
                     in_stock: bool = False, sort: str = "price_asc", page: int = 1, per_page: int = 24):
     stmt = select(Listing).options(joinedload(Listing.source)).where(Listing.active.is_(True))
-    for term in (q or "").lower().split():
-        like = f"%{term}%"
-        stmt = stmt.where(or_(func.lower(Listing.title).like(like), func.lower(Listing.description).like(like),
-                              func.lower(func.coalesce(Listing.brand, "")).like(like)))
+    for term in (q or "").lower().split()[:8]:
+        esc = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")  # literal match, not wildcard
+        like = f"%{esc}%"
+        stmt = stmt.where(or_(func.lower(Listing.title).like(like, escape="\\"),
+                              func.lower(Listing.description).like(like, escape="\\"),
+                              func.lower(func.coalesce(Listing.brand, "")).like(like, escape="\\")))
     if category:
         stmt = stmt.where(Listing.category == category)
     if source:

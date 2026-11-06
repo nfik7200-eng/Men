@@ -29,34 +29,42 @@ class WebscraperIoStatic(SourceAdapter):
     def parse_page(self, html, url):
         soup = BeautifulSoup(html, "lxml")
         category = next((c for c, p in CATEGORIES.items() if p in url), None)
-        out = []
+        out, self.parse_errors = [], []
         for card in soup.select("div.card.thumbnail"):
-            a = card.select_one("a.title")
-            if not a or not a.get("href"):
+            try:
+                item = self._card(card, url, category)
+            except Exception as e:  # one malformed card must not discard the rest of the page
+                self.parse_errors.append(f"card skipped: {type(e).__name__}: {e}"[:160])
                 continue
-            title = (a.get("title") or a.get_text()).strip()
-            href = urljoin(url, a["href"])
-            ext_id = href.rstrip("/").rsplit("/", 1)[-1]
-            price_el = card.select_one('[itemprop="price"]')
-            cur_el = card.select_one('[itemprop="priceCurrency"]')
-            parsed = parse_money(price_el.get_text() if price_el else None,
-                                 cur_el.get("content") if cur_el else self.currency)
-            desc_el = card.select_one("p.description")
-            desc = desc_el.get_text(" ", strip=True) if desc_el else ""
-            img = card.select_one("img")
-            rc = card.select_one('[itemprop="reviewCount"]')
-            rating_el = card.select_one("p[data-rating]")
-            out.append(RawListing(
-                external_id=ext_id, url=href, title=title,
-                price_minor=parsed[0] if parsed else None,
-                currency=parsed[1] if parsed else self.currency,
-                description=desc,
-                availability="unknown",  # card does not state stock; do NOT assume in stock
-                brand=detect_brand(title), category=category,
-                image_url=urljoin(url, img["src"]) if img and img.get("src") else None,
-                specs=parse_specs(title, desc, category),
-                rating=float(rating_el["data-rating"]) if rating_el else None,
-                review_count=int(rc.get_text(strip=True)) if rc and rc.get_text(strip=True).isdigit() else None,
-            ))
+            if item:
+                out.append(item)
         nxt = soup.select_one("ul.pagination a[rel=next]")
         return out, (urljoin(url, nxt["href"]) if nxt and nxt.get("href") else None)
+
+    def _card(self, card, url, category):
+        a = card.select_one("a.title")
+        if not a or not a.get("href"):
+            return None
+        title = (a.get("title") or a.get_text()).strip()
+        href = urljoin(url, a["href"])
+        ext_id = href.rstrip("/").rsplit("/", 1)[-1]
+        price_el = card.select_one('[itemprop="price"]')
+        cur_el = card.select_one('[itemprop="priceCurrency"]')
+        parsed = parse_money(price_el.get_text() if price_el else None, cur_el.get("content") if cur_el else self.currency)
+        desc_el = card.select_one("p.description")
+        desc = desc_el.get_text(" ", strip=True) if desc_el else ""
+        img = card.select_one("img")
+        rc = card.select_one('[itemprop="reviewCount"]')
+        rating_el = card.select_one("p[data-rating]")
+        return RawListing(
+            external_id=ext_id, url=href, title=title,
+            price_minor=parsed[0] if parsed else None,
+            currency=parsed[1] if parsed else self.currency,
+            description=desc,
+            availability="unknown",  # card does not state stock; do NOT assume in stock
+            brand=detect_brand(title), category=category,
+            image_url=urljoin(url, img["src"]) if img and img.get("src") else None,
+            specs=parse_specs(title, desc, category),
+            rating=float(rating_el["data-rating"]) if rating_el else None,
+            review_count=int(rc.get_text(strip=True)) if rc and rc.get_text(strip=True).isdigit() else None,
+        )

@@ -80,6 +80,11 @@ class Listing(Base):
     rating: Mapped[float | None] = mapped_column(Float)
     review_count: Mapped[int | None] = mapped_column(Integer)
     desc_hash: Mapped[str | None] = mapped_column(String(40))
+    condition: Mapped[str | None] = mapped_column(String(20))  # new | used | refurbished (source-stated) or NULL
+    ships_to: Mapped[list | None] = mapped_column(JSON)  # ISO country codes the seller ships to; NULL = unknown
+    location_country: Mapped[str | None] = mapped_column(String(2))  # item location, ISO code; NULL = unknown
+    shipping_minor: Mapped[int | None] = mapped_column(Integer)  # cheapest quoted shipping to the quote country; NULL = unknown
+    affiliate_url: Mapped[str | None] = mapped_column(String(1500))  # provider-issued tracked URL, if any
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -153,6 +158,7 @@ class WatchItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     baseline_price_minor: Mapped[int | None] = mapped_column(Integer)
     baseline_availability: Mapped[str | None] = mapped_column(String(16))
+    baseline_currency: Mapped[str | None] = mapped_column(String(3))
     listing: Mapped[Listing] = relationship()
 
 
@@ -162,3 +168,17 @@ class AffiliateClick(Base):
     listing_id: Mapped[int] = mapped_column(ForeignKey("listings.id"), index=True)
     network: Mapped[str | None] = mapped_column(String(50))  # None = plain outbound link, no affiliate
     clicked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class FxRate(Base):
+    """A sourced exchange rate. We never invent or live-fetch rates: every rate carries who said so and when."""
+    __tablename__ = "fx_rates"
+    __table_args__ = (UniqueConstraint("base", "quote", "as_of", "source"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    base: Mapped[str] = mapped_column(String(3))
+    quote: Mapped[str] = mapped_column(String(3))
+    rate: Mapped[str] = mapped_column(String(32))  # Decimal as string: 1 base = rate quote
+    as_of: Mapped[datetime] = mapped_column(DateTime)  # the date the rate is valid for
+    source: Mapped[str] = mapped_column(String(200))  # e.g. "ECB euro foreign exchange reference rates"
+    source_url: Mapped[str | None] = mapped_column(String(500))
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

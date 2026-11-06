@@ -239,7 +239,7 @@ def test_no_history_means_no_verified_label(db):
         _seed_peers(s, src)
         l, *_ = ingest_listing(s, src, None, _raw(external_id="cheap", title="Cheap Z900Y", price_minor=30000,
                                                   original_price_minor=90000, specs={"ram_gb": 8}), T0)
-        ds = deals.score_listing(s, l)
+        ds = deals.score_listing(s, l, now=T0)
         assert ds.label == "Below typical price (estimate)" and ds.confidence == "medium"
         assert next(c for c in ds.components if c.name == "history_drop").evidence == "none"
         assert next(c for c in ds.components if c.name == "markdown").evidence == "unverified"
@@ -254,7 +254,7 @@ def test_verified_drop_needs_history(db):
         for d, p in [(0, 70000), (4, 70000), (8, 69000), (12, 52000)]:
             l, *_ = ingest_listing(s, src, None, _raw(external_id="x", title="Drop D500Q", price_minor=p,
                                                       specs={"ram_gb": 8}), T0 + timedelta(days=d))
-        ds = deals.score_listing(s, l)
+        ds = deals.score_listing(s, l, now=T0 + timedelta(days=12))
         assert ds.label == "Verified price drop" and ds.confidence == "high" and ds.n_obs == 4
         assert next(c for c in ds.components if c.name == "history_drop").evidence == "verified"
 
@@ -267,7 +267,7 @@ def test_suspicious_original_price_flagged(db):
         for d in (0, 5, 10):
             l, *_ = ingest_listing(s, src, None, _raw(external_id="y", title="Fake F777K", price_minor=50000,
                                                       original_price_minor=99900, specs={"ram_gb": 8}), T0 + timedelta(days=d))
-        ds = deals.score_listing(s, l)
+        ds = deals.score_listing(s, l, now=T0 + timedelta(days=10))
         assert any("Suspicious original price" in w for w in ds.warnings)
 
 

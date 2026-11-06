@@ -28,6 +28,8 @@ GAP_ASPECTS = {"upgradeab": "upgradeability (RAM/SSD slots)", "build quality": "
 COUNTRIES = {"uganda": "UG", "kenya": "KE", "tanzania": "TZ", "rwanda": "RW", "nigeria": "NG", "ghana": "GH",
              "south africa": "ZA", "india": "IN", "uk": "GB", "usa": "US"}
 STOP = set("the a an and or for with to of in on under over below above best find me my i want need good cheap cheaper "
+           "use using new latest top "
+           "least minimum at ram ssd hdd storage gb tb inch hours hour days day battery warranty year years free fast "
            "compare comparison include estimate total cost importing import it them please what which is are can you "
            "than less more up max budget price prices memory build quality performance upgradeability alternatives "
            "alternative".split())
@@ -45,26 +47,73 @@ class Pick:
     import_estimate: dict | None = None
 
 
+_CUR_SYM = {"$": "USD", "£": "GBP", "€": "EUR"}
+_CUR_WORD = {"usd": "USD", "dollar": "USD", "dollars": "USD", "bucks": "USD", "gbp": "GBP", "pound": "GBP", "pounds": "GBP",
+             "sterling": "GBP", "eur": "EUR", "euro": "EUR", "euros": "EUR", "ugx": "UGX", "shilling": "UGX", "shillings": "UGX"}
+_NUM = r"(\d[\d,]*(?:\.\d+)?)"
+_AMT = rf"([$£€])?\s*{_NUM}\s*([a-z]{{2,10}})?"
+_NOT_MONEY = re.compile(r"^(hours?|hrs?|days?|weeks?|months?|years?|yrs?|minutes?|mins?|gb|tb|mb|ghz|mhz|hz|mah|inch|inches|in|kg|g|"
+                        r"cm|mm|pcs|pieces|cores?|mp|fps|nits|w|wh)$")
+_NEG = re.compile(r"\b(?:not|no|without|except|excluding|avoid|never)\s+(?:an?\s+)?([a-z0-9]+)")
+
+
+def _amount(sym, num, word):
+    cur = _CUR_SYM.get(sym or "") or _CUR_WORD.get((word or "").lower())
+    if word and not cur and _NOT_MONEY.match(word.lower()):
+        return None  # "10 hours", "16 GB" are not prices
+    return round(float(num.replace(",", "")) * 100), cur
+
+
 def parse_query(q: str) -> dict:
     low = q.lower()
     out: dict = {"assumptions": [], "gaps": []}
-    m = re.search(r"(?:under|below|less than|max(?:imum)?|up to|within|<)\s*([$£€])?\s*(\d[\d,]*(?:\.\d+)?)", low) \
-        or re.search(r"([$£€])\s*(\d[\d,]*(?:\.\d+)?)", low)
-    if m:
-        sym = m.group(1) if m.lastindex and m.group(1) else None
-        out["budget_minor"] = round(float(m.group(2).replace(",", "")) * 100)
-        out["currency"] = {"$": "USD", "£": "GBP", "€": "EUR"}.get(sym or "")
-        if not out["currency"]:
-            out["currency"] = "USD"
-            out["assumptions"].append("Budget has no currency symbol; assumed USD.")
+    # budget: ranges first, then cue+amount, then bare currency-marked amounts. Plain numbers with units are never money.
+    rng = re.search(rf"(?:between\s+)?{_AMT}\s*(?:and|to|-|–)\s*{_AMT}", low)
+    lo = hi = cur = None
+    if rng and (rng.group(1) or rng.group(3) or rng.group(4) or "between" in rng.group(0)):
+        a1 = _amount(rng.group(1), rng.group(2), rng.group(3))
+        a2 = _amount(rng.group(4) or rng.group(1), rng.group(5), rng.group(6))
+        if a1 and a2:
+            (lo, c1), (hi, c2) = sorted((a1, a2), key=lambda t: t[0])
+            cur = c1 or c2
+    if hi is None:
+        m = re.search(rf"(?:under|below|less than|max(?:imum)?|up to|within|budget(?: of)?|around|about|<)\s*{_AMT}", low)
+        if m:
+            got = _amount(m.group(1), m.group(2), m.group(3))
+            if got:
+                hi, cur = got
+    if hi is None:
+        m = re.search(rf"([$£€])\s*{_NUM}|{_NUM}\s*(usd|gbp|eur|dollars?|pounds?|euros?)\b", low)
+        if m:
+            hi = round(float((m.group(2) or m.group(3)).replace(",", "")) * 100)
+            cur = _CUR_SYM.get(m.group(1) or "") or _CUR_WORD.get(m.group(4) or "")
+    if hi is not None:
+        out["budget_max_minor"] = hi
+        out["budget_min_minor"] = lo
+        out["currency"] = cur  # None = not stated; resolved against the catalogue, never assumed silently
+    # category, use-case, import
     out["category"] = next((CATEGORY_WORDS[w] for w in re.findall(r"[a-z]+", low) if w in CATEGORY_WORDS), None)
     out["programming"] = bool(re.search(r"programm|coding|developer|software dev|\bcode\b", low))
     out["want_import"] = bool(re.search(r"import|shipping|ship |customs|duty|duties|landed|total cost", low))
     out["destination"] = next((c for name, c in COUNTRIES.items() if re.search(rf"\b{name}\b", low)), None)
     out["gaps"] = sorted({v for k, v in GAP_ASPECTS.items() if k in low})
+    # spec requirements
+    m = re.search(r"(\d+)\s*gb\s*(?:of\s*)?(?:ram|memory)|(?:ram|memory)\s*(?:of\s*)?(\d+)\s*gb", low)
+    if m:
+        out["req_ram_gb"] = int(m.group(1) or m.group(2))
+    m = re.search(r"(\d+)\s*(gb|tb)\s*(?:of\s*)?(?:ssd|storage|hdd|disk|nvme)", low)
+    if m:
+        out["req_storage_gb"] = int(m.group(1)) * (1024 if m.group(2) == "tb" else 1)
+    m = re.search(r"(\d{2}(?:\.\d)?)\s*(?:-?inch|\"|in\b)", low)
+    if m:
+        out["req_screen_in"] = float(m.group(1))
+    # negation then keywords
+    out["excluded"] = sorted({w for w in _NEG.findall(low) if w not in STOP})
+    neg_words = set(out["excluded"])
     out["keywords"] = [w for w in re.findall(r"[a-z0-9]+", low)
-                       if len(w) > 2 and w not in STOP and w not in CATEGORY_WORDS and not w.isdigit()
-                       and not re.search(r"programm|coding|develop|import|shipping|customs|uganda|kenya|tanzania", w)
+                       if len(w) > 2 and w not in STOP and w not in neg_words and w not in CATEGORY_WORDS and w not in _CUR_WORD
+                       and not w.isdigit() and not _NOT_MONEY.match(w)
+                       and not re.search(r"programm|coding|develop|import|shipping|customs|uganda|kenya|tanzania|between", w)
                        and not any(w.startswith(k) for k in ("upgradeab", "reliab"))]
     return out
 
@@ -72,6 +121,24 @@ def parse_query(q: str) -> dict:
 def _fit(l: Listing, intent: dict) -> Pick:
     p = Pick(l, 0.0)
     sp = l.specs or {}
+    for key, label, unit in (("req_ram_gb", "ram_gb", "GB RAM"), ("req_storage_gb", "storage_gb", "GB storage")):
+        need, have = intent.get(key), sp.get(label)
+        if need is None:
+            continue
+        if have is None:
+            p.unknown.append(f"{unit.split()[1]} size not stated (you asked for {need}{unit[:2]}+)")
+        elif have >= need:
+            p.fit += 1.5; p.meets.append(f"{have}{unit} (you asked for {need}+)")
+        else:
+            p.fit -= 4; p.misses.append(f"{have}{unit}, below the {need} you asked for")
+    if intent.get("req_screen_in") is not None:
+        have = sp.get("screen_in")
+        if have is None:
+            p.unknown.append("screen size not stated")
+        elif abs(have - intent["req_screen_in"]) <= 0.6:
+            p.fit += 1; p.meets.append(f'{have}" screen')
+        else:
+            p.fit -= 2; p.misses.append(f'{have}" screen, not the {intent["req_screen_in"]}" you asked for')
     if intent["programming"] and l.category == "laptop":
         ram = sp.get("ram_gb")
         if ram is None:
@@ -114,34 +181,57 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
         Listing.active.is_(True), Listing.price_minor.is_not(None), Listing.availability != "out_of_stock")
     if intent["category"]:
         stmt = stmt.where(Listing.category == intent["category"])
-    if intent.get("currency"):
-        stmt = stmt.where(Listing.currency == intent["currency"])
     cands = list(s.scalars(stmt).unique())
-    # keywords are soft filters: applied only if they leave at least one candidate
-    kws = intent["keywords"]
-    if kws:
-        narrowed = [l for l in cands if all(k in f"{l.title} {l.description} {l.brand or ''}".lower() for k in kws)]
-        if narrowed:
-            cands = narrowed
-        elif intent["category"]:  # category known: keywords are soft preferences
-            caveats.append(f"No listing matched the keyword(s) {kws}; showing the whole {intent['category']} category instead.")
-        else:  # keywords ARE the product: do not substitute unrelated items
+
+    # negation: "not apple" removes matching listings outright
+    for bad in intent["excluded"]:
+        cands = [l for l in cands if bad not in f"{l.title} {l.brand or ''}".lower()]
+
+    # keywords: brands are hard requirements; other words are soft preferences (reported if nothing matched)
+    brands = {(l.brand or "").lower() for l in cands} - {""}
+    brand_kw = [k for k in intent["keywords"] if k in brands]
+    soft_kw = [k for k in intent["keywords"] if k not in brands]
+    if brand_kw:
+        cands = [l for l in cands if (l.brand or "").lower() in brand_kw]
+    text_of = lambda l: f"{l.title} {l.description} {l.brand or ''}".lower()
+    if soft_kw and not intent["category"] and not brand_kw:  # keywords ARE the product when nothing else names it
+        cands = [l for l in cands if any(k in text_of(l) for k in soft_kw)]
+        if not cands:
+            caveats.append(f"No collected listing matches {soft_kw}.")
+    elif soft_kw:
+        unmatched = [k for k in soft_kw if not any(k in text_of(l) for l in cands)]
+        if unmatched:
+            caveats.append(f"Ignored (no listing mentions): {', '.join(unmatched)}.")
+
+    # budget: currency is explicit, inferred only when unambiguous, otherwise we ask
+    clarification = None
+    budget, budget_min, over = intent.get("budget_max_minor"), intent.get("budget_min_minor"), []
+    if budget is not None:
+        cur = intent.get("currency")
+        present = sorted({l.currency for l in cands})
+        if cur is None and len(present) == 1:
+            cur = present[0]
+            caveats.append(f"No currency stated in your budget; assumed {cur} (the only currency among matching listings). No conversion applied.")
+        elif cur is None and len(present) > 1:
+            clarification = (f"Your budget has no currency and matching listings are priced in {', '.join(present)}. "
+                             "Which currency do you mean? (Prices are never converted without a sourced exchange rate.)")
             cands = []
-            caveats.append(f"No collected listing matches {kws}.")
-    budget = intent.get("budget_minor")
-    over = [l for l in cands if budget and l.price_minor > budget]
-    cands = [l for l in cands if not budget or l.price_minor <= budget]
+        if cur is not None and clarification is None:
+            cands = [l for l in cands if l.currency == cur]
+            over = [l for l in cands if l.price_minor > budget]
+            cands = [l for l in cands if l.price_minor <= budget and (budget_min is None or l.price_minor >= budget_min)]
 
     ctx = PeerContext(s)
     picks = [_fit(l, intent) for l in cands]
     for p in picks:
-        p.deal = score_listing(s, p.listing, ctx)
+        p.fit += 0.75 * sum(k in text_of(p.listing) for k in soft_kw)
+        p.deal = score_listing(s, p.listing, ctx, now)
         p.price_status = price_status(p.listing, p.listing.source, now)
     ranked = sorted(picks, key=lambda p: (-p.fit, p.listing.price_minor))
-    qualified = [p for p in ranked if not p.misses] or []
+    qualified = [p for p in ranked if not p.misses]
     pool = qualified or ranked
-    if intent["programming"] and not qualified and ranked:
-        caveats.append("No listing fully meets the programming requirements; showing the closest matches with their shortfalls.")
+    if (intent["programming"] or intent.get("req_ram_gb") or intent.get("req_storage_gb")) and not qualified and ranked:
+        caveats.append("No listing fully meets your requirements; showing the closest matches with their shortfalls.")
     top = pool[:3]
     alternatives: list[Pick] = []
     if top:
@@ -156,17 +246,20 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     if cands and all(p.listing.source.kind == "sandbox" for p in picks):
         caveats.append("All matching listings come from DEMO/sandbox catalogues, not real retailers — treat prices as test data.")
     if any(p.price_status == "stale" for p in top):
-        caveats.append("Some prices are stale (older than the source's freshness window).")
+        caveats.append("Some prices are stale (older than the source's freshness window) — re-check before relying on them.")
     gaps = [f"Our data has no {g}; those aspects cannot be assessed here." for g in intent["gaps"]]
-    if not cands and (over or not any(c.startswith('No collected listing') for c in caveats)):
-        why = (f"{len(over)} matching listing(s) exist but all are above your budget "
-               f"(cheapest {fmt_money(min(l.price_minor for l in over), over[0].currency)})." if over else
-               "No collected listing matches this request.")
-        caveats.append(why)
+    if not cands and clarification is None:
+        if over:
+            caveats.append(f"{len(over)} matching listing(s) exist but all are above your budget "
+                           f"(cheapest {fmt_money(min(l.price_minor for l in over), over[0].currency)}).")
+        elif not any(c.startswith("No collected listing") for c in caveats):
+            caveats.append("No collected listing matches this request.")
+    if clarification:
+        caveats.append(clarification)
 
     result = {
         "question": question, "interpretation": {k: v for k, v in intent.items() if k not in ("assumptions", "gaps")},
-        "picks": top, "alternatives": alternatives, "gaps": gaps, "caveats": caveats,
+        "picks": top, "alternatives": alternatives, "gaps": gaps, "caveats": caveats, "clarification": clarification,
         "retrieved_listing_ids": [p.listing.id for p in top + alternatives], "candidate_count": len(cands),
         "llm_summary": None,
     }
