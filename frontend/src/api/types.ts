@@ -695,3 +695,26 @@ export type WalletStatus = {
   watchlists: { id: number; name: string }[];
   investigations: { id: number; title: string; status: string }[];
 };
+
+export type LabelStatus = "verified" | "corroborated" | "analyst_reviewed" | "inferred" | "weak" | "unknown";
+export type LabelInput = {
+  chain: string;
+  address: string;
+  label: string;
+  value: boolean;
+  status: LabelStatus;
+  source: string;
+  source_ref: string | null;
+  observed_at: string;
+  note: string | null;
+};
+export type LabelRow = LabelInput & { id: number; data_kind: string; created_at: string; reviews?: unknown[] };
+export type LabelPage = {
+  items: LabelRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: { total: number; by_kind_and_status: { data_kind: string; status: string; count: number }[] } & Record<string, unknown>;
+};
+export type ReviewInput = { decision: "accepted" | "rejected" | "needs_evidence"; reviewer: string; note: string | null };
+export type JsonObject = Record<string, unknown>;

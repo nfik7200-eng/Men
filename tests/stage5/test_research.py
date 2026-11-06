@@ -532,3 +532,27 @@ def test_openai_compatible_provider_refuses_private_endpoints() -> None:
     assert "loopback" in ollama.status().reason
     none = build_provider(AISettings(), {})
     assert none.status().available is False
+
+
+def test_report_records_feature_taxonomy_and_model_provenance(tmp_path: Path) -> None:
+    """A report must say exactly which features, taxonomy and model version it used."""
+    w = World(tmp_path, llm=FakeLLM(available=False))
+    try:
+        with TestClient(w.app) as c:
+            c.post(f"{API}/ingestion/wallet/ethereum/{w.env.eth.wallet}?limit=20")
+            trained = c.post(
+                f"{API}/ml/training-runs", json={"chain": "ethereum", "source": "synthetic"}
+            ).json()
+            g = run_to_end(c, body(w))
+            rep = c.get(f"{API}/research/runs/{g['run_id']}/report").json()["report"]
+            assert rep["report_version"] == "1.1.0"
+            cls = rep["classification"]
+            assert len(cls["feature_digest"]) == 64
+            assert cls["feature_version"]
+            assert cls["taxonomy_version"]
+            assert cls["as_of"]
+            assert cls["rules"]["dataset_version"] is None  # rules have no training dataset
+            assert cls["model"]["version"] == trained["model"]["version"]
+            assert cls["model"]["dataset_version"] == trained["dataset_version"]
+    finally:
+        w.env.engine.dispose()

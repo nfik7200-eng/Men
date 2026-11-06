@@ -82,4 +82,34 @@ describe("api client", () => {
     await expect(api.walletStatus("ethereum", "0xAB")).resolves.toEqual({ stored: false });
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/wallets/ethereum/0xAB/status");
   });
+
+  it("builds the research history, rerun, label and provider-detail requests", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() => Promise.resolve(respond(200, {})));
+    await api.researchHistory({ limit: 20, offset: 40 });
+    await api.researchHistory({ chain: "solana", address: "Ab", limit: 5 });
+    await api.researchRerun("r-1");
+    await api.labels(25, 0);
+    await api.addLabels([{ chain: "ethereum", address: "0x1", label: "exchange_hot_wallet", value: true, status: "analyst_reviewed", source: "analyst", source_ref: null, observed_at: "2026-11-06T00:00:00Z", note: null }]);
+    await api.reviewLabel(7, { decision: "accepted", reviewer: "me", note: null });
+    await api.taxonomy();
+    await api.walletFeatures("ethereum", "0x1");
+    await api.capabilityHistory("publicnode-eth");
+    await api.providerReliability("publicnode-eth");
+    await api.providerConsistency("publicnode-eth");
+    const urls = fetchMock.mock.calls.map((c) => `${c[1]?.method ?? "GET"} ${String(c[0])}`);
+    expect(urls).toEqual([
+      "GET /api/v1/research/runs?limit=20&offset=40",
+      "GET /api/v1/research/runs?limit=5&offset=0&chain=solana&address=Ab",
+      "POST /api/v1/research/runs/r-1/rerun",
+      "GET /api/v1/ml/labels?limit=25&offset=0",
+      "POST /api/v1/ml/labels",
+      "POST /api/v1/ml/labels/7/reviews",
+      "GET /api/v1/ml/taxonomy",
+      "GET /api/v1/ml/features/ethereum/0x1",
+      "GET /api/v1/providers/publicnode-eth/capabilities/history",
+      "GET /api/v1/providers/publicnode-eth/reliability",
+      "GET /api/v1/providers/publicnode-eth/consistency",
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[4]?.[1]?.body)).labels).toHaveLength(1);
+  });
 });

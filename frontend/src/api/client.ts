@@ -43,6 +43,10 @@ import type {
   WatchlistEntry,
   WatchlistSummary,
   WalletStatus,
+  JsonObject,
+  LabelInput,
+  LabelPage,
+  ReviewInput,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -186,6 +190,23 @@ export const api = {
   researchCancel: (id: string) => request<{ cancel_requested: boolean }>(`/research/runs/${enc(id)}/cancel`, { method: "POST" }),
   researchReport: (id: string) => request<ResearchReport>(`/research/runs/${enc(id)}/report`),
   // ---- provider intelligence (Stage 4). Only probeRun() contacts providers (server-bounded).
+  researchHistory: (q: { chain?: string; address?: string; limit?: number; offset?: number } = {}) =>
+    request<{ items: ResearchRun[]; total: number; limit: number; offset: number }>(
+      `/research/runs?limit=${q.limit ?? 20}&offset=${q.offset ?? 0}` +
+        (q.chain ? `&chain=${enc(q.chain)}` : "") +
+        (q.address ? `&address=${enc(q.address)}` : ""),
+    ),
+  researchRerun: (id: string) => request<ResearchRun>(`/research/runs/${enc(id)}/rerun`, { method: "POST" }),
+  labels: (limit = 50, offset = 0) => request<LabelPage>(`/ml/labels?limit=${limit}&offset=${offset}`),
+  addLabels: (labels: LabelInput[]) => request<JsonObject>("/ml/labels", { method: "POST", ...json({ labels }) }),
+  reviewLabel: (id: number, body: ReviewInput) =>
+    request<JsonObject>(`/ml/labels/${id}/reviews`, { method: "POST", ...json(body) }),
+  taxonomy: () => request<JsonObject>("/ml/taxonomy"),
+  walletFeatures: (chain: string, address: string) =>
+    request<JsonObject>(`/ml/features/${enc(chain)}/${enc(address)}`),
+  capabilityHistory: (id: string) => request<JsonObject>(`/providers/${enc(id)}/capabilities/history`),
+  providerReliability: (id: string) => request<JsonObject>(`/providers/${enc(id)}/reliability`),
+  providerConsistency: (id: string) => request<JsonObject>(`/providers/${enc(id)}/consistency`),
   providerProfiles: () => request<ProviderProfiles>("/providers/profiles"),
   providerProfile: (id: string) => request<ProviderProfileDetail>(`/providers/${enc(id)}/profile`),
   probePreview: (providers: string[]) =>

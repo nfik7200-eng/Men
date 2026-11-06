@@ -72,6 +72,8 @@ class ModelRef(_Strict):
     feature_version: str
     status: str
     data_kind: str
+    # training dataset hash; None for the rules baseline (no training data)
+    dataset_version: str | None = None
 
 
 class ClassificationResult(_Strict):
@@ -277,6 +279,7 @@ class ClassificationService:
                 feature_version=model["feature_version"],
                 status=model["status"],
                 data_kind=model["data_kind"],
+                dataset_version=model.get("dataset_version"),
             )
             if model
             else None,

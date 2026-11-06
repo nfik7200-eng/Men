@@ -46,6 +46,9 @@ from bip.research.tools import TOOLS, ToolContext
 
 J = dict[str, Any]
 ENGINE_VERSION = "1.0.0"
+# 1.1.0: classification block carries feature digest/version, taxonomy version, as-of and the
+# model's training dataset version. Older reports lack them and are shown as "not recorded".
+REPORT_VERSION = "1.1.0"
 FOCUS_AREAS = (
     "classification",
     "behaviour",
@@ -1103,7 +1106,7 @@ def build_report(
         by_status[c["status"]] = by_status.get(c["status"], 0) + 1
     summary = synthesis.get("executive_summary") or _deterministic_summary(spec, cls, claims)
     report: J = {
-        "report_version": ENGINE_VERSION,
+        "report_version": REPORT_VERSION,
         "executive_summary": summary,
         "summary_source": "ai_interpretation"
         if synthesis.get("executive_summary")
@@ -1119,6 +1122,10 @@ def build_report(
             "status": cls.get("status"),
             "anomaly": cls.get("anomaly"),
             "classification_id": cls.get("classification_id"),
+            "feature_version": cls.get("feature_version"),
+            "feature_digest": cls.get("feature_digest"),
+            "taxonomy_version": cls.get("taxonomy_version"),
+            "as_of": cls.get("as_of"),
         },
         "sections": {
             name: [c for c in claims if c["kind"] in kinds] for name, kinds in SECTION_KINDS.items()
