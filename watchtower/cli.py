@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | coverage | source | fx"""
+"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | coverage | schedule | source | fx"""
 import argparse
 import logging
 
@@ -46,6 +46,9 @@ def main(argv=None):
     cv = sub.add_parser("coverage", help="acquisition coverage per live source (read-only report on a snapshot/copy)")
     cv.add_argument("--db", required=True, help="SQLite snapshot/copy (never the live DB)")
     cv.add_argument("--json", action="store_true")
+    sc = sub.add_parser("schedule", help="DISABLED-BY-DEFAULT scheduler entry point (status | run-due); installs nothing")
+    sc.add_argument("action", choices=["status", "run-due"])
+    sc.add_argument("--config", help="default data/schedule.json")
     e = sub.add_parser("source")
     e.add_argument("action", choices=["enable", "disable"])
     e.add_argument("key", choices=list(ADAPTERS))
@@ -53,6 +56,8 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if args.cmd == "backup":  # before Database(): opening the app DB normally runs init/ensure_* writes
         return _backup(args.out)
+    if args.cmd == "schedule":  # decides BEFORE opening any database: a disabled scheduler touches nothing
+        return _schedule(args)
     if args.cmd == "coverage":
         return _coverage(args)
     if args.cmd == "plan":  # offline and read-only as well
@@ -131,6 +136,31 @@ def main(argv=None):
                 print(f"{src.key}: {n} listings, {state}, {'configured' if ready else 'NOT CONFIGURED (' + ', '.join(missing) + ')'}, "
                       f"last_success={src.last_success_at}, last_status={src.last_status}")
             print("observations:", s.query(Observation).count())
+
+
+def _schedule(args) -> int:
+    from . import config, schedule
+    path = args.config or str(config.ROOT / "data" / "schedule.json")
+    try:
+        cfg = schedule.load(path)
+    except (schedule.ScheduleError, OSError, ValueError) as ex:
+        print(f"schedule: invalid configuration: {ex}")
+        return 2
+    ok, why = schedule.enabled(cfg)
+    if args.action == "status" or not ok:
+        print(why or "scheduling is ENABLED (config + environment)")
+        for k, v in cfg["sources"].items():
+            print(f"  {k}: every >= {v['min_interval_hours']:g} h, up to {v['max_pages']} pages per run")
+        return 0
+    db = Database()
+    db.init()
+    ensure_sources(db)
+    ensure_policies(db)
+    res = schedule.run_due(db, path)
+    print("ran: " + (", ".join(res.ran) or "nothing"))
+    for k, why in res.skipped.items():
+        print(f"skipped {k}: {why}")
+    return 0
 
 
 def _coverage(args) -> int:
