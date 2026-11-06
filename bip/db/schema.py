@@ -31,7 +31,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 metadata = MetaData(
     naming_convention={
@@ -982,3 +982,24 @@ V5_TABLES = (
     research_reports,
     research_model_usage,
 )
+
+# ------------------------------------------------- v6: cases <-> research (ADR-030)
+
+investigation_research_runs = Table(
+    "investigation_research_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "investigation_id",
+        Integer,
+        ForeignKey("investigations.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    # research runs are never deleted; deleting a case removes only its links
+    Column("research_run_id", Integer, ForeignKey("research_runs.id"), nullable=False),
+    Column("note", String(500), nullable=True),
+    Column("attached_at", UTCDateTime, nullable=False),
+    UniqueConstraint("investigation_id", "research_run_id"),
+)
+
+V6_TABLES = (investigation_research_runs,)

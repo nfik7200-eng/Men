@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Path, Query, status
+from pydantic import Field
 
 from bip.api.deps import Context, WritableContext
-from bip.api.schemas import InvestigationCreate, InvestigationUpdate
+from bip.api.schemas import Body, InvestigationCreate, InvestigationUpdate
 from bip.contracts.findings import Finding
 from bip.db.records import FindingSummary, Investigation, InvestigationStatus, InvestigationSummary
 from bip.db.repository import canonical_address
@@ -49,3 +50,37 @@ def update_investigation(
 def add_finding(ctx: WritableContext, investigation_id: Id, body: Finding) -> FindingSummary:
     """Attach a finding. The body must satisfy the evidence rules of the Finding contract."""
     return ctx.repo.add_finding(investigation_id, body)
+
+
+class ResearchLinkIn(Body):
+    run_id: Annotated[str, Field(min_length=1, max_length=36)]
+    note: Annotated[str, Field(max_length=500)] | None = None
+
+
+@router.post(
+    "/investigations/{investigation_id}/research-runs", status_code=status.HTTP_201_CREATED
+)
+def link_research_run(
+    ctx: WritableContext, investigation_id: Annotated[int, Path(ge=1)], body: ResearchLinkIn
+) -> dict[str, object]:
+    ctx.repo.link_research_run(investigation_id, body.run_id, body.note)
+    return {"investigation_id": investigation_id, "run_id": body.run_id, "note": body.note}
+
+
+@router.get("/investigations/{investigation_id}/research-runs")
+def list_research_links(
+    ctx: Context, investigation_id: Annotated[int, Path(ge=1)]
+) -> dict[str, object]:
+    return {"items": ctx.repo.research_links(investigation_id)}
+
+
+@router.delete(
+    "/investigations/{investigation_id}/research-runs/{run_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def unlink_research_run(
+    ctx: WritableContext,
+    investigation_id: Annotated[int, Path(ge=1)],
+    run_id: Annotated[str, Path(min_length=1, max_length=36)],
+) -> None:
+    ctx.repo.unlink_research_run(investigation_id, run_id)

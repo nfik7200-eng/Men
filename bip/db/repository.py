@@ -658,6 +658,89 @@ class Repository:
                 )
         return out, total
 
+    # ------------------------------------------------------------- cases <-> research (v6)
+
+    def _case_and_run(
+        self, conn: Connection, investigation_id: int, run_key: str
+    ) -> tuple[int, int]:
+        inv, rr = schema.investigations, schema.research_runs
+        if conn.execute(select(inv.c.id).where(inv.c.id == investigation_id)).first() is None:
+            raise RecordNotFoundError(f"investigation {investigation_id} not found")
+        run = conn.execute(select(rr.c.id).where(rr.c.run_key == run_key)).first()
+        if run is None:
+            raise RecordNotFoundError(f"research run {run_key} not found")
+        return investigation_id, int(run.id)
+
+    def link_research_run(self, investigation_id: int, run_key: str, note: str | None) -> None:
+        link = schema.investigation_research_runs
+        with self._tx() as conn:
+            _, run_pk = self._case_and_run(conn, investigation_id, run_key)
+            exists = conn.execute(
+                select(link.c.id).where(
+                    link.c.investigation_id == investigation_id, link.c.research_run_id == run_pk
+                )
+            ).first()
+            if exists is not None:
+                raise DuplicateRecordError("this research run is already linked to the case")
+            conn.execute(
+                insert(link).values(
+                    investigation_id=investigation_id,
+                    research_run_id=run_pk,
+                    note=note,
+                    attached_at=utcnow(),
+                )
+            )
+
+    def research_links(self, investigation_id: int) -> list[dict[str, object]]:
+        link, rr, inv = (
+            schema.investigation_research_runs,
+            schema.research_runs,
+            schema.investigations,
+        )
+        with self._tx() as conn:
+            if conn.execute(select(inv.c.id).where(inv.c.id == investigation_id)).first() is None:
+                raise RecordNotFoundError(f"investigation {investigation_id} not found")
+            rows = conn.execute(
+                select(
+                    rr.c.run_key,
+                    rr.c.state,
+                    rr.c.question,
+                    rr.c.chain,
+                    rr.c.address,
+                    rr.c.created_at,
+                    link.c.note,
+                    link.c.attached_at,
+                )
+                .join(rr, rr.c.id == link.c.research_run_id)
+                .where(link.c.investigation_id == investigation_id)
+                .order_by(link.c.attached_at, link.c.id)
+            ).all()
+        return [
+            {
+                "run_id": r.run_key,
+                "state": r.state,
+                "question": r.question,
+                "chain": r.chain,
+                "address": r.address,
+                "created_at": r.created_at,
+                "note": r.note,
+                "attached_at": r.attached_at,
+            }
+            for r in rows
+        ]
+
+    def unlink_research_run(self, investigation_id: int, run_key: str) -> None:
+        link = schema.investigation_research_runs
+        with self._tx() as conn:
+            _, run_pk = self._case_and_run(conn, investigation_id, run_key)
+            res = conn.execute(
+                delete(link).where(
+                    link.c.investigation_id == investigation_id, link.c.research_run_id == run_pk
+                )
+            )
+            if res.rowcount == 0:
+                raise RecordNotFoundError("this research run is not linked to the case")
+
     def wallet_status(self, chain: str, address: str) -> dict[str, object]:
         """What BIP holds for one wallet. ``None`` means not stored, never zero (ADR-031)."""
         ref = canonical_address(chain, address)
