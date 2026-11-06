@@ -67,6 +67,22 @@ def _amount(sym, num, word):
     return round(float(num.replace(",", "")) * 100), cur
 
 
+_UNIT_SP = re.compile(r"(\d+(?:\.\d+)?)\s*(gb|tb|mb|ghz|mhz|mah)\b")
+
+
+def norm_units(text: str) -> str:
+    """'8 GB' / '8GB' / '8gb' -> '8gb': unit spelling must never decide relevance (merchants write both)."""
+    return _UNIT_SP.sub(r"\1\2", text.lower())
+
+
+def has_word(k: str, text: str) -> bool:
+    """Keyword in (unit-normalised) text. Tokens starting with a digit ('8gb') must match whole ('128gb' is not '8gb');
+    other words match as substrings so 'cable' still finds 'cables'."""
+    if k[:1].isdigit():
+        return re.search(rf"(?<![a-z0-9.]){re.escape(k)}(?![a-z0-9])", text) is not None
+    return k in text
+
+
 def parse_query(q: str) -> dict:
     low = q.lower()
     out: dict = {"assumptions": [], "gaps": []}
@@ -119,7 +135,7 @@ def parse_query(q: str) -> dict:
     # negation then keywords
     out["excluded"] = sorted({w for w in _NEG.findall(low) if w not in STOP})
     neg_words = set(out["excluded"])
-    out["keywords"] = [w for w in re.findall(r"[a-z0-9]+", low)
+    out["keywords"] = [w for w in re.findall(r"[a-z0-9]+", norm_units(low))
                        if len(w) > 2 and w not in STOP and w not in neg_words and w not in CATEGORY_WORDS and w not in _CUR_WORD
                        and not w.isdigit() and not _NOT_MONEY.match(w)
                        and not re.search(r"programm|coding|develop|import|shipping|customs|uganda|kenya|tanzania|between", w)
@@ -211,13 +227,13 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     soft_kw = [k for k in intent["keywords"] if k not in brand_words and k not in brands]
     if brand_kw:
         cands = [l for l in cands if (l.brand or "").lower() in brand_kw]
-    text_of = lambda l: f"{l.title} {l.description} {l.brand or ''}".lower()
+    text_of = lambda l: norm_units(f"{l.title} {l.description} {l.brand or ''}")
     if soft_kw and not intent["category"] and not brand_kw:  # keywords ARE the product when nothing else names it
-        cands = [l for l in cands if any(k in text_of(l) for k in soft_kw)]
+        cands = [l for l in cands if any(has_word(k, text_of(l)) for k in soft_kw)]
         if not cands:
             caveats.append(f"No collected listing matches {soft_kw}.")
     elif soft_kw:
-        unmatched = [k for k in soft_kw if not any(k in text_of(l) for l in cands)]
+        unmatched = [k for k in soft_kw if not any(has_word(k, text_of(l)) for l in cands)]
         if unmatched:
             caveats.append(f"Ignored (no listing mentions): {', '.join(unmatched)}.")
 
@@ -247,17 +263,16 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
             p.fit -= 5
             p.misses.append({"out_of_stock": "out of stock at last check", "backorder": "on backorder at last check",
                              "preorder": "pre-order only"}[av])
-        p.fit += 0.75 * sum(k in text_of(p.listing) for k in soft_kw)
+        p.fit += 0.75 * sum(has_word(k, text_of(p.listing)) for k in soft_kw)
         p.deal = score_listing(s, p.listing, ctx, now)
         p.price_status = price_status(p.listing, p.listing.source, now)
-    kw_present = [k for k in soft_kw if any(k in text_of(l) for l in cands)]  # words that name something we actually hold
+    kw_present = [k for k in soft_kw if any(has_word(k, text_of(l)) for l in cands)]  # words that name something we actually hold
     word_in = lambda t, l: re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", text_of(l)) is not None
     model_present = [t for t in intent.get("model_tokens", []) if any(word_in(t, l) for l in cands)]
     for p in picks:
-        p.relevant = all(k in text_of(p.listing) for k in kw_present) and all(word_in(t, p.listing) for t in model_present)
+        p.relevant = all(has_word(k, text_of(p.listing)) for k in kw_present) and all(word_in(t, p.listing) for t in model_present)
     if model_present:  # the user named a specific model: 'Pi 5 Essential Kit' / 'Compute Module 5' are not 'Pi 5'
-        qnorm = re.sub(r"(\d+)\s*(gb|tb|mb|ghz|mhz)\b", r"\1\2", question.lower())  # '8 GB' and '8GB' are the same word
-        qwords = set(re.findall(r"[a-z0-9]+", qnorm))
+        qwords = set(re.findall(r"[a-z0-9]+", norm_units(question)))  # '8 GB' and '8GB' are the same word
         for p in picks:
             p.extra = len(name_signature(p.listing.title, p.listing.brand) - qwords)
     ranked = sorted(picks, key=lambda p: (not p.relevant, p.extra, -p.fit, p.listing.price_minor))
