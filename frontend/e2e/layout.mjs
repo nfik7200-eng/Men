@@ -37,8 +37,18 @@ const VIEWPORTS = [
   { name: "desktop", viewport: { width: 1360, height: 900 }, hasTouch: false, isMobile: false, minTarget: 32 },
 ];
 
+/** Retrieve the fixture wallet first so pages are checked with data (an empty DB hides overflow). */
+async function seed(baseUrl) {
+  try {
+    await fetch(`${baseUrl}/api/v1/ingestion/wallet/ethereum/${ETH}?limit=20`, { method: "POST" });
+  } catch {
+    /* backend not running: pages are checked in their offline state */
+  }
+}
+
 export async function checkLayout(browser, baseUrl, { screenshotDir } = {}) {
   const failures = [];
+  await seed(baseUrl);
   for (const vp of VIEWPORTS) {
     const ctx = await browser.newContext({ viewport: vp.viewport, hasTouch: vp.hasTouch, isMobile: vp.isMobile });
     const page = await ctx.newPage();

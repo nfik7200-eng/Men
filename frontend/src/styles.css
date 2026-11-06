@@ -235,3 +235,30 @@ tr:last-child td { border-bottom: 0; }
 .wallet-search input { flex: 1 1 auto; min-width: 0; font-family: var(--mono); }
 .wallet-search .field-error { margin: 0; }
 .topbar { display: flex; justify-content: flex-end; } .topbar .wallet-search { width: min(560px, 100%); }
+
+/* ---------------------------------------------------------------- data components */
+.addr-wrap { display: inline-flex; align-items: center; gap: var(--s2); max-width: 100%; }
+.addr { white-space: nowrap; }
+.btn-icon { padding: 2px 8px; font-size: var(--fs-xs); }
+.data-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.data-card { border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--surface-2); padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2); min-width: 0; overflow-wrap: anywhere; }
+.data-card-title { margin: 0; font-size: var(--fs-md); font-weight: 600; }
+.data-card summary { cursor: pointer; color: var(--accent); }
+.grade { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; color: var(--idle); }
+.grade-mark { width: 9px; height: 9px; display: inline-block; background: currentColor; border-radius: 50%; }
+.grade-verified, .grade-corroborated { color: var(--ok); }
+.grade-corroborated .grade-mark { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--ok); }
+.grade-deterministic_rule, .grade-rule_based { color: var(--info); }
+.grade-deterministic_rule .grade-mark, .grade-rule_based .grade-mark { border-radius: 1px; }
+.grade-model_prediction { color: var(--info); }
+.grade-model_prediction .grade-mark { border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+.grade-statistical_signal { color: var(--info); }
+.grade-statistical_signal .grade-mark { border-radius: 0; background: none; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 9px solid currentColor; }
+.grade-ai_interpretation, .grade-hypothesis { color: var(--warn); }
+.grade-ai_interpretation .grade-mark { background: none; border: 2px solid currentColor; }
+.grade-hypothesis .grade-mark { background: none; border: 2px dashed currentColor; }
+.grade-missing_information, .grade-insufficient_evidence { color: var(--faint); }
+.grade-missing_information .grade-mark, .grade-insufficient_evidence .grade-mark { border-radius: 1px; background: repeating-linear-gradient(45deg, currentColor 0 2px, transparent 2px 4px); }
+.grade-conflicted, .grade-invalidated { color: var(--bad); }
+.list li, .activity li > *, .state-body, .lede, .kv dd, .rule-list p, .rule-list li { overflow-wrap: anywhere; min-width: 0; }
+td a, dd a, li > a:only-child { display: inline-flex; align-items: center; min-height: var(--target); }
