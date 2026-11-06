@@ -11,10 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from watchtower.deals import DealScore, PeerContext, score_listing
-from watchtower.models import Listing, utcnow
+from watchtower.models import CrawlUrl, Listing, Source, utcnow
 from watchtower.money import fmt_money
 from watchtower.quality import price_status
-from watchtower.matching import TYPE_WORDS, name_signature
+from watchtower.acquisition import hint_from_url
+from watchtower.coverage import _classify
+from watchtower.matching import TYPE_WORDS, name_signature, title_conflict
 from watchtower.specs import CPU_TIER
 
 from . import importcost, llm
@@ -49,6 +51,7 @@ class Pick:
     relevant: bool = True  # mentions every product word the user used that appears in any candidate
     price_status: str = "verified"
     import_estimate: dict | None = None
+    also: list[dict] = field(default_factory=list)  # the same product at other shops: source, price, how sure we are
 
 
 _CUR_SYM = {"$": "USD", "£": "GBP", "€": "EUR"}
@@ -210,6 +213,30 @@ def _fit(l: Listing, intent: dict) -> Pick:
     return p
 
 
+def _uncollected(s: Session, question: str, intent: dict, represented: set[int], limit: int = 3) -> list[dict]:
+    """Real-shop pages that were DISCOVERED (their address names something like the question) but never collected, at shops
+    that have no pick. Disclosure only: such a page has no price, stock or history and is never a pick or a comparison."""
+    words = [w for w in intent["keywords"] if len(w) > 1] + list(intent.get("model_tokens", []))
+    if len(set(words)) < 2:
+        return []
+    q = norm_units(question)
+    qtok = set(re.findall(r"[a-z0-9]+(?:\.[0-9]+)?", q))
+    brand_words = {w for (b,) in s.execute(select(Listing.brand).join(Source, Source.id == Listing.source_id).where(Source.kind == "live").distinct())
+                   if b for w in re.findall(r"[a-z0-9]+", b.lower())}
+    out = []
+    rows = s.execute(select(CrawlUrl, Source).join(Source, Source.id == CrawlUrl.source_id).where(
+        Source.kind == "live", CrawlUrl.listing_id.is_(None), CrawlUrl.gone.is_(False)).order_by(Source.key, CrawlUrl.url)).all()
+    for c, src in rows:
+        if src.id in represented or _classify(c) not in ("never_attempted", "fetch_error"):
+            continue
+        hint = norm_units(c.name_hint or hint_from_url(c.url) or "")  # the stored hint, else the words in the URL itself
+        extra = set(re.findall(r"[a-z0-9]+(?:\.[0-9]+)?", hint)) - qtok - brand_words - {"the", "a", "and", "with", "for", "of", "to", "in", "on"}
+        # every word of the page's name must be accounted for by the question: 'pico 2 w' is not 'pico w', a tutorial is not a product
+        if hint and all(has_word(w, hint) for w in set(words)) and not extra and not title_conflict(q, hint):
+            out.append({"source": src.name, "url": c.url})
+    return out[:limit]
+
+
 def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool = True,
            shipping_minor: int | None = None) -> dict:
     now = now or utcnow()
@@ -327,6 +354,17 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
         caveats.append("All matching listings come from DEMO/sandbox catalogues, not real retailers — treat prices as test data.")
     if any(p.price_status == "stale" for p in top):
         caveats.append("Some prices are stale (older than the source's freshness window) — re-check before relying on them.")
+    uncollected = _uncollected(s, question, intent, {p.listing.source_id for p in top + alternatives}) if top or cands else []
+    for u in uncollected:
+        caveats.append(f"Not collected yet: {u['source']} has a page at {u['url']} whose address suggests this product, but we have not "
+                       "read it, so its price and stock are unknown. It is not counted as a comparison.")
+    for p in top + alternatives:  # the same product at other shops, with how sure the match is
+        if p.listing.product_id is not None and p.listing.source.kind == "live":
+            for o in s.scalars(select(Listing).options(joinedload(Listing.source)).where(
+                    Listing.product_id == p.listing.product_id, Listing.source_id != p.listing.source_id,
+                    Listing.active.is_(True), Listing.price_minor.is_not(None))):
+                p.also.append({"source": o.source.name, "price": fmt_money(o.price_minor, o.currency), "listing_id": o.id,
+                               "sure": "confirmed by a person" if o.match_status == "confirmed" else "automatic match, not human-verified"})
     gaps = [f"Our data has no {g}; those aspects cannot be assessed here." for g in intent["gaps"]]
     if not cands and clarification is None:
         if over:
@@ -340,7 +378,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     result = {
         "question": question, "interpretation": {k: v for k, v in intent.items() if k not in ("assumptions", "gaps")},
         "picks": top, "alternatives": alternatives, "gaps": gaps, "caveats": caveats, "clarification": clarification,
-        "retrieved_listing_ids": [p.listing.id for p in top + alternatives], "candidate_count": len(cands),
+        "retrieved_listing_ids": [p.listing.id for p in top + alternatives], "candidate_count": len(cands), "uncollected": uncollected,
         "llm_summary": None,
     }
     result["text"] = render_text(result)
@@ -369,6 +407,15 @@ def render_text(r: dict) -> str:
         if p.misses: lines.append("   Falls short: " + "; ".join(p.misses))
         if p.unknown: lines.append("   Not stated in source: " + "; ".join(p.unknown))
         if p.deal: lines.append(f"   Deal assessment: {p.deal.label} (confidence {p.deal.confidence})")
+        if p.deal and p.listing.source.kind == "live":
+            n = p.deal.n_obs or 0
+            days = ((l.last_observed_at - l.first_seen_at).days if l.last_observed_at and l.first_seen_at else 0)
+            lines.append(f"   Price history: {n} observation{'s' if n != 1 else ''} over {days} day{'s' if days != 1 else ''}"
+                         + ("" if p.deal.label == "Verified price drop" else "; a verified price drop needs 3+ observations over 7+ days"))
+        if p.also:
+            lines.append("   Also sold at: " + "; ".join(f"{a['source']} {a['price']} ({a['sure']})" for a in p.also))
+        elif p.listing.source.kind == "live" and p.listing.product_id is not None:
+            lines.append("   No other shop in our data sells this product (yet).")
         if p.import_estimate and p.import_estimate.get("available"):
             e = p.import_estimate
             lines.append(f"   Estimated landed cost: {'≥ ' if e['partial'] else ''}{fmt_money(e['total_minor'], e['currency'])} "

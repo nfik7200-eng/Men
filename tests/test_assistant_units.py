@@ -159,3 +159,75 @@ def test_decimal_values_with_longer_units_match_whole(db):
         _cat(s, b, "b1", "Pi 4 Board 1.8GHz Quad Core", 5000)
         s.flush()
         assert [p.listing.external_id for p in assistant.answer(s, "board 2.4ghz", now=T0, use_llm=False)["picks"]] == ["a1"]
+
+
+# --- mission 005: the answer reflects what has actually been collected --------------------------------------------
+def _crawl_row(s, src_key, url, hint, **kw):
+    from watchtower.models import CrawlUrl
+    src = s.query(Source).filter_by(key=src_key).one()
+    c = CrawlUrl(source_id=src.id, url=url, first_seen_at=T0, name_hint=hint, **kw)
+    s.add(c)
+    s.flush()
+    return c
+
+
+def test_a_discovered_but_uncollected_page_is_disclosed_not_claimed(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a = Source(key="adafruit", name="Adafruit", base_url="https://www.adafruit.com", currency="USD", kind="live")
+        b = Source(key="sparkfun", name="SparkFun", base_url="https://www.sparkfun.com", currency="USD", kind="live")
+        s.query(Source).filter(Source.key.in_(("adafruit", "sparkfun"))).delete()
+        s.add_all([a, b])
+        s.flush()
+        ingest_listing(s, a, None, _raw("5291", "Raspberry Pi Zero 2 W", 1500), T0)
+        _crawl_row(s, "sparkfun", "https://www.sparkfun.com/raspberry-pi-zero-2-w.html", "raspberry pi zero 2 w")
+        _crawl_row(s, "sparkfun", "https://www.sparkfun.com/sparkfun-raspberry-pi-zero-2-w-basic-kit.html", "sparkfun raspberry pi zero 2 w basic kit")
+        _crawl_row(s, "sparkfun", "https://www.sparkfun.com/raspberry-pi-pico-w.html", "raspberry pi pico w")
+        s.flush()
+        r = assistant.answer(s, "raspberry pi zero 2 w", now=T0, use_llm=False)
+        assert [p.listing.source.key for p in r["picks"]] == ["adafruit"]  # an uncollected page is never a pick
+        note = [c for c in r["caveats"] if "not collected" in c.lower()]
+        assert len(note) == 1 and "SparkFun" in note[0] and "raspberry-pi-zero-2-w.html" in note[0]
+        assert "price and stock are unknown" in note[0] and "kit" not in note[0] and "pico" not in note[0].lower()
+        assert r["uncollected"] == [{"source": "SparkFun", "url": "https://www.sparkfun.com/raspberry-pi-zero-2-w.html"}]
+        # once the page is collected the disclosure disappears and both merchants are compared
+        ingest_listing(s, b, None, _raw("z2", "Raspberry Pi Zero 2 W", 1400), T0)
+        s.query(__import__("watchtower.models", fromlist=["CrawlUrl"]).CrawlUrl).filter_by(url="https://www.sparkfun.com/raspberry-pi-zero-2-w.html").one().listing_id = 2
+        s.flush()
+        r = assistant.answer(s, "raspberry pi zero 2 w", now=T0, use_llm=False)
+        assert not [c for c in r["caveats"] if "not collected" in c.lower()] and len(r["picks"]) == 2
+
+
+def test_picks_state_the_cross_merchant_match_status_and_history_depth(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        x, *_ = ingest_listing(s, a, None, _raw("a1", "Raspberry Pi 5 - 8 GB RAM", 20000), T0)
+        y, *_ = ingest_listing(s, b, None, _raw("b1", "Raspberry Pi 5 - 8GB", 18000), T0)
+        lone, *_ = ingest_listing(s, b, None, _raw("b9", "Raspberry Pi 500 Kit", 9000), T0)
+        s.flush()
+        r = assistant.answer(s, "raspberry pi 5 8gb", now=T0, use_llm=False)
+        text = r["text"]
+        assert "Also sold at" in text and "automatic match" in text and "not human-verified" in text
+        assert "Price history: 1 observation" in text and "verified" in text.lower()
+        y.match_status = x.match_status = "confirmed"
+        s.flush()
+        assert "confirmed by a person" in assistant.answer(s, "raspberry pi 5 8gb", now=T0, use_llm=False)["text"]
+        r2 = assistant.answer(s, "raspberry pi kit", now=T0, use_llm=False)
+        assert "Also sold at" not in r2["text"] and "no other shop" in r2["text"].lower()
+
+
+def test_uncollected_disclosure_excludes_other_models_and_non_product_pages(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a = Source(key="adafruit", name="Adafruit", base_url="https://www.adafruit.com", currency="USD", kind="live")
+        s.query(Source).filter(Source.key.in_(("adafruit", "sparkfun"))).delete()
+        b = Source(key="sparkfun", name="SparkFun", base_url="https://www.sparkfun.com", currency="USD", kind="live")
+        s.add_all([a, b])
+        s.flush()
+        ingest_listing(s, a, None, _raw("1", "Raspberry Pi Pico W", 600), T0)
+        for slug in ("raspberry-pi-pico-w", "raspberry-pi-pico-2-w", "get-started-with-micropython-on-raspberry-pi-pico"):
+            _crawl_row(s, "sparkfun", f"https://www.sparkfun.com/{slug}.html", None)
+        s.flush()
+        r = assistant.answer(s, "pi pico w", now=T0, use_llm=False)
+        assert [u["url"].rsplit("/", 1)[1] for u in r["uncollected"]] == ["raspberry-pi-pico-w.html"]
