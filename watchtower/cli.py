@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | source | fx"""
+"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | coverage | source | fx"""
 import argparse
 import logging
 
@@ -43,6 +43,9 @@ def main(argv=None):
     pl.add_argument("--max-pages", type=int)
     pl.add_argument("--show", type=int, default=15, help="how many selected/deferred URLs to list")
     pl.add_argument("--explain", help="URL whose legacy (tier, alphabetical) rank and new rank to compare")
+    cv = sub.add_parser("coverage", help="acquisition coverage per live source (read-only report on a snapshot/copy)")
+    cv.add_argument("--db", required=True, help="SQLite snapshot/copy (never the live DB)")
+    cv.add_argument("--json", action="store_true")
     e = sub.add_parser("source")
     e.add_argument("action", choices=["enable", "disable"])
     e.add_argument("key", choices=list(ADAPTERS))
@@ -50,6 +53,8 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if args.cmd == "backup":  # before Database(): opening the app DB normally runs init/ensure_* writes
         return _backup(args.out)
+    if args.cmd == "coverage":
+        return _coverage(args)
     if args.cmd == "plan":  # offline and read-only as well
         return _plan(args)
     if args.cmd == "verify":  # read-only as well
@@ -126,6 +131,35 @@ def main(argv=None):
                 print(f"{src.key}: {n} listings, {state}, {'configured' if ready else 'NOT CONFIGURED (' + ', '.join(missing) + ')'}, "
                       f"last_success={src.last_success_at}, last_status={src.last_status}")
             print("observations:", s.query(Observation).count())
+
+
+def _coverage(args) -> int:
+    import json
+    from datetime import datetime, timezone
+    from pathlib import Path
+    from . import config
+    from .coverage import coverage_report
+    path = Path(args.db).resolve()
+    live = config.DB_URL[len("sqlite:///"):] if config.DB_URL.startswith("sqlite:///") else None
+    if not path.is_file() or (live and path == Path(live).resolve()):
+        print("coverage: --db must be an existing snapshot/copy, never the configured live database")
+        return 2
+    db = Database(f"sqlite:///{path}")
+    db.sync_columns()  # older COPY -> current schema
+    with db.Session() as s:
+        rep = coverage_report(s, datetime.now(timezone.utc).replace(tzinfo=None))
+        s.rollback()
+    if args.json:
+        print(json.dumps(rep, indent=1, default=str))
+        return 0
+    print(f"live merchants={rep['live_merchants']} live listings={rep['live_listings']} cross-merchant products={rep['cross_merchant_products']}")
+    pct = lambda v: "-" if v is None else f"{v:.0%}"
+    for c in rep["sources"]:
+        print(f"{c['key']}: discovered={c['discovered']} eligible={c['eligible']} acquired={c['acquired']} ({pct(c['eligible_coverage'])}) "
+              f"fetched_ok={c['fetched_ok']} extraction={pct(c['extraction_success_rate'])} never_attempted={c['never_attempted']} "
+              f"deferred_budget={c['deferred_budget']} with_counterpart={c['unfetched_with_counterpart']} failed={c['failed']} "
+              f"rejected={c['rejected']} dup={c['duplicates']} non_product={c['non_product']} unknown={c['unknown_outcome']} health={c['health']}")
+    return 0
 
 
 def _plan(args) -> int:
