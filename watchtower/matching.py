@@ -384,7 +384,10 @@ def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
     mirrors = _reverse_pending(s, l, target)
     # everyone whose 'review' status may hinge on this question: the listing, the target product's members, and the
     # listings of mirrored candidates (collected BEFORE the move)
-    affected = {x.id: x for x in [l] + _members(s, target) + [m.listing for m in mirrors]}
+    asking_old = list(s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending",
+                                                              MatchCandidate.product_id == l.product_id, MatchCandidate.id != c.id)))
+    target_members = [x for x in _members(s, target) if x.id != l.id]
+    affected = {x.id: x for x in [l] + target_members + [m.listing for m in mirrors + asking_old]}
     c.status = "accepted" if accept else "rejected"
     for m in mirrors:
         m.status = c.status
@@ -394,6 +397,10 @@ def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
         s.flush()
         _drop_product_if_empty(s, old, l.id)  # also closes other pending candidates pointing at the vanished product
     s.flush()
+    if accept:  # a lone counterpart now shares a human-confirmed product
+        for x in target_members:
+            if x.match_status == "self" and x.source_id != l.source_id:
+                x.match_status, x.match_reasons = "confirmed", []
     for x in affected.values():
         if x.match_status != "review":
             continue  # human-confirmed and automatic matches are never downgraded by an unrelated decision

@@ -85,3 +85,77 @@ def test_named_model_ranks_the_board_above_a_cheaper_compute_module(db):
         assert r["picks"][0].listing.title == "Raspberry Pi 4 Model B - 4 GB RAM"
         r = assistant.answer(s, "raspberry pi compute module 4 4gb", now=T0, use_llm=False)  # asked for: then it is the answer
         assert r["picks"][0].listing.title.startswith("Raspberry Pi Compute Module 4")
+
+
+# --- independent review of iterations 4 and 6 (each case failed before the fix) ---------------------------------
+def _cat(s, src, ext, title, price, cat="maker-electronics", avail="in_stock"):
+    r = _raw(ext, title, price)
+    r.category, r.availability = cat, avail
+    return ingest_listing(s, src, None, r, T0)[0]
+
+
+def test_decimal_unit_values_still_match_their_listing(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        _cat(s, a, "a1", "Raspberry Pi 15W USB-C Power Supply 5.1V 3A", 800)
+        _cat(s, b, "b1", "Official Raspberry Pi Power Supply 5V 2.5A", 750)
+        _cat(s, b, "b2", "Raspberry Pi 27W USB-C Power Supply 5.1V 5A", 1200)
+        s.flush()
+        assert [p.listing.external_id for p in assistant.answer(s, "5.1V 3A", now=T0, use_llm=False)["picks"]][:1] == ["a1"]
+        assert assistant.answer(s, "2.5A power supply", now=T0, use_llm=False)["picks"][0].listing.external_id == "b1"
+
+
+def test_a_spec_requirement_is_a_minimum_not_a_literal_keyword(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        _cat(s, a, "a1", "Acme Notebook 14 8GB RAM 256GB SSD", 50000, cat="laptop")
+        _cat(s, b, "b1", "Acme Notebook 14 16GB RAM 512GB SSD", 60000, cat="laptop")
+        s.flush()
+        ids = {p.listing.external_id for p in assistant.answer(s, "laptop with 8 GB RAM", now=T0, use_llm=False)["picks"]}
+        assert ids == {"a1", "b1"}  # 16 GB meets '8 GB RAM' (the fit check treats it as 8+)
+
+
+def test_plural_accessory_query_is_not_answered_with_the_board(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        _cat(s, a, "a1", "Raspberry Pi 5 - 4 GB RAM", 6000)
+        _cat(s, b, "b1", "Raspberry Pi 5 Case - Red/White", 1000)
+        s.flush()
+        for q in ("pi 5 cases", "pi 5 case"):
+            assert assistant.answer(s, q, now=T0, use_llm=False)["picks"][0].listing.external_id == "b1", q
+
+
+def test_leaving_out_other_product_types_is_reported(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        _cat(s, a, "a1", "Raspberry Pi 5 - 2 GB RAM", 9000, avail="out_of_stock")
+        _cat(s, b, "b2", "Raspberry Pi Compute Module 5 Lite - 2GB RAM", 7000)
+        s.flush()
+        r = assistant.answer(s, "pi 5 2gb", now=T0, use_llm=False)
+        assert [p.listing.external_id for p in r["picks"]] == ["a1"]
+        assert any("other product type" in c for c in r["caveats"]), r["caveats"]
+
+
+def test_type_filter_does_not_apply_to_laptops_and_phones(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        _cat(s, a, "a1", "Dell XPS 13 Touchscreen Display 16GB RAM", 120000, cat="laptop")
+        _cat(s, b, "b1", "Dell XPS 13 16GB RAM", 125000, cat="laptop")
+        s.flush()
+        ids = {p.listing.external_id for p in assistant.answer(s, "dell xps 13", now=T0, use_llm=False)["picks"]}
+        assert ids == {"a1", "b1"}
+
+
+def test_decimal_values_with_longer_units_match_whole(db):
+    ensure_sources(db)
+    with db.session() as s:
+        a, b = _two_shops(s)
+        _cat(s, a, "a1", "Pi 5 Board 2.4GHz Quad Core", 8000)
+        _cat(s, b, "b1", "Pi 4 Board 1.8GHz Quad Core", 5000)
+        s.flush()
+        assert [p.listing.external_id for p in assistant.answer(s, "board 2.4ghz", now=T0, use_llm=False)["picks"]] == ["a1"]

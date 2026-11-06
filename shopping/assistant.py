@@ -68,6 +68,7 @@ def _amount(sym, num, word):
     return round(float(num.replace(",", "")) * 100), cur
 
 
+_TYPED_CATEGORIES = {"maker-electronics"}  # where matching.TYPE_WORDS name accessories/parts (not laptop 'display' etc.)
 _UNIT_SP = re.compile(r"(\d+(?:\.\d+)?)\s*(gb|tb|mb|ghz|mhz|mah)\b")
 
 
@@ -81,7 +82,10 @@ def has_word(k: str, text: str) -> bool:
     other words match as substrings so 'cable' still finds 'cables'."""
     if k[:1].isdigit():
         return re.search(rf"(?<![a-z0-9.]){re.escape(k)}(?![a-z0-9])", text) is not None
-    return k in text
+    if k in text:
+        return True
+    # plural asked, singular listed ('cases' / 'case', 'heatsinks' / 'heatsink', 'boxes' / 'box')
+    return len(k) > 4 and k.endswith("s") and (k[:-1] in text or (k.endswith("es") and k[:-2] in text))
 
 
 def parse_query(q: str) -> dict:
@@ -136,7 +140,15 @@ def parse_query(q: str) -> dict:
     # negation then keywords
     out["excluded"] = sorted({w for w in _NEG.findall(low) if w not in STOP})
     neg_words = set(out["excluded"])
-    out["keywords"] = [w for w in re.findall(r"[a-z0-9]+", norm_units(low))
+    # spec requirements are minimums handled by _fit ('8 GB RAM' is met by 16 GB), never literal keywords
+    consumed = set()
+    if out.get("req_ram_gb"):
+        consumed.add(f"{out['req_ram_gb']}gb")
+    if out.get("req_storage_gb"):
+        v = out["req_storage_gb"]
+        consumed |= {f"{v}gb"} | ({f"{v // 1024}tb"} if v % 1024 == 0 else set())
+    out["keywords"] = [w for w in re.findall(r"\d+(?:\.\d+)?[a-z]*|[a-z][a-z0-9]*", norm_units(low))  # keep '2.4ghz' whole
+                       if w not in consumed and not re.fullmatch(r"\d+(?:\.\d+)?", w)
                        if len(w) > 2 and w not in STOP and w not in neg_words and w not in CATEGORY_WORDS and w not in _CUR_WORD
                        and not w.isdigit() and not _NOT_MONEY.match(w)
                        and not re.search(r"programm|coding|develop|import|shipping|customs|uganda|kenya|tanzania|between", w)
@@ -274,15 +286,22 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
         p.relevant = all(has_word(k, text_of(p.listing)) for k in kw_present) and all(word_in(t, p.listing) for t in model_present)
     if model_present:  # the user named a specific model: 'Pi 5 Essential Kit' / 'Compute Module 5' are not 'Pi 5'
         qwords = set(re.findall(r"[a-z0-9]+", norm_units(question)))  # '8 GB' and '8GB' are the same word
+        # the user asked for a product TYPE ('cases', 'heatsinks', 'power adapter'): then no type is "other"
+        asked_type = any(w in TYPE_WORDS or w.rstrip("s") in TYPE_WORDS or w.rstrip("es") in TYPE_WORDS for w in qwords)
         for p in picks:
             p.extra = len(name_signature(p.listing.title, p.listing.brand) - qwords)
-            p.other_type = bool((set(re.findall(r"[a-z0-9]+", p.listing.title.lower())) & TYPE_WORDS) - qwords)
+            p.other_type = (p.listing.category in _TYPED_CATEGORIES and not asked_type
+                            and bool(set(re.findall(r"[a-z0-9]+", p.listing.title.lower())) & TYPE_WORDS))
     ranked = sorted(picks, key=lambda p: (not p.relevant, p.other_type, p.extra, -p.fit, p.listing.price_minor))
     relevant = [p for p in ranked if p.relevant] or ranked  # relevance to the user's words outranks availability
     if model_present and any(not p.other_type for p in relevant):
         # the user named a model: a different product class (a Compute Module for 'Pi 4', a case for 'Pi 5') is not an
         # answer, even when the exact product is out of stock — that is reported, not papered over
+        left_out = [p for p in relevant if p.other_type]
         relevant = [p for p in relevant if not p.other_type]
+        if left_out:
+            caveats.append(f"{len(left_out)} listing(s) of other product types (e.g. '{left_out[0].listing.title[:50]}') "
+                           "were left out because you named a specific model.")
     fresh = [p for p in relevant if p.price_status != "stale"]
     if fresh and len(fresh) < len(relevant):  # stale prices never outrank (or sit beside) fresh ones for the same ask
         caveats.append(f"{len(relevant) - len(fresh)} matching listing(s) omitted because their prices are stale.")

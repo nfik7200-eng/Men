@@ -150,3 +150,35 @@ def test_rejecting_another_question_never_downgrades_a_confirmed_listing(db):
     resolve_candidate(s, q.id, accept=False)
     s.flush()
     assert a.match_status == b.match_status == "confirmed" and a.product_id == b.product_id
+
+
+def test_accept_resets_listings_whose_question_pointed_at_the_vanished_product(db):
+    """Review: y proposed for l's (singleton) product; accepting l elsewhere deletes that product and y's question."""
+    s, a, b = _world(db)
+    (c,) = _pending(s)
+    l = s.get(Listing, c.listing_id)
+    src = Source(key="shopc", name="shopc", base_url="https://shopc.example", currency="USD", kind="live")
+    s.add(src)
+    s.flush()
+    raw = _raw("c1", "Raspberry Pi 3 Model A Plus")
+    raw.category = "laptop"
+    y, *_ = ingest_listing(s, src, None, raw, T0)
+    s.flush()
+    y.category, y.match_status = "maker-electronics", "review"
+    s.add(MatchCandidate(listing_id=y.id, product_id=l.product_id, score=0.6, reasons=["y -> l's product"]))
+    s.flush()
+    resolve_candidate(s, c.id, accept=True)
+    s.flush()
+    assert y.match_status == "self"
+
+
+def test_accept_confirms_a_lone_self_member_of_the_target(db):
+    s, a, b = _world(db)
+    (c,) = _pending(s)
+    l = s.get(Listing, c.listing_id)
+    m = b if l is a else a
+    m.match_status = "self"  # the common case: a lone listing that l was proposed against
+    s.flush()
+    resolve_candidate(s, c.id, accept=True)
+    s.flush()
+    assert l.product_id == m.product_id and m.match_status == "confirmed"
