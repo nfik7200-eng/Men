@@ -19,6 +19,11 @@ class FetchBlocked(Exception):
     """robots.txt / allowlist / server refusal (401/403/451). We stop; we never work around it."""
 
 
+class FetchDisallowed(FetchBlocked):
+    """This ONE URL may not be fetched (robots.txt disallow, host outside the allowlist, unsupported/internal target).
+    Unlike a server refusal (401/403/451) it says nothing about the rest of the site, so a crawl records it and goes on."""
+
+
 class FetchError(Exception):
     pass
 
@@ -69,21 +74,21 @@ class Fetcher:
     def _check(self, url: str) -> None:
         p = urlparse(url)
         if p.scheme not in ("http", "https") or not p.hostname:
-            raise FetchBlocked(f"unsupported URL scheme/host: {url!r}")
+            raise FetchDisallowed(f"unsupported URL scheme/host: {url!r}")
         host = p.hostname.lower()
         if host == "localhost" or host.endswith(".localhost") or host.endswith(".internal"):
-            raise FetchBlocked(f"internal host refused: {host}")
+            raise FetchDisallowed(f"internal host refused: {host}")
         try:
             ip = ipaddress.ip_address(host)
         except ValueError:
             ip = None
         if ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
                                or ip.is_multicast or ip.is_unspecified):
-            raise FetchBlocked(f"non-public IP refused: {host}")
+            raise FetchDisallowed(f"non-public IP refused: {host}")
         if not _host_ok(host, self.allowed_hosts):
-            raise FetchBlocked(f"host not in this source's allowlist: {host}")
+            raise FetchDisallowed(f"host not in this source's allowlist: {host}")
         if self.respect_robots and not self.allowed(url):
-            raise FetchBlocked(f"robots.txt disallows {url}")
+            raise FetchDisallowed(f"robots.txt disallows {url}")
 
     def _robots_for(self, url: str):
         p = urlparse(url)

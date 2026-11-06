@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 
 from . import config, policy
 from .db import Database
-from .fetcher import FetchBlocked, FetchError, FetchGone, Fetcher
+from .fetcher import FetchBlocked, FetchDisallowed, FetchError, FetchGone, Fetcher
 from .ingest import _event, ingest_listing, mark_removed, reconfirm
 from .matching import demote_ambiguous
 from .models import CollectionRun, CrawlUrl, Event, Listing, Source, utcnow
@@ -30,6 +30,7 @@ log = logging.getLogger("watchtower.collector")
 ABANDON_AFTER = timedelta(minutes=45)
 NON_PRODUCT_RECHECK = timedelta(days=30)
 RECHECK_SHARE = 0.6
+DISALLOWED_RECHECK = timedelta(days=7)  # robots.txt is re-read every run; a disallow may be lifted
 
 
 class SourceDisabled(Exception):
@@ -248,9 +249,17 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
         for crawl in recheck[:n_re] + fresh[:n_new]:
             try:
                 res = fetcher.get_ex(crawl.url, etag=crawl.etag, last_modified=crawl.last_modified)
-            except FetchBlocked as e:
+            except FetchDisallowed as e:  # this URL only (robots/allowlist): record it, never hammer it, keep going
+                crawl.last_outcome, crawl.last_outcome_detail = "disallowed", str(e)[:200]
+                crawl.next_check_at = now_fn() + DISALLOWED_RECHECK
+                ex["disallowed"] = ex.get("disallowed", 0) + 1
+                s.commit()
+                continue
+            except FetchBlocked as e:  # 401/403/451 from the server: STOP the whole run, never work around it
+                crawl.last_outcome, crawl.last_outcome_detail = "blocked", str(e)[:200]
                 status = "blocked"
                 errors.append(str(e))
+                s.commit()
                 break
             except FetchGone:
                 # Two-step removal: a single 404/410 may be a transient CDN/maintenance error. Only a SECOND consecutive

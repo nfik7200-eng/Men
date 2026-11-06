@@ -60,8 +60,10 @@ class FakeSite(FakeFetcher):
         return url not in self.disallow
 
     def get_ex(self, url, headers=None, etag=None, last_modified=None):
-        from watchtower.fetcher import FetchBlocked
+        from watchtower.fetcher import FetchBlocked, FetchDisallowed
         self.requested.append(url)
+        if url in self.disallow:
+            raise FetchDisallowed(f"robots.txt disallows {url}")
         if url in self.forbid:
             raise FetchBlocked(f"403 from {url}")
         if url in self.gone:

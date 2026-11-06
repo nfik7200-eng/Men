@@ -233,3 +233,7 @@ class CrawlUrl(Base):
     fail_count: Mapped[int] = mapped_column(Integer, default=0)
     next_check_at: Mapped[datetime | None] = mapped_column(DateTime)
     gone: Mapped[bool] = mapped_column(Boolean, default=False)  # 404/410 on its own URL
+    # what happened the last time we tried this URL (acquisition intelligence): ok | not_modified | no_product | parse_error |
+    # ingest_invalid | alias | disallowed | fetch_error | gone | blocked. Discovery is not acquisition: only `ok`/`not_modified` count.
+    last_outcome: Mapped[str | None] = mapped_column(String(24))
+    last_outcome_detail: Mapped[str | None] = mapped_column(String(200))
