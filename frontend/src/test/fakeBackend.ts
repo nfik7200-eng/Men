@@ -317,6 +317,14 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
       const r = providerIntelResponse(path, method, intel, probeState);
       return r ? json(path === "/providers/probe-runs" && method === "POST" ? 201 : 200, r) : err(404, "not_found", "Not Found");
     }
+    const wa = /^\/intelligence\/watchlists\/(\d+)\/analyze$/.exec(path);
+    if (wa && method === "POST") {
+      const w = watchlists.get(Number(wa[1]));
+      if (!w) return err(404, "not_found", "watchlist not found");
+      // same shape as bip/api/routes/intelligence.py analyze_watchlist
+      return json(201, { data_origin: "stored_observations", analyzer_version: "3.0.0", watchlist_id: w.id, analysed: w.entries.length, skipped: 0,
+        items: w.entries.map((e, i) => ({ chain: e.chain, address: e.address, run_id: i + 1, status: i === 0 ? "succeeded" : "insufficient_data", reused: false, input_hash: "f".repeat(64) })) });
+    }
     const att = /^\/intelligence\/findings\/([^/]+)\/attach$/.exec(path);
     if (att && method === "POST") {
       attached.push({ finding_id: att[1], investigation_id: body.investigation_id });

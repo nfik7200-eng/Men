@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { ApiError, api } from "../api/client";
 import type { Watchlist } from "../api/types";
-import { EmptyState, ErrorState, FieldError, Loading, Mono, PageHeader, Panel } from "../components/ui";
+import { Address } from "../components/Address";
+import { DataTable } from "../components/DataTable";
+import { EmptyState, ErrorState, FieldError, Loading, PageHeader, Panel, Pill } from "../components/ui";
 import { CHAINS, chainLabel, validateAddress } from "../lib/address";
-import { fmtTime } from "../lib/format";
+import { fmtTime, humanize } from "../lib/format";
 import { useApi } from "../lib/useApi";
 
 const message = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
@@ -62,6 +63,20 @@ function WatchlistDetail({ id, onDeleted, onChanged }: { id: number; onDeleted: 
   const list = useApi(() => api.watchlist(id), [id]);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [analysis, setAnalysis] = useState<Awaited<ReturnType<typeof api.analyzeWatchlist>> | null>(null);
+  const [analysing, setAnalysing] = useState(false);
+  const analyse = async () => {
+    setAnalysing(true);
+    setError(null);
+    try {
+      setAnalysis(await api.analyzeWatchlist(id));
+    } catch (err) {
+      setError(message(err, "Could not analyse the watchlist."));
+    } finally {
+      setAnalysing(false);
+    }
+  };
 
   const refresh = () => {
     list.reload();
@@ -88,6 +103,8 @@ function WatchlistDetail({ id, onDeleted, onChanged }: { id: number; onDeleted: 
   if (list.status === "loading") return <Loading />;
   if (list.status === "error") return <ErrorState error={list.error} onRetry={list.reload} />;
   const w = list.data;
+  const q = filter.trim().toLowerCase();
+  const shown = q ? w.entries.filter((e) => e.address.toLowerCase().includes(q) || (e.note ?? "").toLowerCase().includes(q)) : w.entries;
   return (
     <Panel
       title={w.name}
@@ -109,28 +126,53 @@ function WatchlistDetail({ id, onDeleted, onChanged }: { id: number; onDeleted: 
       {w.entries.length === 0 ? (
         <EmptyState title="No addresses on this list" />
       ) : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Chain</th><th>Address</th><th>Note</th><th>Added</th><th /></tr>
-            </thead>
-            <tbody>
-              {w.entries.map((e) => (
-                <tr key={e.id}>
-                  <td>{chainLabel(e.chain)}</td>
-                  <td><Link to={`/wallets/${e.chain}/${e.address}`}><Mono>{e.address}</Mono></Link></td>
-                  <td>{e.note ?? <span className="muted">—</span>}</td>
-                  <td className="mono">{fmtTime(e.added_at)}</td>
-                  <td>
-                    <button type="button" className="btn btn-small" onClick={() => void remove(e.id)} aria-label={`Remove ${e.address}`}>
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="row">
+            <label className="field grow">
+              Filter entries
+              <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Address or note" />
+            </label>
+            <button type="button" className="btn" disabled={analysing} onClick={() => void analyse()}>
+              {analysing ? "Analysing…" : "Analyse watchlist"}
+            </button>
+          </div>
+          <p className="muted">{shown.length} of {w.entries.length} shown</p>
+          {analysis ? (
+            <section role="status" aria-label="Watchlist analysis" className="stack">
+              <p>{summarise(analysis.items)}</p>
+              {analysis.skipped > 0 ? <p className="notice">{analysis.skipped} entries were not analysed (per-request limit). Run again after reviewing these.</p> : null}
+              <ul className="list">
+                {analysis.items.map((r) => (
+                  <li key={`${r.chain}:${r.address}`}>
+                    <Address value={r.address} chain={r.chain} link copy={false} />
+                    <Pill tone={r.status === "succeeded" ? "ok" : r.status === "failed" ? "bad" : "warn"}>{humanize(r.status)}</Pill>
+                    {r.reused ? <span className="muted">reused earlier run</span> : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="note">Analysis reads stored observations only; it makes no network requests and does not retrieve new activity.</p>
+            </section>
+          ) : null}
+          <DataTable
+            caption={`Entries of ${w.name}`}
+            rows={shown}
+            rowKey={(e) => String(e.id)}
+            empty="No entry matches the filter."
+            columns={[
+              { key: "addr", header: "Address", priority: 1, render: (e) => <Address value={e.address} chain={e.chain} link /> },
+              { key: "chain", header: "Chain", priority: 2, render: (e) => chainLabel(e.chain) },
+              { key: "note", header: "Note", priority: 2, render: (e) => e.note ?? <span className="muted">—</span> },
+              { key: "added", header: "Added", priority: 3, render: (e) => fmtTime(e.added_at) },
+              {
+                key: "rm", header: "", priority: 2, render: (e) => (
+                  <button type="button" className="btn btn-small" onClick={() => void remove(e.id)} aria-label={`Remove ${e.address}`}>
+                    Remove
+                  </button>
+                ),
+              },
+            ]}
+          />
+        </>
       )}
     </Panel>
   );
@@ -217,4 +259,11 @@ export default function Watchlists() {
       </div>
     </>
   );
+}
+
+function summarise(results: { status: string }[]): string {
+  const by = new Map<string, number>();
+  for (const r of results) by.set(r.status, (by.get(r.status) ?? 0) + 1);
+  const parts = [...by.entries()].map(([k, n]) => `${n} ${humanize(k)}`);
+  return `${results.length} wallet${results.length === 1 ? "" : "s"} analysed: ${parts.join(", ")}`;
 }

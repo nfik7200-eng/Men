@@ -214,6 +214,13 @@ export const api = {
     request<JsonObject>(`/investigations/${id}/research-runs`, { method: "POST", ...json({ run_id: runId, note }) }),
   unlinkResearchRun: (id: number, runId: string) =>
     request<undefined>(`/investigations/${id}/research-runs/${enc(runId)}`, { method: "DELETE" }),
+  analyzeWatchlist: (id: number) =>
+    // shape of bip/api/routes/intelligence.py analyze_watchlist
+    request<{ watchlist_id: number; data_origin: string; analysed: number; skipped: number;
+      items: { chain: string; address: string; run_id: number; status: string; reused: boolean }[] }>(
+      `/intelligence/watchlists/${id}/analyze`,
+      { method: "POST" },
+    ),
   providerProfiles: () => request<ProviderProfiles>("/providers/profiles"),
   providerProfile: (id: string) => request<ProviderProfileDetail>(`/providers/${enc(id)}/profile`),
   probePreview: (providers: string[]) =>
