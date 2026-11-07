@@ -328,3 +328,27 @@ def test_a_named_model_that_was_not_collected_is_called_out_not_replaced_silentl
         r = assistant.answer(s, "Arduino Uno R4 WiFi cheapest", now=T0, use_llm=False)
         note = [c for c in r["caveats"] if "No collected listing is named" in c]
         assert note and "R4" in note[0] and "/coverage" in note[0], r["caveats"]
+
+
+# --- performance regression (found by scripts/perf_bench.py at 5,000 listings: 5-11 s per answer, per-listing queries) ----------
+def _count_queries(s, fn):
+    from sqlalchemy import event
+    n = {"c": 0}
+    eng = s.get_bind()
+    ev = lambda *a, **k: n.__setitem__("c", n["c"] + 1)
+    event.listen(eng, "before_cursor_execute", ev)
+    try:
+        fn()
+    finally:
+        event.remove(eng, "before_cursor_execute", ev)
+    return n["c"]
+
+
+def test_assistant_query_count_does_not_grow_with_the_number_of_listings(db):
+    s, a, b = _live_world(db)
+    for i in range(150):
+        ingest_listing(s, a if i % 2 else b, None, _raw(f"x{i}", f"Synthetic board {i}", 1000 + i), T0)
+    s.flush()
+    for q in ("cheapest synthetic board", "which products have insufficient price history?", "what products have recently appeared?"):
+        n = _count_queries(s, lambda: assistant.answer(s, q, now=T0 + timedelta(days=1), use_llm=False))
+        assert n <= 60, (q, n)  # was ~2 queries PER candidate listing (300+ here)

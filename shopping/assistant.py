@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from watchtower.deals import DealScore, PeerContext, score_listing
+from watchtower.deals import DealScore, HistoryContext, PeerContext, score_listing
 from watchtower.models import CrawlUrl, Listing, MatchCandidate, Source, utcnow
 from watchtower.money import fmt_money
 from watchtower.quality import price_status
@@ -224,6 +224,13 @@ _META_STOP = {"price", "prices", "dropped", "drop", "drops", "decreased", "decre
               "what", "has", "the", "enough", "not", "lack", "with", "any", "are", "there", "been", "lately", "latest"}
 
 
+def _history_for(s: Session, ids: list[int]) -> HistoryContext:
+    """Observation series for many listings in one query (a few thousand ids at most; beyond that, all active listings)."""
+    if len(ids) <= 5000:
+        return HistoryContext(s, ids)
+    return HistoryContext(s, select(Listing.id).where(Listing.active.is_(True)))
+
+
 def _market_kind(q: str) -> str | None:
     low = q.lower()
     if re.search(r"\b(price|prices|cost)\b.*\b(drop|dropped|decreas\w*|reduc\w*|fall|fallen|fell|cheaper)\b|\b(drop|decreas\w*|reduc\w*)\b.*\bprices?\b", low):
@@ -237,7 +244,7 @@ def _market_kind(q: str) -> str | None:
 
 def _market_answer(s: Session, question: str, kind: str, now: datetime) -> dict:
     """Questions about the MARKET (new listings, recorded price drops, history gaps) answered only from stored evidence."""
-    from watchtower.deals import collapse, priced_history
+    from watchtower.deals import collapse
     from watchtower.models import Event, Observation
     intent = parse_query(question)
     words = [w for w in intent["keywords"] if w not in _META_STOP] + list(intent.get("model_tokens", []))
@@ -246,13 +253,14 @@ def _market_answer(s: Session, question: str, kind: str, now: datetime) -> dict:
     if words:
         live = [l for l in live if all(has_word(w, norm_units(f"{l.title} {l.brand or ''}")) for w in words)]
     ctx = PeerContext(s, now)
+    hist_ctx = _history_for(s, [l.id for l in live])
     caveats: list[str] = []
     picks: list[Pick] = []
 
     def pick(l: Listing, note: str) -> Pick:
         p = Pick(l, 0.0)
         p.meets.append(note)
-        p.deal = score_listing(s, l, ctx, now)
+        p.deal = score_listing(s, l, ctx, now, hist_ctx)
         p.price_status = price_status(l, l.source, now)
         return p
 
@@ -286,7 +294,7 @@ def _market_answer(s: Session, question: str, kind: str, now: datetime) -> dict:
             caveats.append("No listing has first appeared in the last 14 days.")
     else:  # history_gaps
         for l in live:
-            h = collapse(priced_history(s, l))
+            h = collapse([o for o in hist_ctx.by_listing.get(l.id, []) if o.currency == l.currency])
             days = (h[-1].observed_at - h[0].observed_at).days if len(h) > 1 else 0
             if len(h) < 3 or days < 7:
                 picks.append(pick(l, f"{len(h)} collection{'s' if len(h) != 1 else ''} over {days} day{'s' if days != 1 else ''}"))
@@ -399,6 +407,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
             cands = [l for l in cands if l.price_minor <= budget and (budget_min is None or l.price_minor >= budget_min)]
 
     ctx = PeerContext(s, now)
+    hist_ctx = _history_for(s, [l.id for l in cands])  # ONE query for every candidate's observations (was one per candidate)
     picks = [_fit(l, intent) for l in cands]
     for p in picks:
         av = p.listing.availability
@@ -407,7 +416,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
             p.misses.append({"out_of_stock": "out of stock at last check", "backorder": "on backorder at last check",
                              "preorder": "pre-order only"}[av])
         p.fit += 0.75 * sum(has_word(k, text_of(p.listing)) for k in soft_kw)
-        p.deal = score_listing(s, p.listing, ctx, now)
+        p.deal = score_listing(s, p.listing, ctx, now, hist_ctx)
         p.price_status = price_status(p.listing, p.listing.source, now)
     kw_present = [k for k in soft_kw if any(has_word(k, text_of(l)) for l in cands)]  # words that name something we actually hold
     word_in = lambda t, l: re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", text_of(l)) is not None

@@ -296,7 +296,7 @@ def test_isolation_forest_default_does_not_force_a_flag_fraction():
 
 def test_scan_database_survives_missing_sklearn(db, monkeypatch):
     monkeypatch.setattr(anomaly, "load_price_series", lambda s: _fleet())
-    monkeypatch.setattr(anomaly, "load_price_series_with_stats", lambda s: (_fleet(), {"rows_dropped": {}}))
+    monkeypatch.setattr(anomaly, "load_price_series_with_stats", lambda s: (_fleet(), {"rows_dropped": {}, "listings_dropped_mixed_currency": 0}))
     monkeypatch.setitem(sys.modules, "sklearn.ensemble", None)
     with db.session() as s:
         rep = anomaly.scan_database(s)

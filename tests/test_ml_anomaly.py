@@ -37,8 +37,14 @@ def test_detects_clear_synthetic_spike_and_not_flat_noise():
     assert quiet.status == "ok" and quiet.flags == []
 
 
-def test_flat_series_then_jump_is_flagged_without_division_by_zero():
+def test_flat_series_then_single_jump_is_refused_for_lack_of_variation():
+    # one change in an otherwise flat series is not enough history to call anything an anomaly (MAD would be 0)
     v = anomaly.detect_series(series([1000] * 10 + [2000]))
+    assert v.status == "refused" and "variation" in v.reason
+
+
+def test_flat_series_with_two_changes_flags_jump_without_division_by_zero():
+    v = anomaly.detect_series(series([1000] * 9 + [2000, 1000]))
     assert v.status == "ok" and [f["price_minor"] for f in v.flags] == [2000]
 
 
