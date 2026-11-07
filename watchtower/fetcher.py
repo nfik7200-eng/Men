@@ -2,6 +2,8 @@
 Never bypasses blocks; never follows a redirect to a host it was not allowed to start from."""
 import hashlib
 import ipaddress
+import socket
+import re
 import time
 import zlib
 from dataclasses import dataclass
@@ -107,13 +109,18 @@ class Fetcher:
         p = urlparse(url)
         if p.scheme not in ("http", "https") or not p.hostname:
             raise FetchDisallowed(f"unsupported URL scheme/host: {url!r}")
-        host = p.hostname.lower()
+        host = p.hostname.lower().rstrip(".")  # 'localhost.' is localhost
         if host == "localhost" or host.endswith(".localhost") or host.endswith(".internal"):
             raise FetchDisallowed(f"internal host refused: {host}")
         try:
             ip = ipaddress.ip_address(host)
         except ValueError:
             ip = None
+            if re.fullmatch(r"[0-9a-fx.]+", host):  # numeric shorthand the OS resolver accepts: 2130706433, 0x7f.1, 127.1, 0177.0.0.1
+                try:
+                    ip = ipaddress.ip_address(socket.inet_ntoa(socket.inet_aton(host)))
+                except OSError:
+                    ip = None
         if ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
                                or ip.is_multicast or ip.is_unspecified):
             raise FetchDisallowed(f"non-public IP refused: {host}")

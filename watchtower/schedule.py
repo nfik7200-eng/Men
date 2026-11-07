@@ -8,6 +8,7 @@ Safety design (mission 005): nothing here installs cron/systemd or starts a daem
 Only sources whose adapter is a real retailer (kind == "live") can be scheduled; intervals have a floor, budgets a ceiling.
 """
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -48,9 +49,10 @@ def load(path) -> dict:
         a = ADAPTERS.get(key)
         if a is None or a.kind != "live":
             raise ScheduleError(f"{key}: only real-retailer (live) sources may be scheduled")
-        if not isinstance(v.get("min_interval_hours"), (int, float)) or v["min_interval_hours"] < MIN_INTERVAL_HOURS:
+        mi = v.get("min_interval_hours")
+        if isinstance(mi, bool) or not isinstance(mi, (int, float)) or not math.isfinite(mi) or mi < MIN_INTERVAL_HOURS:
             raise ScheduleError(f"{key}: min_interval_hours must be at least {MIN_INTERVAL_HOURS}")
-        if not isinstance(v.get("max_pages"), int) or not 1 <= v["max_pages"] <= config.MAX_PAGE_BUDGET:
+        if type(v.get("max_pages")) is not int or not 1 <= v["max_pages"] <= config.MAX_PAGE_BUDGET:
             raise ScheduleError(f"{key}: max_pages must be between 1 and {config.MAX_PAGE_BUDGET}")
     cfg["enabled"] = cfg.get("enabled") is True
     return cfg

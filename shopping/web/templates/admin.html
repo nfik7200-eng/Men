@@ -3,6 +3,7 @@
 {% block body %}
 <h1>Sources &amp; collection</h1>
 {% if msg %}<div class="banner" role="status">{{ msg }}</div>{% endif %}
+{% for k, why in collect_errors.items() %}<div class="banner" role="alert">Last manual collection of <b>{{ k }}</b> was refused or failed: {{ why }}</div>{% endfor %}
 <form method="post" action="/admin/logout" style="margin:0 0 12px"><button class="secondary">Sign out</button></form>
 <div class="scroll card"><table>
 <tr><th>Source</th><th>Kind</th><th>Enabled</th><th>Last success</th><th>Last status</th><th>Terms / robots note</th><th></th></tr>

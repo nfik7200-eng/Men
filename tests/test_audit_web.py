@@ -101,7 +101,8 @@ def test_watch_rejects_nonfinite_and_out_of_range_targets(client):
     lid = client.get("/api/v1/listings").json()["items"][0]["id"]
     for bad in ("inf", "nan", "-1", "0", "1e400", "abc"):
         r = client.post(f"/watch/{lid}", data={"target": bad}, follow_redirects=False)
-        assert r.status_code == 303 and "Invalid" in r.headers["location"], bad
+        assert r.status_code == 303 and r.headers["location"].endswith("msg=invalid"), bad
+        assert "Invalid target price" in client.get(r.headers["location"]).text, bad  # the message is shown, from a fixed code
 
 
 # ---------------- rate limiting, headers, CORS ----------------

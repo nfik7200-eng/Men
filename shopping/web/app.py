@@ -68,7 +68,7 @@ def create_app(db: Database | None = None) -> FastAPI:
     db = db or Database()
     db.init()
     ensure_sources(db)
-    app = FastAPI(title="Watchtower Shopping Intelligence", version="0.1.0")
+    app = FastAPI(title="Watchtower Shopping Intelligence", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     security.install(app)
     tpl = Jinja2Templates(directory=HERE / "templates")
@@ -129,6 +129,10 @@ def create_app(db: Database | None = None) -> FastAPI:
             return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
         return tpl.TemplateResponse(request, "error.html", {"code": exc.status_code, "detail": exc.detail, "banner": None,
                                                            "plan": plans.PLANS["free"]}, status_code=exc.status_code)
+
+    @app.exception_handler(OverflowError)
+    async def overflow_error(request: Request, exc: OverflowError):  # an id beyond SQLite's integer range cannot exist: 404, not 500
+        return await http_error(request, StarletteHTTPException(404, "not found"))
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -278,7 +282,10 @@ def create_app(db: Database | None = None) -> FastAPI:
 
     @app.get("/watchlist")
     def watchlist(request: Request, msg: Annotated[str, Query(max_length=200)] = "", s=Depends(get_s)):
-        return render(request, "watchlist.html", items=monitor.evaluate(s, owner_of(request)), msg=msg, banner=banner(s))
+        plan = plans.plan_for(owner_of(request))
+        texts = {"limit": f"The {plan.key} plan allows {plan.watch_limit} watched items. Upgrade (not yet available) to watch more.",
+                 "invalid": "Invalid target price or listing"}
+        return render(request, "watchlist.html", items=monitor.evaluate(s, owner_of(request)), msg=texts.get(msg, ""), banner=banner(s))
 
     def parse_target(text: str) -> int | None:
         if not text.strip():
@@ -294,11 +301,11 @@ def create_app(db: Database | None = None) -> FastAPI:
         ok, why = plans.can_add_watch(s, owner)
         exists = s.scalar(select(WatchItem.id).where(WatchItem.owner == owner, WatchItem.listing_id == listing_id))
         if not ok and not exists:
-            return RedirectResponse(f"/watchlist?msg={why}", status_code=303)
+            return RedirectResponse("/watchlist?msg=limit", status_code=303)
         try:
             monitor.add_watch(s, listing_id, owner, parse_target(target))
         except ValueError:
-            return RedirectResponse("/watchlist?msg=Invalid target price or listing", status_code=303)
+            return RedirectResponse("/watchlist?msg=invalid", status_code=303)
         return RedirectResponse("/watchlist", status_code=303)
 
     @app.post("/watch/{listing_id}/remove")
@@ -360,20 +367,21 @@ def create_app(db: Database | None = None) -> FastAPI:
                       runs=s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10)).all(),
                       queue=queue_rows(s),
                       clicks=s.scalar(select(func.count()).select_from(AffiliateClick)), running=sorted(_running),
-                      msg=msg, banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()},
+                      msg=msg, collect_errors=dict(collect_errors), banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()},
                       health={x.key: source_health(s, x) for x in s.scalars(select(Source))},
                       policies={p.source.key: p for p in s.scalars(select(SourcePolicy).options(joinedload(SourcePolicy.source)))},
                       budgets=budget_rows(), scheduler=scheduler_status(), sidebyside={c.id: side_by_side(s, c) for c in queue_rows(s)},
                       decided=s.scalars(select(MatchCandidate).where(MatchCandidate.decided_at.is_not(None))
                                         .order_by(MatchCandidate.decided_at.desc()).limit(10)).all())
 
+    collect_errors: dict[str, str] = {}
+
     def _collect(key: str):
         try:
             run_source(db, key)
-        except (SourceBusy, SourceDisabled, SourceNotConfigured):
-            pass
-        except Exception:  # already recorded on the run row by the collector
-            pass
+            collect_errors.pop(key, None)
+        except Exception as e:  # a refusal (policy gate, busy, not configured) creates no run row: keep the reason for the admin page
+            collect_errors[key] = f"{type(e).__name__}: {str(e)[:200]}"
         finally:
             with _lock:
                 _running.discard(key)

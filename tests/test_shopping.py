@@ -93,10 +93,10 @@ def test_watch_target_and_plan_limit(seeded):
     for i in ids[1:6]:
         c.post(f"/watch/{i}", data={"target": ""})
     r = c.post(f"/watch/{ids[6]}", data={"target": ""}, follow_redirects=False)
-    assert "allows 5" in r.headers["location"].replace("%20", " ")
+    assert r.headers["location"].endswith("msg=limit") and "allows 5" in c.get(r.headers["location"]).text
     with seeded.session() as s:
         assert s.query(WatchItem).count() == 5
-    assert c.post(f"/watch/{ids[0]}", data={"target": "-5"}, follow_redirects=False).headers["location"].startswith("/watchlist?msg=Invalid")
+    assert c.post(f"/watch/{ids[0]}", data={"target": "-5"}, follow_redirects=False).headers["location"].endswith("msg=invalid")
 
 
 def test_restock_alert(seeded):

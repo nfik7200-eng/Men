@@ -20,9 +20,27 @@ CSP = ("default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsaf
        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 
 
-def admin_cookie_value(token: str) -> str:
-    """Derived value: the cookie never contains the token itself."""
-    return hmac.new(token.encode(), b"wt-admin-session-v1", hashlib.sha256).hexdigest()
+COOKIE_TTL_S = 8 * 3600
+
+
+def admin_cookie_value(token: str, now: float | None = None) -> str:
+    """'<issued-at>.<HMAC(token, issued-at)>': never contains the token, differs per login, and EXPIRES server-side. Rotating
+    WATCHTOWER_ADMIN_TOKEN invalidates every session (a static HMAC of the token could never be revoked)."""
+    ts = int(time.time() if now is None else now)
+    return f"{ts}.{hmac.new(token.encode(), f'wt-admin-session-v2.{ts}'.encode(), hashlib.sha256).hexdigest()}"
+
+
+def cookie_valid(value: str | None, token: str, now: float | None = None) -> bool:
+    try:
+        ts_s, mac = (value or "").split(".", 1)
+        ts = int(ts_s)
+    except ValueError:
+        return False
+    age = (time.time() if now is None else now) - ts
+    if not 0 <= age <= COOKIE_TTL_S:
+        return False
+    expected = hmac.new(token.encode(), f"wt-admin-session-v2.{ts}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(mac.encode("utf-8", "ignore"), expected.encode())  # non-ASCII input must not raise
 
 
 def token_ok(candidate: str | None) -> bool:
@@ -36,8 +54,7 @@ def is_admin(request: Request) -> bool:
         return False  # fail closed: no (or weak) token configured => admin disabled
     if token_ok(request.headers.get("x-admin-token")):
         return True
-    c = request.cookies.get(COOKIE_ADMIN)
-    return bool(c) and hmac.compare_digest(c, admin_cookie_value(tok))
+    return cookie_valid(request.cookies.get(COOKIE_ADMIN), tok)
 
 
 MIN_TOKEN_LEN = 20
@@ -86,18 +103,24 @@ class RateLimiter:
         if len(q) >= limit:
             return False
         q.append(now)
-        if len(self.hits) > 20000:  # bound memory
-            self.hits.clear()
+        if len(self.hits) > 20000:  # bound memory: drop the stalest half, never reset everyone (login buckets included)
+            for k in sorted(self.hits, key=lambda k: self.hits[k][-1] if self.hits[k] else 0)[:10000]:
+                del self.hits[k]
         return True
 
 
-def _bucket(path: str, method: str) -> tuple[str, int]:
+def _bucket(path: str, method: str) -> tuple[str, int, float]:
+    """(bucket name, limit, window seconds)"""
     base = config.RATE_LIMIT_PER_MIN
     if path == "/admin/login" and method == "POST":
-        return "login", min(10, base) if base else 0
+        return "login", min(10, base) if base else 0, 60.0
     if path.startswith(("/research", "/api/v1/research")):
-        return "research", min(20, base) if base else 0
-    return "general", base
+        return "research", min(20, base) if base else 0, 60.0
+    if path.startswith("/watch/") and method == "POST":  # every cookie-less POST mints a new owner: bound row creation per client
+        return "watch", min(30, base) if base else 0, 3600.0
+    if path.startswith("/go/"):  # each outbound click writes a row (and any page can embed <img src=/go/N>)
+        return "go", min(60, base) if base else 0, 60.0
+    return "general", base, 60.0
 
 
 def install(app: FastAPI) -> None:
@@ -109,8 +132,8 @@ def install(app: FastAPI) -> None:
         if request.method in UNSAFE and not same_origin(request):
             return PlainTextResponse("Cross-origin request refused.", status_code=403)
         if not path.startswith("/static"):
-            name, limit = _bucket(path, request.method)
-            if not limiter.allow(client_ip(request), name, limit):
+            name, limit, window = _bucket(path, request.method)
+            if not limiter.allow(client_ip(request), name, limit, window):
                 return PlainTextResponse("Too many requests. Slow down.", status_code=429, headers={"Retry-After": "60"})
         owner = request.cookies.get(COOKIE_OWNER, "")
         fresh = not re.fullmatch(r"[0-9a-f]{32}", owner)
