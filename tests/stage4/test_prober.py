@@ -513,21 +513,30 @@ def test_run_deadline_stops_requests(tmp_path: Path) -> None:
 def test_requests_are_spaced_and_never_retried(tmp_path: Path) -> None:
     sleeps: list[float] = []
     e = Env(tmp_path, second=False)
+    # A fake clock that only advances when the router sleeps: with a real clock the gap between
+    # recorded waits is interval minus the wall time spent between requests, which fails on slow
+    # CI runners even though the slots are correctly spaced.
+    now = [1000.0]
+
+    def fake_sleep(wait: float) -> None:
+        sleeps.append(wait)
+        now[0] += wait
+
     try:
         with TestClient(e.app):
             ctx = e.app.state.bip
-            ctx.router._sleep = sleeps.append  # pyright: ignore[reportPrivateUsage]
+            ctx.router._clock = lambda: now[0]  # pyright: ignore[reportPrivateUsage]
+            ctx.router._sleep = fake_sleep  # pyright: ignore[reportPrivateUsage]
             e.transport.script(ETH_HOST, *[Scripted(status=500)] * 1)
             prober = Prober(ctx.registry, ctx.router, ProbeSettings())
             results = prober.run(prober.plan(["publicnode-eth"]))
             calls = [m for h, m in e.transport.requests if h == ETH_HOST]
             assert calls.count("eth_chainId") == 1  # the 500 was not retried
             assert len(calls) == results[0].requests_used
-            # sleep is a no-op here, so each wait is the distance to the next reserved slot:
-            # consecutive slots for one provider are at least min_interval_s (1 s) apart
-            gaps = [b - a for a, b in itertools.pairwise(sleeps)]
+            # time moves only by sleeping, so every wait is the full spacing to the next slot:
+            # consecutive requests to one provider are at least min_interval_s (1 s) apart
             assert sleeps
-            assert all(g >= 0.99 for g in gaps)
+            assert all(w >= 0.99 for w in sleeps), sleeps
     finally:
         e.engine.dispose()
 
