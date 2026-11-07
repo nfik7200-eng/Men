@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | coverage | schedule | source | fx"""
+"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | coverage | schedule | cleanup-preview | source | fx"""
 import argparse
 import logging
 
@@ -49,6 +49,8 @@ def main(argv=None):
     sc = sub.add_parser("schedule", help="DISABLED-BY-DEFAULT scheduler entry point (status | run-due); installs nothing")
     sc.add_argument("action", choices=["status", "run-due"])
     sc.add_argument("--config", help="default data/schedule.json")
+    cp = sub.add_parser("cleanup-preview", help="preview `rematch` on a TEMPORARY copy of a snapshot (before/after verify; modifies nothing)")
+    cp.add_argument("--db", required=True, help="SQLite snapshot (never the configured live DB)")
     e = sub.add_parser("source")
     e.add_argument("action", choices=["enable", "disable"])
     e.add_argument("key", choices=list(ADAPTERS))
@@ -56,6 +58,8 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     if args.cmd == "backup":  # before Database(): opening the app DB normally runs init/ensure_* writes
         return _backup(args.out)
+    if args.cmd == "cleanup-preview":
+        return _cleanup_preview(args)
     if args.cmd == "schedule":  # decides BEFORE opening any database: a disabled scheduler touches nothing
         return _schedule(args)
     if args.cmd == "coverage":
@@ -155,6 +159,29 @@ def _snapshot_copy(db_arg: str, cmd: str):
         print(f"{cmd}: --db must be an existing snapshot/copy, never the configured live database")
         return None
     return path
+
+
+def _cleanup_preview(args) -> int:
+    from pathlib import Path
+    from .cleanup import preview_cleanup
+    live = _configured_sqlite_path()
+    path = Path(args.db).resolve()
+    if not path.is_file() or (live and path == Path(live).resolve()):
+        print("cleanup-preview: --db must be an existing snapshot, never the configured live database")
+        return 2
+    r = preview_cleanup(path)
+    for label, rep in (("BEFORE", r["before"]), ("AFTER", r["after"])):
+        bad = [c for c in rep["checks"] if not c["ok"]]
+        print(f"{label}: " + ("all integrity checks pass" if not bad else "; ".join(f"{c['name']}={c['value']}" for c in bad)))
+        m = rep["metrics"]
+        print(f"   pending review candidates={m['pending_review_candidates']} multi-merchant products={m['multi_merchant_products']} observations={m['live_observations']}")
+    print(f"rematch: {r['rematch']}")
+    print(f"listings whose label/confidence changed: {r['listings_changed']}; product groups changed: {r['products_regrouped']}; observations {r['observations_before']} -> {r['observations_after']}")
+    for w in r["warnings"]:
+        print(f"WARNING: {w}")
+    print("safe to apply to the real database (after your approval and a fresh backup): " + ("YES" if r["safe_to_apply"] else "NO"))
+    print("nothing was modified")
+    return 0
 
 
 def _schedule(args) -> int:
