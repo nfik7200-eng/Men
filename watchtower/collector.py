@@ -11,6 +11,7 @@ Integrity rules (docs/AUDIT_REPORT.md, docs/SOURCE_DISCOVERY.md):
 """
 import logging
 import time
+from typing import Any
 from datetime import timedelta
 from urllib.parse import urlparse
 
@@ -209,7 +210,7 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
     with db.session() as s:
         run, src = s.get(CollectionRun, run_id), s.get(Source, src_id)
         errors, status, nbytes = [], "ok", 0
-        ex = {"jsonld": 0, "microdata": 0, "css": 0, "not_modified": 0, "no_product": 0, "failed": 0}
+        ex: dict[str, Any] = {"jsonld": 0, "microdata": 0, "css": 0, "not_modified": 0, "no_product": 0, "failed": 0}
         hosts = adapter.listing_hosts()
         now = now_fn()
         # 1. discovery -> crawl_urls (state is kept per URL, so unchanged/failed/non-product pages are remembered)

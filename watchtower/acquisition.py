@@ -147,8 +147,9 @@ def plan_run(s: Session, src: Source, known: dict[str, CrawlUrl], discovered: se
         counts[state] += 1
 
     for url, c in known.items():
-        if url in hints and hints[url]:
-            c.name_hint = hints[url][:200]
+        hint = hints.get(url)
+        if hint:
+            c.name_hint = hint[:200]
         if url not in discovered:
             mark(c, "skipped", "not_in_discovery")  # absence from a sitemap is never evidence of removal
         elif c.gone:

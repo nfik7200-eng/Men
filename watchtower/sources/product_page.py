@@ -29,10 +29,6 @@ class ProductPageAdapter(SourceAdapter):
     def discover(self, fetcher) -> list[SitemapEntry]:
         raise NotImplementedError
 
-    def tier_for_url(self, url: str) -> int | None:
-        """Tier derivable from the URL alone (offline planning); None when only the discovery page knows it."""
-        return None
-
     def required_urls(self) -> list[str]:
         """Sample URLs of every path class we fetch; robots.txt is re-checked against these on every run."""
         raise NotImplementedError

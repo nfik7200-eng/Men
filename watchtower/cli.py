@@ -213,7 +213,7 @@ def _plan(args) -> int:
     with db.Session() as s:  # never committed
         src = s.query(Source).filter_by(key=args.source).one()
         known = {c.url: c for c in s.scalars(select(CrawlUrl).where(CrawlUrl.source_id == src.id))}
-        tiers = {u: (adapter.tier_for_url(u) if hasattr(adapter, "tier_for_url") else None) for u in known}
+        tiers = {u: adapter.tier_for_url(u) for u in known}
         tiers = {u: (2 if t is None else t) for u, t in tiers.items()}  # tier unknown offline: neutral default
         hints = {u: (c.name_hint or acquisition.hint_from_url(u)) for u, c in known.items()}
         legacy = sorted((u for u, c in known.items() if c.last_fetched_at is None and not c.gone), key=lambda u: (tiers[u], u))

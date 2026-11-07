@@ -75,8 +75,9 @@ def run_due(db: Database, path, now: datetime | None = None, runner=run_source) 
     # never-run sources first, then the longest-waiting: no merchant is favoured, each gets its own budget
     for key in sorted(cfg["sources"], key=lambda k: (last[k] is not None, last[k] or now, k)):
         v = cfg["sources"][key]
-        if last[key] is not None:
-            hours = (now - last[key]).total_seconds() / 3600
+        prev = last[key]
+        if prev is not None:
+            hours = (now - prev).total_seconds() / 3600
             if hours < v["min_interval_hours"]:
                 res.skipped[key] = f"ran {hours:.1f} h ago; minimum interval {v['min_interval_hours']:g} h"
                 continue

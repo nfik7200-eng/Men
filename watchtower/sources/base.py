@@ -46,6 +46,10 @@ class SourceAdapter(ABC):
     terms_note: str = ""
     stale_after_hours: int = 72
     default_max_pages: int = 5
+
+    def tier_for_url(self, url: str) -> int | None:
+        """Crawl-priority tier derivable from the URL alone (for offline planning); None when only discovery knows it."""
+        return None
     parse_errors: list[str] = []  # per-card extraction failures from the LAST parse_page call (card skipped, page kept)
 
     official_api = False  # True: authenticated official API (robots.txt not applicable; API agreement governs)

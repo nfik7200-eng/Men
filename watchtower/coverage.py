@@ -91,8 +91,9 @@ def source_coverage(s: Session, src: Source, now: datetime | None = None) -> dic
                                                       for r in (c.priority_reasons or [])))
     runs = list(s.scalars(select(CollectionRun).where(CollectionRun.source_id == src.id, CollectionRun.finished_at.is_not(None))))
     pages, secs = sum(r.pages_fetched or 0 for r in runs), sum(r.duration_s or 0 for r in runs)
-    ages = [(now - l.last_observed_at).total_seconds() / 3600 for l in s.scalars(
-        select(Listing).where(Listing.source_id == src.id, Listing.active.is_(True), Listing.last_observed_at.is_not(None)))]
+    ages = [(now - seen).total_seconds() / 3600 for seen in s.scalars(
+        select(Listing.last_observed_at).where(Listing.source_id == src.id, Listing.active.is_(True), Listing.last_observed_at.is_not(None)))
+        if seen is not None]
     h = source_health(s, src, now=now)
     return {
         "key": src.key, "name": src.name, "kind": src.kind,
