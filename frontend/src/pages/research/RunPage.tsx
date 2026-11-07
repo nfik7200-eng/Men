@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../../api/client";
 import type { ResearchReport, ResearchRun } from "../../api/types";
@@ -82,6 +82,7 @@ export default function RunPage() {
 function RunActions({ run }: { run: ResearchRun }) {
   const navigate = useNavigate();
   const cases = useApi(() => api.investigations(), []);
+  const uid = useId();
   const [caseId, setCaseId] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
@@ -116,13 +117,13 @@ function RunActions({ run }: { run: ResearchRun }) {
         }}>
           Rerun
         </button>
-        <label className="field">
-          Case
-          <select value={caseId} onChange={(e) => setCaseId(e.target.value)} disabled={cases.status !== "ready"}>
+        <div className="field">
+          <label htmlFor={`${uid}-case`}>Case</label>
+          <select id={`${uid}-case`} value={caseId} onChange={(e) => setCaseId(e.target.value)} disabled={cases.status !== "ready"}>
             <option value="">Choose a case</option>
             {cases.status === "ready" ? cases.data.map((c) => <option key={c.id} value={c.id}>{c.title}</option>) : null}
           </select>
-        </label>
+        </div>
         <button type="button" className="btn" disabled={busy || !caseId} onClick={addToCase}>
           Add to case
         </button>

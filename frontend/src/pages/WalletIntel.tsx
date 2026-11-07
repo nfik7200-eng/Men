@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../api/client";
 import type { Anomaly, IntelProfile, VerifyResult } from "../api/types";
@@ -182,6 +182,7 @@ function VerificationPanel({ chain, address, profile, onDone }: {
 }
 
 function AttachFinding({ findingId }: { findingId: string }) {
+  const uid = useId();
   const cases = useApi(() => api.investigations(), []);
   const [caseId, setCaseId] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
@@ -197,13 +198,13 @@ function AttachFinding({ findingId }: { findingId: string }) {
   };
   return (
     <div className="row">
-      <label className="field">
-        <span>Case for finding {findingId}</span>
-        <select value={caseId} onChange={(e) => setCaseId(e.target.value)} disabled={cases.status !== "ready"}>
+      <div className="field">
+        <label htmlFor={`${uid}-case`}>Case for finding {findingId}</label>
+        <select id={`${uid}-case`} value={caseId} onChange={(e) => setCaseId(e.target.value)} disabled={cases.status !== "ready"}>
           <option value="">Choose a case</option>
           {cases.status === "ready" ? cases.data.map((c) => <option key={c.id} value={c.id}>{c.title}</option>) : null}
         </select>
-      </label>
+      </div>
       <button type="button" className="btn" disabled={!caseId} onClick={attach}>Attach to case</button>
       {msg ? <span role="status">{msg}</span> : null}
       {error ? <ErrorState error={error} /> : null}

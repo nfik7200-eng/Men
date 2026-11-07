@@ -272,3 +272,4 @@ td a, dd a, li > a:only-child { display: inline-flex; align-items: center; min-h
 .workspace-tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .note > a:only-child { display: inline-flex; align-items: center; min-height: var(--target); }
 .card-link { min-height: var(--target); }
+.list li > a { display: inline-flex; align-items: center; min-height: var(--target); }

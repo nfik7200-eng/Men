@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { checkLayout } from "./layout.mjs";
 import { join, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
@@ -128,11 +129,11 @@ try {
   await page.getByRole("heading", { level: 2, name: "E2E whales" }).waitFor();
   const address = "0x" + "c0ffee".repeat(6) + "abcd";
   await page.getByLabel("Address", { exact: true }).fill(address.toUpperCase().replace("0X", "0x"));
-  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByText(address).waitFor();
   check("watchlist entry added via UI (address normalized)", true);
   await page.getByLabel("Address", { exact: true }).fill(address);
-  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "already on this watchlist" }).waitFor();
   check("duplicate entry rejected by backend and shown", true);
 
@@ -218,6 +219,8 @@ try {
     await page.goto(`${WEB}/wallets/${chain}/${address}`);
     await page.getByRole("button", { name: "Retrieve recent activity" }).click();
     await page.getByText(/Run \d+: (succeeded|partial)/).waitFor({ timeout: 60000 });
+    // stored observations live in the wallet workspace's Activity tab
+    await page.getByRole("navigation", { name: "Wallet sections" }).getByRole("link", { name: "Activity", exact: true }).click();
     await page.getByText(/^Transactions \([1-9]\d*\)$/).waitFor();
     const rows = await page.locator("table").first().locator("tbody tr").count();
     check(`[offline fixture] ${chain} wallet retrieval stores and displays transactions`, rows > 0, `rows=${rows}`);
@@ -234,7 +237,7 @@ try {
 
   // ---------- Stage 3 intelligence on the same fixture data ----------
   const ethW = wallets?.[1];
-  await page.goto(`${WEB}/wallets/ethereum/${ethW}`);
+  await page.goto(`${WEB}/wallets/ethereum/${ethW}/evidence`);
   await page.getByText(/Demo data: offline fixtures/).first().waitFor();
   check("[offline fixture] fixture data carries an explicit demo label", true);
   await page.getByText("2 transactions observed in retrieved dataset").or(page.getByText("transactions observed in retrieved dataset")).first().waitFor();
@@ -330,7 +333,60 @@ try {
     /Observed blockchain data/.test(reportText) && /No AI model available/.test(reportText), reportText.slice(0, 80));
   check("[offline fixture] report never presents predictions as verified facts", !/\bverified fact\b(?! )/.test(reportText.replace(/not a verified fact/g, "")));
   await page.screenshot({ path: join(dataRoot, "fixture-research.png"), fullPage: true });
+
+  // ---------- UI integration (Milestones B-D) on the fixture backend ----------
+  const solW = wallets?.[2] ?? "";
+  await page.goto(`${WEB}/`);
+  await page.getByLabel("Search wallet address").fill(` ${solW} `);
+  await page.getByLabel("Search wallet address").press("Enter");
+  await page.getByRole("navigation", { name: "Wallet sections" }).waitFor();
+  check("[offline fixture] global search opens the wallet workspace", page.url().endsWith(`/wallets/solana/${solW}`), page.url());
+  await page.goto(`${WEB}/wallets/ethereum/0x${"12".repeat(20)}`);
+  await page.getByText("Nothing has been retrieved for this address yet").waitFor();
+  check("[offline fixture] unstored wallet shows an honest first-visit state", (await page.getByText("Request failed").count()) === 0);
+  await page.goto(`${WEB}/wallets/solana/${solW}/research`);
+  const runLink = page.getByRole("link", { name: "What kind of wallet is this, and what does the evidence support?" }).first();
+  await runLink.waitFor({ timeout: 30000 });
+  await runLink.click();
+  const prov = page.getByRole("region", { name: "Provenance" });
+  await prov.waitFor({ timeout: 30000 });
+  const provText = (await prov.textContent()) ?? "";
+  check("[offline fixture] report provenance records report version, rules and feature digest",
+    /1\.1\.0/.test(provText) && /bip-rules/.test(provText) && /Feature digest[0-9a-f]{8}…/.test(provText), provText.slice(0, 120));
+  const runUrl = page.url();
+  await page.goto(`${WEB}/investigations`);
+  await page.getByLabel("Title", { exact: true }).fill("E2E case");
+  await page.getByRole("button", { name: "Create investigation" }).click();
+  await page.getByText("E2E case", { exact: true }).click();
+  await page.waitForURL(/\/investigations\/\d+$/);
+  const caseUrl = page.url();
+  await page.goto(runUrl);
+  await page.getByLabel("Case", { exact: true }).selectOption({ label: "E2E case" });
+  await page.getByRole("button", { name: "Add to case" }).click();
+  await page.getByText(/Added to E2E case/).waitFor();
+  await page.goto(caseUrl);
+  await page.getByRole("region", { name: "Research runs" }).getByRole("link").first().waitFor();
+  check("[offline fixture] research run linked to a case and listed there", true);
+
+  // persistence across a backend restart: stop the fixture server, start it on the same data
+  await stop(fixture);
+  const fixtureAgain = start("uv", ["run", "python", "-m", "tests.stage2.serve_offline", String(FIXTURE_PORT)], {
+    cwd: repoRoot,
+    env: { ...process.env, BIP_DATA_ROOT: fixtureRoot },
+  });
+  await waitFor(`http://127.0.0.1:${FIXTURE_PORT}/api/v1/health`, "offline fixture backend (restarted)");
+  await page.goto(runUrl);
+  await page.getByRole("region", { name: "Provenance" }).waitFor({ timeout: 30000 });
+  await page.goto(caseUrl);
+  await page.getByRole("region", { name: "Research runs" }).getByRole("link").first().waitFor({ timeout: 30000 });
+  check("[offline fixture] run, report and case link survive a backend restart", true);
+
+  // layout at the Galaxy S24 FE size (412x915, touch) and desktop, every route, with data present
+  const layoutFailures = await checkLayout(browser, WEB, { screenshotDir: dataRoot });
+  check("[offline fixture] layout: no overflow, tap targets >= 44px touch / 32px desktop, compact header",
+    layoutFailures.length === 0, layoutFailures.slice(0, 3).join(" | "));
   void preview2;
+  void fixtureAgain;
   await browser.close();
 } catch (err) {
   check("e2e run completed", false, String(err));

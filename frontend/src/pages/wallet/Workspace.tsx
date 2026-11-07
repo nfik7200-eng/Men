@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { Link, NavLink, useParams } from "react-router-dom";
 import { ApiError, api } from "../../api/client";
 import type { WalletStatus } from "../../api/types";
@@ -250,6 +250,7 @@ function ResearchTab({ s }: { s: WalletStatus }) {
 }
 
 function CasesTab({ s, onChange }: { s: WalletStatus; onChange: () => void }) {
+  const uid = useId();
   const lists = useApi(api.watchlists);
   const [listId, setListId] = useState("");
   const [title, setTitle] = useState("");
@@ -282,13 +283,13 @@ function CasesTab({ s, onChange }: { s: WalletStatus; onChange: () => void }) {
       <Panel title="Add">
         {error ? <ErrorState error={error} /> : null}
         <form className="form" onSubmit={addToList}>
-          <label className="field">
-            Watchlist
-            <select value={listId} onChange={(e) => setListId(e.target.value)} disabled={lists.status !== "ready"}>
+          <div className="field">
+            <label htmlFor={`${uid}-wl`}>Watchlist</label>
+            <select id={`${uid}-wl`} value={listId} onChange={(e) => setListId(e.target.value)} disabled={lists.status !== "ready"}>
               <option value="">Choose a watchlist</option>
               {lists.status === "ready" ? lists.data.map((w) => <option key={w.id} value={w.id}>{w.name}</option>) : null}
             </select>
-          </label>
+          </div>
           {lists.status === "ready" && lists.data.length === 0 ? (
             <p className="note">No watchlists yet. <Link to="/watchlists">Create one</Link>.</p>
           ) : null}
