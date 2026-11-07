@@ -531,8 +531,8 @@ def prune_candidates(s: Session) -> dict:
             out["auto_to_self"] += 1
     # the opposite inconsistency (legacy runs): a 'self' listing that shares its product with another merchant's listing.
     # Heal it only when the CURRENT matcher agrees the pairing is automatic; anything else is left for `verify` to report.
-    for l in s.scalars(select(Listing).where(Listing.match_status == "self", Listing.active.is_(True))).all():
-        others = [m for m in _members(s, l.product_id) if m.id != l.id and m.source_id != l.source_id]
+    for l in s.scalars(select(Listing).where(Listing.match_status == "self", Listing.active.is_(True), Listing.product_id.is_not(None))).all():
+        others = [m for m in _members(s, l.product_id or 0) if m.id != l.id and m.source_id != l.source_id]
         scores = [match_score(l, m) for m in others]
         if others and all(r.decision == "auto" for r in scores):
             best = min(scores, key=lambda r: r.score)

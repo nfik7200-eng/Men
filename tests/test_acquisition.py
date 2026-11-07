@@ -321,3 +321,31 @@ def test_a_malformed_schedule_entry_is_a_config_error_not_a_traceback(tmp_path):
     p.write_text(json.dumps({"enabled": False, "sources": {"adafruit": "daily"}}))
     with pytest.raises(schedule.ScheduleError):
         schedule.load(p)
+
+
+def test_cli_plan_is_offline_read_only_and_refuses_the_live_database(tmp_path, capsys, monkeypatch):
+    from watchtower import cli
+    from watchtower.db import Database
+    from watchtower.models import Source
+    path = tmp_path / "copy.db"
+    db = Database(f"sqlite:///{path}")
+    db.init()
+    ensure_sources(db)
+    with db.session() as s:
+        s.query(Source).filter_by(key="adafruit").one().kind = "live"
+        _ada_listing(s, "Raspberry Pi Zero 2 W", "5291")
+        src, rows = _spark_rows(s, ["raspberry-pi-zero-2-w", "esp32-board-01", "raspberry-pi-zero-2-w-basic-kit"])
+    db.engine.dispose()
+    before = path.read_bytes()
+    monkeypatch.setattr(__import__("watchtower.config", fromlist=["config"]), "DB_URL", f"sqlite:///{tmp_path / 'live.db'}")
+    url = "https://www.sparkfun.com/raspberry-pi-zero-2-w.html"
+    assert cli.main(["plan", "--db", str(path), "--source", "sparkfun", "--explain", url, "--max-pages", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "offline, nothing fetched, nothing written" in out and "legacy rank" in out and "exact name match" in out
+    assert out.index("raspberry-pi-zero-2-w.html") < out.index("esp32-board-01")  # the product with a counterpart is ranked first
+    assert cli.main(["plan", "--db", str(path), "--source", "sparkfun", "--explain", "https://nope.example/x"]) == 0
+    assert "not a known URL" in capsys.readouterr().out
+    with Database(f"sqlite:///{path}").session() as s:  # nothing was committed by the plan
+        assert s.query(CrawlUrl).filter(CrawlUrl.selection_state.is_not(None)).count() == 0
+    monkeypatch.setattr(__import__("watchtower.config", fromlist=["config"]), "DB_URL", f"sqlite:///{path}")
+    assert cli.main(["plan", "--db", str(path), "--source", "sparkfun"]) == 2  # that IS the configured database
