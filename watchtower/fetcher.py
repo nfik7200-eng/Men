@@ -3,6 +3,7 @@ Never bypasses blocks; never follows a redirect to a host it was not allowed to 
 import hashlib
 import ipaddress
 import time
+import zlib
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse
 
@@ -48,6 +49,37 @@ def _host_ok(host: str, allowed: set[str] | None) -> bool:
     if allowed is None:
         return True
     return any(host == a or host.endswith("." + a) for a in allowed if a)
+
+
+MAX_ROBOTS_BYTES = 512 * 1024
+_CHUNK = 64 * 1024
+
+
+def _decoded_chunks(resp: httpx.Response):
+    """Yield the DECODED body in chunks of at most 64 KiB. gzip/deflate are inflated incrementally with a bounded
+    zlib decompressor (httpx's own decoder inflates a whole network chunk at once, which a bomb abuses)."""
+    if getattr(resp, "is_stream_consumed", False):  # body already materialised by the transport (in-memory test doubles)
+        body = resp.content
+        for i in range(0, len(body), _CHUNK):
+            yield body[i:i + _CHUNK]
+        return
+    enc = (resp.headers.get("content-encoding") or "identity").strip().lower()
+    if enc in ("identity", ""):
+        yield from resp.iter_raw(_CHUNK)
+        return
+    if enc not in ("gzip", "x-gzip", "deflate"):
+        raise FetchError(f"unsupported content-encoding {enc!r}")
+    d = zlib.decompressobj(zlib.MAX_WBITS | 32)  # auto-detects gzip and zlib framing
+    try:
+        for raw in resp.iter_raw():
+            data = raw
+            while data:
+                out = d.decompress(data, _CHUNK)
+                if out:
+                    yield out
+                data = d.unconsumed_tail
+    except zlib.error as e:
+        raise FetchError(f"undecodable {enc} body: {e}") from e
 
 
 class Fetcher:
@@ -97,7 +129,7 @@ class Fetcher:
             r = None
             try:
                 for attempt in range(3):  # a transient 5xx must not be mistaken for "disallow everything"
-                    r = self.client.get(f"{origin}/robots.txt")
+                    r = self._send("GET", f"{origin}/robots.txt", limit=MAX_ROBOTS_BYTES, truncate=True)
                     if r.status_code < 500:
                         break
                     self._sleep(2.0 * (attempt + 1))
@@ -136,6 +168,29 @@ class Fetcher:
         rp = self._robots_for(url)
         return True if rp is None else rp.can_fetch(config.USER_AGENT, url)
 
+    # -- bounded reads -----------------------------------------------
+    def _send(self, method: str, url: str, headers: dict | None = None, data: dict | None = None,
+              auth: tuple[str, str] | None = None, limit: int | None = None, truncate: bool = False) -> httpx.Response:
+        """One request whose DECODED body is counted while it streams in: a gzip bomb is cut off at `limit` instead of being
+        inflated into memory first. Over the limit: FetchError, or (truncate=True, robots.txt) keep the first `limit` bytes."""
+        limit = MAX_BYTES if limit is None else limit
+        hdrs = {"Accept-Encoding": "gzip, deflate", **(headers or {})}  # only encodings we decode with a bounded decompressor
+        with self.client.stream(method, url, headers=hdrs, data=data, auth=auth) as resp:
+            buf, size, over = bytearray(), 0, False
+            if resp.status_code == 200:
+                for chunk in _decoded_chunks(resp):
+                    size += len(chunk)
+                    if size > limit:
+                        over = True
+                        if truncate:
+                            buf += chunk[: max(0, limit - (size - len(chunk)))]
+                        break
+                    buf += chunk
+            if over and not truncate:
+                raise FetchError(f"response larger than {limit} bytes: {url}")
+            headers_out = {k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")}
+            return httpx.Response(resp.status_code, headers=headers_out, content=bytes(buf), request=resp.request)
+
     # -- request with retry ------------------------------------------
     def _request(self, url: str, method: str = "GET", headers: dict | None = None, data: dict | None = None,
                  auth: tuple[str, str] | None = None) -> httpx.Response:
@@ -148,7 +203,7 @@ class Fetcher:
                 self._sleep(wait)
             self._last[host] = time.monotonic()
             try:
-                r = self.client.request(method, url, headers=headers, data=data, auth=auth)
+                r = self._send(method, url, headers=headers, data=data, auth=auth)
             except httpx.HTTPError as e:
                 err = f"network error: {type(e).__name__}"  # never echo request details (may contain credentials)
             else:
@@ -198,7 +253,13 @@ class Fetcher:
             loc = r.headers.get("location")
             if not loc:
                 raise FetchError(f"redirect without Location from {url}")
-            url = urljoin(url, loc)
+            new = urljoin(url, loc)
+            a, b = urlparse(url), urlparse(new)
+            if a.scheme == "https" and b.scheme != "https":
+                raise FetchDisallowed(f"refusing https -> {b.scheme} downgrade redirect from {a.netloc}")
+            if a.netloc.lower() != b.netloc.lower():  # credentials belong to the host they were issued for
+                hdrs = {k: v for k, v in hdrs.items() if k.lower() not in ("authorization", "cookie", "proxy-authorization")}
+            url = new
         raise FetchError("too many redirects")
 
     def get(self, url: str, headers: dict | None = None) -> str:
