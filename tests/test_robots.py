@@ -52,3 +52,32 @@ def test_edge_cases():
     assert Robots("# c\nuser-agent: *   # trailing\n\nDISALLOW: /z\n").can_fetch(UA, "https://x/z") is False  # case/comments/blank line
     r2 = Robots("User-agent: watchtowerbot\nDisallow: /\nUser-agent: *\nDisallow:\n")
     assert r2.can_fetch(UA, "https://x/a") is False                                                     # most specific group wins over *
+
+
+# --- security review A1: wildcard patterns must match in linear time ------------------------------------------------
+import time  # noqa: E402
+
+
+def test_pathological_wildcard_patterns_cannot_freeze_the_process():
+    r = Robots("User-agent: *\nDisallow: /*a*a*a*a*a*a*b\n")
+    t = time.perf_counter()
+    assert r.can_fetch(UA, "https://x.test/" + "a" * 3000) is True  # no 'b': the rule does not match
+    assert time.perf_counter() - t < 0.5  # was 22 s at 300 characters with the regex implementation
+
+
+@pytest.mark.parametrize("rule,path,blocked", [
+    ("/private", "/private/x", True), ("/private", "/privat", False), ("/*.php$", "/a/b.php", True), ("/*.php$", "/a/b.php?x=1", False),
+    ("/a*b*c", "/aXXbYYc/z", True), ("/a*b*c", "/aXXcYYb", False), ("/*?itemsPerPage=", "/p.html?itemsPerPage=50", True),
+    ("/x$", "/x", True), ("/x$", "/xy", False), ("/*", "/anything", True), ("/a**b", "/ab", True),
+])
+def test_wildcard_and_anchor_semantics_are_unchanged(rule, path, blocked):
+    assert Robots(f"User-agent: *\nDisallow: {rule}\n").can_fetch(UA, "https://x.test" + path) is (not blocked)
+
+
+def test_robots_text_and_rule_counts_are_capped():
+    huge = "User-agent: *\n" + "".join(f"Disallow: /p{i}\n" for i in range(50000)) + "Disallow: /late-rule-after-the-cap\n" * 5
+    t = time.perf_counter()
+    r = Robots(huge)
+    r.can_fetch(UA, "https://x.test/zzz")
+    assert time.perf_counter() - t < 2.0 and sum(len(g.rules) for g in r.groups) <= 5000
+    assert Robots("User-agent: *\n" + "#" * (2 * 1024 * 1024) + "\nDisallow: /secret\n").can_fetch(UA, "https://x.test/secret") is True  # beyond 512 KiB: ignored (RFC 9309)
