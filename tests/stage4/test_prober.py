@@ -6,7 +6,6 @@ with scripted transport responses. No test touches the network.
 
 from __future__ import annotations
 
-import itertools
 import json
 import threading
 import time
