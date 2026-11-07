@@ -220,7 +220,7 @@ def create_app(db: Database | None = None) -> FastAPI:
                 est["notes"].append("Shipping is the source's own quote for its default destination; it may not apply to yours.")
         link = affiliate.build_link(l)
         policy = s.scalar(select(SourcePolicy).where(SourcePolicy.source_id == l.source_id))
-        return render(request, "listing.html", l=l, obs=obs, chart=price_chart(pts, l.currency), npts=len(pts), events=events, policy=policy,
+        return render(request, "listing.html", l=l, obs=obs, chart=price_chart(pts, l.currency), npts=len(pts), events=events, policy=policy, islands=True,
                       deal=ds, stats=stats, others=same_product(s, l), est=est, dest=dest, ship=ship, ins=ins, hand=hand, to=to, link=link,
                       pstatus=price_status(l, l.source), fresh=freshness(l, l.source), banner=banner(s),
                       watching=bool(s.scalar(select(WatchItem.id).where(WatchItem.owner == owner_of(request), WatchItem.listing_id == l.id))))
@@ -258,7 +258,7 @@ def create_app(db: Database | None = None) -> FastAPI:
 
     @app.get("/coverage")
     def coverage_page(request: Request, s=Depends(get_s)):
-        return render(request, "coverage.html", rep=cached_coverage(s), banner=banner(s))
+        return render(request, "coverage.html", rep=cached_coverage(s), banner=banner(s), islands=True)
 
     @app.get("/api/v1/coverage")
     def api_coverage(s=Depends(get_s)):
@@ -267,7 +267,7 @@ def create_app(db: Database | None = None) -> FastAPI:
     @app.get("/research")
     def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):
         res = assistant.answer(s, q, shipping_minor=round(ship * 100) if ship is not None else None) if q.strip() else None
-        return render(request, "research.html", q=q, res=res, ship=ship, banner=banner(s))
+        return render(request, "research.html", q=q, res=res, ship=ship, banner=banner(s), islands=True)
 
     @app.get("/go/{listing_id}")
     def go(listing_id: int, s=Depends(get_s)):

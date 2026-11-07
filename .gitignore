@@ -8,3 +8,4 @@ data/*.db-*
 data/backups/
 .venv-ml/
 models/
+frontend/node_modules/

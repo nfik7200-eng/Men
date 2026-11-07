@@ -1,0 +1,19 @@
+{
+  "name": "watchtower-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run && npm run build -- --logLevel warn && node ../e2e/check-bundle-fresh.mjs",
+    "test:e2e": "node ../e2e/client-journeys.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vite": "6.4.5",
+    "vitest": "4.1.12"
+  }
+}

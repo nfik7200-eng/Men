@@ -19,4 +19,5 @@
 <footer><div class="wrap">Prices are observed from the source page at the time shown. “Estimate” = computed by us, not stated by the store. Missing data is shown as missing, never as zero. Outbound links may become affiliate links; this is always disclosed next to the link and never changes rankings.
 {% for d in disclosures() %}<br><b>{{ d }}</b>{% endfor %}</div></footer>
 <script src="/static/app.js" defer></script>
+{% if islands %}<script type="module" src="/static/app/assets/main.js"></script>{% endif %}
 </body></html>

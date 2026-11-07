@@ -49,3 +49,46 @@ footer{color:var(--muted);font-size:.82rem;padding:24px 0;border-top:1px solid v
 button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;filter:grayscale(.4)}
 .show-sm{display:none}
 @media(max-width:640px){.hide-sm{display:none}.show-sm{display:block}}
+
+/* Client islands (frontend/): facts grid for price history and the state text. Uses the existing tokens only. */
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px 18px;margin:0 0 14px}
+.facts .fact{min-width:0}
+.facts dt{color:var(--muted);font-size:.8rem;margin:0}
+.facts dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}
+.state{color:var(--muted);margin:.5rem 0}
+.state-error{color:var(--bad,#b42318)}
+.history-table{margin-top:12px}
+.history-table summary{cursor:pointer;color:var(--brand)}
+
+/* Research assistant island (frontend/src/pages/research.ts) */
+.research-form{margin:0 0 16px}
+.research-input-row{display:flex;gap:8px;align-items:stretch}
+.research-input-row input{flex:1;min-width:0}
+.research-input-row button{flex:0 0 auto}
+.examples{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.chip{background:transparent;color:var(--muted);border:1px solid var(--line);font-weight:500;font-size:.85rem;padding:5px 10px;min-height:0;width:auto;border-radius:999px}
+.chip:hover{color:var(--ink);border-color:var(--muted)}
+.picks{list-style:none;padding:0;margin:12px 0;display:grid;gap:10px}
+.pick{border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:var(--card)}
+.pick-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.pick-title{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.pick-price{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pick .badges{margin:6px 0}
+.pick p{margin:4px 0}
+.caveats{color:var(--muted);font-size:.92rem;padding-left:18px}
+.gaps h3{font-size:1rem;margin:14px 0 4px}
+.research-out .state{margin:8px 0}
+.research-server-form{display:grid;gap:10px}
+.research-server-form[hidden]{display:none}
+
+/* Acquisition monitoring island (frontend/src/pages/coverage.ts) */
+.source-card{margin:14px 0}
+.source-title{font-size:1.05rem;margin:0 0 10px}
+.funnel{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:0 0 14px}
+.stage{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--bg)}
+.stage-n{font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums}
+.stage-label{font-weight:600;margin-top:2px}
+.next-up{padding-left:20px;margin:6px 0 0}
+.next-up li{margin:6px 0;overflow-wrap:anywhere}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.server-coverage[hidden]{display:none}
