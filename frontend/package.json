@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run && npm run build -- --logLevel warn && node ../e2e/check-bundle-fresh.mjs",
-    "test:e2e": "node ../e2e/client-journeys.mjs"
+    "test": "vitest run && npm run build -- --logLevel warn && node ../e2e/check-bundle-fresh.mjs"
   },
   "devDependencies": {
     "jsdom": "26.1.0",

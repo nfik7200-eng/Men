@@ -2,8 +2,8 @@
 {% block title %}Collection coverage{% endblock %}
 {% block body %}
 <h1>Collection coverage</h1>
-{% if islands %}<div data-island="coverage"><p class="state">Loading acquisition data…</p></div>{% endif %}
-<div class="server-coverage"{% if islands %} hidden{% endif %}>
+{% if islands %}<div class="island-slot" data-island="coverage" hidden><p class="state">Loading acquisition data…</p></div>{% endif %}
+<div class="server-coverage">
 <p class="muted">What we have actually collected from real shops, and what we only know exists. A <b>discovered</b> page is a link we have seen, not a product we hold: it has no price, no stock and no history until it has been fetched and read. Demo and sandbox catalogues are not counted here.</p>
 <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0">
   <div class="card"><div class="muted">Real shops</div><div class="price">{{ rep.live_merchants }}</div></div>

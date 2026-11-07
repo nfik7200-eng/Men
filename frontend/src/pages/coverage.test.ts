@@ -34,8 +34,9 @@ describe('acquisition monitoring island', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(report([source({ eligible_coverage: null, extraction_success_rate: null, avg_seconds_per_page: null })])), { status: 200 })));
     mountCoverage(root);
     await flush(); await flush();
+    const rate = [...root.querySelectorAll('.fact')].find((f) => f.querySelector('dt')?.textContent === 'Coverage of eligible');
+    expect(rate?.querySelector('dd')?.textContent).toBe('—');  // an unknown rate is an em dash, never 0%
     expect(root.textContent).not.toContain('0%');
-    expect(root.textContent).toContain('unknown');
   });
 
   it('states when no score exists for the next-in-line pages instead of showing numbers', async () => {

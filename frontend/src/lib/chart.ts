@@ -30,9 +30,17 @@ export interface ChartOptions {
  * Returns null unless there are at least two real, priced observations. A single point is shown as a
  * number by the caller, not as a line, so nobody reads a trend into one collection.
  */
+/** The one rule for a usable price: a known, positive amount. Zero, negative and unknown are never prices. */
+export function isUsablePrice(o: Observation): o is Observation & { price_minor: number } {
+  return o.price_minor !== null && Number.isFinite(o.price_minor) && o.price_minor > 0;
+}
+
 export function buildPriceChart(observations: Observation[], opts: ChartOptions): ChartModel | null {
+  // Different currencies must never share one trend: that would mix amounts without a sourced exchange rate.
+  const currencies = new Set(observations.filter(isUsablePrice).map((o) => o.currency));
+  if (currencies.size > 1) return null;
   const priced = observations
-    .filter((o): o is Observation & { price_minor: number } => o.price_minor !== null && o.price_minor > 0)
+    .filter(isUsablePrice)
     .map((o) => ({ t: Date.parse(normalise(o.observed_at)), price_minor: o.price_minor, observed_at: o.observed_at }))
     .filter((o) => Number.isFinite(o.t))
     .sort((a, b) => a.t - b.t);

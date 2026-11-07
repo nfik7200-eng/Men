@@ -8,6 +8,8 @@ import type { CoverageResponse, CoverageSource } from '../api/types';
  * only collected listings are counted as collected. Unknown rates are shown as unknown, never as zero.
  */
 export function mountCoverage(root: HTMLElement): void {
+  // The island replaces the server copy of the report, so hide that copy now that the island is running.
+  document.querySelector<HTMLElement>('.server-coverage')?.setAttribute('hidden', '');
   root.replaceChildren(status('Loading acquisition data…'));
   void load(root);
 }

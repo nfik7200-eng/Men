@@ -72,3 +72,32 @@ describe('listing price history island', () => {
     expect(el.querySelector('svg.chart')).not.toBeNull();
   });
 });
+
+describe('listing history: unusable prices are counted and explained, never shown as prices', () => {
+  beforeEach(() => { document.body.innerHTML = ''; });
+  it('reports how many collections were excluded and why', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(hist([0, 2000, -500])), { status: 200 })));
+    const el = root(1);
+    mountListingChart(el);
+    await flush(); await flush();
+    expect(el.textContent).toContain('2 excluded: unknown, zero or negative price');
+    // The facts never use the excluded rows as a price (the table still lists every collection, so check the facts).
+    const lowest = [...el.querySelectorAll('.fact')].find((f) => f.querySelector('dt')?.textContent === 'Lowest seen');
+    // One usable price is not a range: the lowest/highest facts stay unset rather than repeating a single value.
+    expect(lowest?.querySelector('dd')?.textContent).toBe('—');
+    expect(el.querySelector('svg.chart')).toBeNull();
+  });
+
+  it('does not draw a trend across currencies', async () => {
+    const mixed = { listing_id: 1, observations: [
+      { observed_at: '2026-11-01T12:00:00', price_minor: 2000, original_price_minor: null, currency: 'USD', availability: 'in_stock', shipping_minor: null },
+      { observed_at: '2026-11-02T12:00:00', price_minor: 1500, original_price_minor: null, currency: 'EUR', availability: 'in_stock', shipping_minor: null },
+    ] };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(mixed), { status: 200 })));
+    const el = root(1);
+    mountListingChart(el);
+    await flush(); await flush();
+    expect(el.querySelector('svg.chart')).toBeNull();
+    expect(el.textContent).toContain('more than one currency');
+  });
+});

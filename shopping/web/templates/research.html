@@ -3,14 +3,14 @@
 {% block body %}
 <h1>Shopping research assistant</h1>
 <p class="muted">Answers come from listings we actually collected, cited by id and observation time. Anything we don't have data for (build quality, benchmarks, upgradeability…) is reported as a gap rather than guessed. Works without any AI model.</p>
-{% if islands %}<div class="card" data-island="research"><p class="state">Loading the research assistant…</p></div>
-<noscript><p class="muted small">Interactive mode needs JavaScript. The form below works without it.</p></noscript>{% endif %}
-<form class="card research-server-form"{% if islands %} hidden{% endif %}>
+{% if islands %}<div class="card island-slot" data-island="research" hidden><p class="state">Loading the research assistant…</p></div>
+{% endif %}
+<form class="card research-server-form">
   <textarea name="q" aria-label="Your question" placeholder="Find me the best programming laptop under $700. Compare memory and price, include cheaper alternatives and estimate the total cost of importing it to Uganda.">{{ q }}</textarea>
   <label>Shipping you were quoted, if any (listing currency) <input name="ship" type="number" step="0.01" min="0" value="{{ '' if ship is none else ship }}"></label>
   <div><button>Research</button></div>
 </form>
-{% if res %}
+<div class="research-server-result">{% if res %}
 <h2>Answer</h2>
 {% for c in res.caveats %}<div class="banner">{{ c }}</div>{% endfor %}
 {% for p in res.picks %}{% set l = p.listing %}
@@ -33,4 +33,5 @@
 {% if res.llm_summary %}<h3>AI-written summary <span class="badge warn">local model, may be imperfect</span></h3><div class="card">{{ res.llm_summary }}</div>{% endif %}
 <details style="margin-top:12px"><summary class="muted">Plain-text answer (same facts) · retrieved listings: {{ res.retrieved_listing_ids }}</summary><pre class="answer">{{ res.text }}</pre></details>
 {% endif %}
+</div>
 {% endblock %}

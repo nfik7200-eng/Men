@@ -64,3 +64,12 @@ describe('formatPercent', () => {
     expect(formatPercent(16.4)).toBe('16%');
   });
 });
+
+describe('currency minor-unit exponents', () => {
+  it('uses zero decimals for currencies without minor units', () => {
+    expect(formatMoney(1500, 'JPY')).toBe('¥1,500');
+  });
+  it('uses the stated code, not a guess, when the currency is empty', () => {
+    expect(formatMoney(1500, '')).toBe('15.00 (currency not stated)');
+  });
+});

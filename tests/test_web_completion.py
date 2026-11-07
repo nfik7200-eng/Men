@@ -149,3 +149,14 @@ def test_a_crossed_out_price_is_always_labelled_as_the_shops_claim(world):
         lid = l.id
     assert "claimed original" in c.get(f"/listing/{lid}").text
     assert "not verified by our price history" in c.get("/search?q=raspberry").text
+
+
+def test_server_fallbacks_are_visible_without_javascript(world):
+    """Frontend review: the server forms were hidden by default, so a visitor with JavaScript off saw only a loading
+    message forever. The server content must be visible in the HTML; the island hides it once it mounts."""
+    db, c, _ = world
+    research = c.get("/research").text
+    assert 'name="q"' in research and "hidden" not in research.split('class="card research-server-form"')[1].split(">")[0]
+    coverage = c.get("/coverage").text
+    assert 'class="server-coverage"' in coverage
+    assert "hidden" not in coverage.split('class="server-coverage"')[1].split(">")[0]

@@ -17,6 +17,7 @@ const islands: Record<string, (root: HTMLElement) => void> = {
 for (const el of document.querySelectorAll<HTMLElement>('[data-island]')) {
   const name = el.dataset.island ?? '';
   const mount = islands[name];
+  el.hidden = false; // reveal the slot only now that a script is running it
   if (mount) mount(el);
   else el.textContent = `Unknown interface component: ${name}.`;
 }

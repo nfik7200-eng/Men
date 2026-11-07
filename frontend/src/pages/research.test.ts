@@ -97,3 +97,32 @@ describe('research island', () => {
     expect(root.querySelector('[role="alert"]')?.textContent).toContain('not valid');
   });
 });
+
+describe('research: a newer question does not re-enable the button early', () => {
+  it('keeps the button disabled while the latest request is still pending', async () => {
+    window.history.replaceState(null, '', '/research'); // no ?q= on load, so only the two submits below call fetch
+    let resolveSecond: (r: Response) => void = () => {};
+    const first = new Promise<Response>((_, reject) => setTimeout(() => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), 0));
+    const second = new Promise<Response>((res) => { resolveSecond = res; });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => first)
+      .mockImplementationOnce(() => second);
+    vi.stubGlobal('fetch', fetchMock);
+    const root = document.createElement('div'); document.body.append(root);
+    mountResearch(root);
+    const input = root.querySelector('input') as HTMLInputElement;
+    const submit = root.querySelector('button[type="submit"]') as HTMLButtonElement;
+    const form = root.querySelector('form')!;
+    input.value = 'cheapest raspberry pi 5';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    input.value = 'raspberry pi 5 8gb';
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    await new Promise((r) => setTimeout(r, 10));
+    // The aborted first request has settled; the second is still running and must keep the button disabled.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(submit.hasAttribute('disabled')).toBe(true);
+    resolveSecond(new Response(JSON.stringify(answer()), { status: 200 }));
+    await flush(); await flush();
+    expect(submit.disabled).toBe(false);
+  });
+});

@@ -18,7 +18,7 @@
 
   <h2>Price history</h2>
   <div class="card">
-    {% if islands %}<div data-island="listing-chart" data-listing-id="{{ l.id }}">
+    {% if islands %}<div class="island-slot" data-island="listing-chart" data-listing-id="{{ l.id }}" hidden>
       {% if chart %}{{ chart | safe }}{% else %}<p><b>{{ npts }} observation{{ '' if npts == 1 else 's' }} so far.</b> A chart needs at least 2. History grows each time this source is collected; nothing is back-filled or invented.</p>{% endif %}
     </div>
     {% elif chart %}{{ chart | safe }}

@@ -55,3 +55,18 @@ describe('buildPriceChart', () => {
     expect(c.path).toBe(`M${a.x.toFixed(1)},${a.y.toFixed(1)} L${b.x.toFixed(1)},${a.y.toFixed(1)} L${b.x.toFixed(1)},${b.y.toFixed(1)}`);
   });
 });
+
+describe('usable price rule (one definition for chart and facts)', () => {
+  it('excludes zero and negative prices from the chart and says so', () => {
+    expect(buildPriceChart([obs(1, 0), obs(2, 2000)], opts)).toBeNull();
+    expect(buildPriceChart([obs(1, -500), obs(2, 2000), obs(3, 1800)], opts)!.points.map((p) => p.price_minor)).toEqual([2000, 1800]);
+  });
+
+  it('refuses to draw a trend across currencies (no FX is applied)', () => {
+    const mixed: Observation[] = [
+      { ...obs(1, 2000), currency: 'USD' },
+      { ...obs(2, 1500), currency: 'EUR' },
+    ];
+    expect(buildPriceChart(mixed, opts)).toBeNull();
+  });
+});

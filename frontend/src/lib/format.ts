@@ -2,15 +2,28 @@
 
 const CURRENCY_LOCALE = 'en-US';
 
+// Minor-unit exponents for ISO 4217 currencies that differ from the usual two decimals. Any other code is assumed to
+// have two; if that is wrong, the amount would be off by a power of ten, so the list covers the currencies we handle.
+const ZERO_DECIMAL = new Set(['JPY', 'KRW', 'UGX', 'KES', 'TZS', 'RWF', 'XAF', 'XOF', 'VND', 'CLP', 'ISK']);
+const THREE_DECIMAL = new Set(['BHD', 'JOD', 'KWD', 'OMR', 'TND']);
+
+export function minorUnitDigits(currency: string): number {
+  if (ZERO_DECIMAL.has(currency)) return 0;
+  if (THREE_DECIMAL.has(currency)) return 3;
+  return 2;
+}
+
 /** Minor units -> display string. Returns a clear "not stated" label for unknown prices (never "0"). */
 export function formatMoney(minor: number | null | undefined, currency: string): string {
   if (minor === null || minor === undefined) return 'Price not stated';
-  const major = minor / 100;
+  if (!currency) return `${(minor / 100).toFixed(2)} (currency not stated)`;
+  const digits = minorUnitDigits(currency);
+  const major = minor / 10 ** digits;
   try {
     return new Intl.NumberFormat(CURRENCY_LOCALE, { style: 'currency', currency }).format(major);
   } catch {
     // Unknown ISO code: show the amount with the code rather than guessing a symbol.
-    return `${major.toFixed(2)} ${currency}`;
+    return `${major.toFixed(digits)} ${currency}`;
   }
 }
 

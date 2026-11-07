@@ -1,7 +1,7 @@
 import { api } from '../api/client';
 import { ApiError } from '../api/client';
 import { h, status } from '../components/dom';
-import { buildPriceChart } from '../lib/chart';
+import { buildPriceChart, isUsablePrice } from '../lib/chart';
 import { formatDate, formatMoney, formatPercent, percentChange } from '../lib/format';
 import type { HistoryResponse } from '../api/types';
 
@@ -37,15 +37,19 @@ async function load(root: HTMLElement, id: number): Promise<void> {
 
 function render(root: HTMLElement, hist: HistoryResponse): void {
   const obs = hist.observations;
-  const priced = obs.filter((o) => o.price_minor !== null);
+  const priced = obs.filter(isUsablePrice);
+  const excluded = obs.length - priced.length;
+  // Each point keeps its own currency; a mixed-currency history gets no trend (see buildPriceChart).
+  const currencies = new Set(priced.map((o) => o.currency));
   const currency = priced[0]?.currency ?? obs[0]?.currency ?? 'USD';
+  const mixed = currencies.size > 1;
   const chart = buildPriceChart(obs, { width: 640, height: 180 });
   const first = priced[0];
   const latest = priced[priced.length - 1];
 
   const summary = h('dl', { class: 'facts' },
     fact('Collections', String(obs.length)),
-    fact('Priced collections', String(priced.length)),
+    fact('Priced collections', String(priced.length) + (excluded > 0 ? ` (${excluded} excluded: unknown, zero or negative price)` : '')),
     fact('Span', priced.length >= 2 ? `${formatDate(first?.observed_at)} to ${formatDate(latest?.observed_at)}` : 'Not enough history yet'),
     fact('Lowest seen', chart ? formatMoney(chart.min_minor, currency) : '—'),
     fact('Highest seen', chart ? formatMoney(chart.max_minor, currency) : '—'),
@@ -53,7 +57,9 @@ function render(root: HTMLElement, hist: HistoryResponse): void {
   );
 
   const body: Node[] = [summary];
-  if (chart) {
+  if (mixed) {
+    body.push(status('These collections are in more than one currency, so no trend is drawn: amounts are never converted without a sourced exchange rate.'));
+  } else if (chart) {
     body.push(
       svgChart(chart, currency),
       h('p', { class: 'muted small' },

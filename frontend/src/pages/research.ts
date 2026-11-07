@@ -16,6 +16,9 @@ const EXAMPLES = [
  * recommendation links to the exact listing it is based on. Caveats and gaps are shown, never hidden.
  */
 export function mountResearch(root: HTMLElement): void {
+  // The island replaces the server form, so hide the no-JavaScript copy now that the island is running.
+  document.querySelector<HTMLElement>('.research-server-form')?.setAttribute('hidden', '');
+  document.querySelector<HTMLElement>('.research-server-result')?.setAttribute('hidden', '');
   const form = h('form', { class: 'research-form', role: 'search', 'aria-label': 'Ask the research assistant' });
   const input = h('input', {
     type: 'search', name: 'q', required: true, minlength: 3, maxlength: 500,
@@ -35,18 +38,23 @@ export function mountResearch(root: HTMLElement): void {
   let current: AbortController | null = null;
   const ask = async (q: string): Promise<void> => {
     current?.abort();
-    current = new AbortController();
+    const mine = new AbortController();
+    current = mine;
     submit.setAttribute('disabled', '');
     out.replaceChildren(status('Searching the collected data…'));
     try {
-      const res = await api.research(q, current.signal);
+      const res = await api.research(q, mine.signal);
       render(out, res);
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
+      if ((err as Error).name === 'AbortError') return; // a newer question replaced this one
       const msg = err instanceof ApiError ? err.message : 'The question could not be answered.';
       out.replaceChildren(status(msg, 'error'));
     } finally {
-      submit.removeAttribute('disabled');
+      // Only the request that is still current may re-enable the button; an aborted request must not.
+      if (current === mine) {
+        submit.removeAttribute('disabled');
+        input.focus(); // the button was disabled while it had focus: return focus to the question
+      }
     }
   };
 
