@@ -13,3 +13,11 @@ Known integrity findings on the real database (reproduced on a verified snapshot
 5. `python -m watchtower.cli backup` again, then `verify --db <that snapshot>`: expect `integrity: OK`.
 6. Rollback: restore the step-1 snapshot to the live path with the service stopped (`deploy/restore.sh`, once the deployment package exists).
 `rematch` never merges or splits products on weak evidence; it only prunes duplicate review questions and heals labels.
+
+## Applied (2026-11-07, with the owner's approval)
+Steps 1-5 were executed on the development container's database (no service running): pre-cleanup backup
+`data/backups/pre-cleanup-20261107T144145Z.db` (verify: the two expected failures), `cleanup-preview` (safe: YES), `rematch`
+(11 candidates dropped, 6 labels healed), post-cleanup backup `data/backups/post-cleanup-20261107T144210Z.db`
+(`verify`: integrity OK; pending candidates 23 -> 12; observations 901 -> 901; prices, stock and product grouping identical).
+The first normal open also added the nullable `crawl_urls`/`match_candidates` columns. This does NOT apply to any other
+database (e.g. one on the VPS): repeat steps 1-5 there. Rollback for this one: restore the pre-cleanup backup with the service stopped.
