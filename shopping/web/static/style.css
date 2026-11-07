@@ -19,6 +19,10 @@ main{padding:20px 0 48px}h1{font-size:1.6rem;margin:.2em 0 .5em}h2{font-size:1.2
 .item h3 a:hover{text-decoration:underline}
 .price{font-size:1.4rem;font-weight:700}.price s{font-size:.9rem;color:var(--muted);font-weight:400;margin-left:6px}
 .muted{color:var(--muted);font-size:.88rem}
+.skip{position:absolute;left:-9999px;top:0;background:var(--card);color:var(--ink);padding:10px 14px;z-index:20;border:2px solid var(--brand)}
+.skip:focus{left:8px;top:8px}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+nav a[aria-current=page]{font-weight:700;text-decoration:underline;text-underline-offset:6px}
 .badges{display:flex;gap:6px;flex-wrap:wrap}
 .badge{font-size:.75rem;padding:2px 8px;border-radius:999px;background:var(--infobg);color:var(--info);white-space:nowrap}
 .badge.ok{background:var(--okbg);color:var(--ok)}.badge.warn{background:var(--warnbg);color:var(--warn)}.badge.bad{background:var(--badbg);color:var(--bad)}

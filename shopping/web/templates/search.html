@@ -8,7 +8,7 @@
 {% else %}<div class="card">No listings match. Try removing filters.</div>{% endif %}
 {% set pages = ((total + per_page - 1) // per_page) %}
 {% if pages > 1 %}<div class="pager">
-  {% set qs = request.query_params.multi_items() | rejectattr(0, 'equalto', 'page') | map('join', '=') | join('&') %}
+  {% set qs = qs_without(request, 'page') %}
   {% if page > 1 %}<a class="btn secondary" href="/search?{{ qs }}&page={{ page - 1 }}">← Prev</a>{% endif %}
   <span class="muted">Page {{ page }} of {{ pages }}</span>
   {% if page < pages %}<a class="btn secondary" href="/search?{{ qs }}&page={{ page + 1 }}">Next →</a>{% endif %}

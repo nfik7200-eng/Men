@@ -311,3 +311,20 @@ def test_market_questions_respect_the_named_model(db):
     s.flush()
     r = assistant.answer(s, "has the price of the raspberry pi 5 dropped recently?", now=T0 + timedelta(days=1), use_llm=False)
     assert r["candidate_count"] == 1  # only the Pi 5, not every Raspberry Pi listing
+
+
+def test_a_named_model_that_was_not_collected_is_called_out_not_replaced_silently(db):
+    """UI review D8: 'Arduino Uno R4 WiFi cheapest' returned accessories with no statement that the board itself is not held."""
+    ensure_sources(db)
+    with db.session() as s:
+        a = Source(key="ada", name="Ada", base_url="https://ada.example", currency="USD", kind="live")
+        s.add(a)
+        s.flush()
+        for i, t in enumerate(("Arduino Stacking Headers for Uno R3", "Arduino Mounting Plate", "Arduino Proto Shield")):
+            r = _raw(str(i), t, 500 + i)
+            r.brand = "Arduino"
+            ingest_listing(s, a, None, r, T0)
+        s.flush()
+        r = assistant.answer(s, "Arduino Uno R4 WiFi cheapest", now=T0, use_llm=False)
+        note = [c for c in r["caveats"] if "No collected listing is named" in c]
+        assert note and "R4" in note[0] and "/coverage" in note[0], r["caveats"]

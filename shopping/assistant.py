@@ -369,7 +369,15 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
             caveats.append(f"No collected listing matches: {', '.join(soft_kw)}.")
     elif soft_kw:
         unmatched = [k for k in soft_kw if not any(has_word(k, text_of(l)) for l in cands)]
-        if unmatched:
+        generic = {"cheapest", "cheap", "best", "lowest", "price", "prices", "buy", "good", "top"}
+        named = [k for k in unmatched if k not in generic]
+        for code in re.findall(r"\b(?:[a-z]\d{1,3}|\d{1,3}[a-z])\b", question, flags=re.I):  # model codes such as R4, 5G (too short to be keywords)
+            if code.lower() not in named and not any(has_word(code.lower(), text_of(l)) for l in cands):
+                named.insert(0, code)
+        if named:
+            caveats.append(f"No collected listing is named like: {', '.join(named)}. The results below are different products, not that one; "
+                           "it may simply not have been collected yet (see /coverage for what we hold).")
+        elif unmatched:
             caveats.append(f"Ignored (no listing mentions): {', '.join(unmatched)}.")
 
     # budget: currency is explicit, inferred only when unambiguous, otherwise we ask

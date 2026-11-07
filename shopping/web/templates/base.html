@@ -4,14 +4,15 @@
 <title>{% block title %}Watchtower{% endblock %} · Watchtower Shopping</title>
 <link rel="stylesheet" href="/static/style.css">
 </head><body>
+<a class="skip" href="#main">Skip to content</a>
 <header class="top"><div class="wrap">
   <a class="logo" href="/">WATCH<b>TOWER</b></a>
   <form class="search" action="/search" style="flex:1;min-width:180px;max-width:420px;display:flex;gap:6px">
     <input name="q" placeholder="Search products…" aria-label="Search products" value="{{ (f.q if f is defined else '') or '' }}">
   </form>
-  <nav aria-label="Main"><a href="/search">Browse</a><a href="/deals">Deals</a><a href="/research">Research</a><a href="/watchlist">Watchlist</a><a href="/coverage">Coverage</a><a href="/admin">Sources</a></nav>
+  <nav aria-label="Main">{% for href, label in [('/search','Browse'),('/deals','Deals'),('/research','Research'),('/watchlist','Watchlist'),('/coverage','Coverage'),('/admin','Admin')] %}<a href="{{ href }}"{% if request.url.path == href or request.url.path.startswith(href + '/') %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
 </div></header>
-<main class="wrap">
+<main class="wrap" id="main">
 {% if banner == 'demo' %}<div class="banner" role="note"><b>Demo / test data only.</b> No real-retailer listings have been collected yet: everything shown comes from scraping-practice sites or API sandboxes. The pipeline is real; the prices are not shopping opportunities.</div>{% endif %}
 {% block body %}{% endblock %}
 </main>

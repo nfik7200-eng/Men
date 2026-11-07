@@ -87,3 +87,42 @@ def test_review_queue_is_side_by_side_with_a_confirmation_and_a_decision_log(wor
     assert c.post(f"/admin/match/{cid}/reject", follow_redirects=False).status_code == 303
     html2 = c.get("/admin").text
     assert "Recently decided" in html2 and "rejected" in html2.lower() and "admin" in html2
+
+
+# --- batch 2: D6, D8, D10, D12, D13 --------------------------------------------------------------------------------
+def test_pager_links_encode_the_query_string(world):
+    db, c, _ = world
+    from shopping.web.app import urlencode_params
+    assert urlencode_params([("q", "a&b #c"), ("page", "2"), ("sort", "price")], drop="page") == "q=a%26b+%23c&sort=price"
+
+
+def test_flat_price_series_does_not_invent_a_price_range():
+    from datetime import datetime, timedelta
+    from shopping.web.charts import price_chart
+    t = datetime(2026, 11, 1)
+    svg = price_chart([(t, 6795), (t + timedelta(days=1), 6795)], "USD")
+    assert "67.95" in svg and "64.55" not in svg and "71.35" not in svg  # no invented +/-5% axis
+    assert "constant" in svg.lower() or "unchanged" in svg.lower()
+    moving = price_chart([(t, 6000), (t + timedelta(days=1), 7000)], "USD")
+    assert "aria-label=\"Price history" in moving and "60.00" in moving and "70.00" in moving
+
+
+def test_pages_have_a_skip_link_focus_ring_and_current_nav_marker(world):
+    db, c, _ = world
+    html = c.get("/coverage").text
+    assert 'class="skip"' in html and 'href="#main"' in html and 'id="main"' in html
+    assert 'aria-current="page"' in html
+    css = c.get("/static/style.css").text
+    assert ":focus-visible" in css and ".skip" in css
+
+
+def test_public_nav_calls_the_admin_page_admin(world):
+    db, c, _ = world
+    html = c.get("/").text
+    assert ">Admin</a>" in html and ">Sources</a>" not in html
+
+
+def test_price_statistics_show_currency_on_every_amount(world):
+    db, c, _ = world
+    html = c.get(f"/listing/{_first_listing_id(db)}").text
+    assert not re.search(r"<th>Mean</th><td>\d", html) and not re.search(r"<th>Median</th><td>\d", html)

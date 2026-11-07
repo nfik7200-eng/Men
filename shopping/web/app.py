@@ -40,6 +40,12 @@ _running: set[str] = set()
 _lock = threading.Lock()
 
 
+def urlencode_params(items, drop: str | None = None) -> str:
+    """Query string from (key, value) pairs, URL-encoded, minus one key (the pager rebuilds `page`)."""
+    from urllib.parse import urlencode
+    return urlencode([(k, v) for k, v in items if k != drop])
+
+
 def match_label(status: str | None, confidence: float | None) -> str:
     """Plain-language match status for people (the raw status stays in the data)."""
     pct = f", {round(confidence * 100)}% confidence" if confidence else ""
@@ -64,6 +70,7 @@ def create_app(db: Database | None = None) -> FastAPI:
     security.install(app)
     tpl = Jinja2Templates(directory=HERE / "templates")
     tpl.env.filters["money"] = fmt_money
+    tpl.env.globals["qs_without"] = lambda request, key: urlencode_params(request.query_params.multi_items(), drop=key)
     tpl.env.filters["match_label"] = match_label
     tpl.env.filters["plain_reason"] = plain_reason
     tpl.env.filters["dt"] = lambda d: d.strftime("%Y-%m-%d %H:%M UTC") if d else "never"

@@ -42,7 +42,7 @@
     <div class="scroll"><table>
       <tr><th>Collections</th><td>{{ stats.n_collections }} over {{ '%.1f' % stats.span_days }} days</td><th>Changes</th><td>{{ stats.changes }}</td></tr>
       <tr><th>Min</th><td>{{ stats.minimum | money(l.currency) }}</td><th>Max</th><td>{{ stats.maximum | money(l.currency) }}</td></tr>
-      <tr><th>Mean</th><td>{{ ('%.2f' % (stats.mean / 100)) }}</td><th>Median</th><td>{{ ('%.2f' % (stats.median / 100)) }}</td></tr>
+      <tr><th>Mean</th><td>{{ (stats.mean | round | int) | money(l.currency) }}</td><th>Median</th><td>{{ (stats.median | round | int) | money(l.currency) }}</td></tr>
       <tr><th>Volatility</th><td>{{ (stats.volatility_pct ~ '%') if stats.volatility_pct is not none else 'needs 3+ collections' }}</td><th>Now vs min</th><td>{{ '%+.1f' % stats.current_vs_min_pct }}%</td></tr>
     </table></div>
     {% if stats.note %}<p class="warn-t">⚠ {{ stats.note }}</p>{% endif %}

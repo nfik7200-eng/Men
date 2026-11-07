@@ -64,7 +64,7 @@ def test_chart_appears_with_two_observations(seeded):
                           currency=l.currency, availability="unknown"))
         lid = l.id
     html = TestClient(create_app(seeded)).get(f"/listing/{lid}").text
-    assert "<svg" in html and 'aria-label="Price history"' in html
+    assert "<svg" in html and 'aria-label="Price history' in html  # label now carries a data summary
 
 
 def test_xss_is_escaped(seeded):
