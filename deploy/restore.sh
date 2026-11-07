@@ -18,6 +18,7 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 [ -n "$FROM" ] && [ -f "$FROM" ] || die "--from SNAPSHOT is required and must be a file"
+FROM="$(realpath "$FROM")"   # the verify below runs from another directory: a relative path must not break
 case "$FROM" in *.UNVERIFIED) die "refusing an .UNVERIFIED snapshot" ;; esac
 [ -f "$WT_ENV_FILE" ] && load_env "$WT_ENV_FILE"
 PY="$(app_py)"; APP="$(app_dir)"; TS="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -30,7 +31,7 @@ log "verifying snapshot $FROM"
 if [ "$REPLACE" = 1 ]; then
   LIVE="$(db_path)" || die "WATCHTOWER_DB_URL not set to an absolute sqlite URL"
   [ "$FORCE" = 1 ] || die "--replace-live requires --force" 7
-  if service_active; then die "watchtower-web.service is active: stop it first (systemctl stop watchtower-web.service)" 7; fi
+  if u="$(active_db_unit)"; then die "$u is active and may hold the database open: stop watchtower-web, watchtower-collect and watchtower-backup first" 7; fi
   [ "${WT_NO_SYSTEMCTL:-0}" = 1 ] && warn "systemctl check skipped (test mode): make sure nothing is using $LIVE"
   DEST="$LIVE"
 else

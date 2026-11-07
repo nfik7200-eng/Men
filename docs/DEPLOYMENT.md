@@ -34,7 +34,7 @@ Override any path/threshold with `WT_PREFIX WT_STATE WT_ETC WT_USER WT_UNIT_DIR 
 * Footprint: one uvicorn worker (rate limiter is in-process, DB is SQLite), capped at `MemoryMax=2G`, `TasksMax=256`. Real memory use
   and database growth under live collection are **not measured**; observations are append-only, so the DB only grows. Watch
   `df -h /var/lib/watchtower`. Backups keep the newest 14 snapshots (plus anything under 30 days), each about the DB size; budget
-  roughly 15x the DB size for them or lower `--keep`.
+  roughly 30x the DB size for them (the rule keeps the newest 14 OR anything younger than 30 days: about 30 daily files, plus one pre-update snapshot per update; `.UNVERIFIED` files are never pruned) and copy them off the box, or lower `--keep`/`--min-age-days`.
 * Cost: no recurring cost beyond the VPS itself and your domain registration. Let's Encrypt is free; there are no paid APIs
   anywhere in the code. Ollama (optional, `OLLAMA_URL`) would run locally and is not provisioned by these scripts. Prices of the VPS
   and domain are not stated here because they were not verified.
@@ -48,7 +48,7 @@ cd /path/to/checkout
 deploy/install.sh                      # DRY RUN (default): preflight + prints every change; changes nothing
 deploy/install.sh --init-env --apply   # creates /etc/watchtower/watchtower.env from .env.example (placeholders)
 $EDITOR /etc/watchtower/watchtower.env # replace every YOUR_* ; generate the admin token on the server
-deploy/install.sh                      # dry run again: must say env file ok
+deploy/install.sh                      # dry run again: must not report a refused env file (a placeholder, a short admin token or a relative DB path is refused)
 deploy/install.sh --apply --start --enable-backup-timer
 ```
 
@@ -88,7 +88,7 @@ nginx -t && systemctl reload nginx
 ```
 
 (The bootstrap step exists because the full config references certificate files that do not exist before issuance.) If another site
-already lives on this nginx, delete the `default_server ... return 444` block from the rendered file first (a second default server is
+already lives on this nginx, delete the `default_server` blocks (port 80 and 443) from the rendered file first. Note that a stock `apt install nginx` on Debian/Ubuntu already ships `sites-enabled/default` with `listen 80 default_server`, so this clash is the NORMAL case: remove that default site (`rm /etc/nginx/sites-enabled/default`) only if you own this nginx, and run `nginx -t` before reloading (a second default server is
 an error). Certbot's packaged timer renews certificates; nothing else is installed for it by these scripts.
 
 How the app and proxy must agree (`shopping/web/security.py`, `watchtower/config.py`):
@@ -114,8 +114,7 @@ How the app and proxy must agree (`shopping/web/security.py`, `watchtower/config
 * Cron-free options: run it by hand after deploys; point a free external uptime monitor at `https://YOUR_DOMAIN/health`;
   or add your own systemd timer pair that runs `healthcheck.sh --no-db` (not shipped, not tested here). `Restart=on-failure` already
   restarts a crashed web process (max 5 starts per 5 minutes).
-* Collection health: `python -m watchtower.cli health` and `status` (run with the env loaded: `set -a; . /etc/watchtower/watchtower.env; set +a`
-  in a shell you control, or `sudo systemd-run --pty -p User=watchtower -p EnvironmentFile=/etc/watchtower/watchtower.env ...`).
+* Collection health: `python -m watchtower.cli health` (read-only against the DB). Note that `status` and every command except `backup`, `verify`, `plan`, `coverage`, `cleanup-preview` and `schedule` open the DB normally, which runs `init`/migrations (nullable columns) first: take a `backup` before the first normal open after an upgrade. Run CLI commands with the env loaded WITHOUT sourcing the file (it is parsed by the scripts, never sourced), e.g. `sudo systemd-run --pty -p User=watchtower -p EnvironmentFile=/etc/watchtower/watchtower.env /opt/watchtower/current/.venv/bin/python -m watchtower.cli health` (with `WorkingDirectory=/opt/watchtower/current`).
 
 ## 7. Backup, recovery, rollback
 
@@ -142,7 +141,7 @@ How the app and proxy must agree (`shopping/web/security.py`, `watchtower/config
 
 ## 8. Enabling scheduled collection LATER (triple opt-in; off by default)
 
-`watchtower-collect.timer` ships disabled and `install.sh` never enables it. Collection happens only when **all** hold:
+`watchtower-collect.timer` ships disabled and `install.sh` never enables it. Scheduled collection (the timer) happens only when **all** hold (a logged-in admin can still start ONE manual collection from the admin page: that path needs only the admin token plus the source policy gate, and ignores these switches):
 
 1. `/var/lib/watchtower/schedule.json` has `"enabled": true` (ships `false`; sources/intervals/budgets are edited here, survive updates; min interval 12 h, budget ceiling 500).
 2. `WATCHTOWER_SCHEDULER_ENABLED=1` in the env file (ships `0`).

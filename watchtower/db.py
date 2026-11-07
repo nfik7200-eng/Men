@@ -99,7 +99,7 @@ def snapshot(src, dst) -> dict:
         raise SnapshotError(f"source database not found: {src}")
     dst.parent.mkdir(parents=True, exist_ok=True)
     try:
-        os.close(os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY))  # atomic "never overwrite"
+        os.close(os.open(dst, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))  # atomic "never overwrite"
     except FileExistsError:
         raise SnapshotError(f"refusing to overwrite existing file: {dst}") from None
     try:

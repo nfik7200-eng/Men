@@ -55,6 +55,16 @@ service_active() {
   systemctl is-active --quiet watchtower-web.service
 }
 
+# any unit that may hold the live DB open (web process, a collection, a backup): restore must wait for all of them
+active_db_unit() {
+  [ "${WT_NO_SYSTEMCTL:-0}" = 1 ] && return 1
+  local u
+  for u in watchtower-web.service watchtower-collect.service watchtower-backup.service; do
+    if systemctl is-active --quiet "$u"; then echo "$u"; return 0; fi
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------- preflight primitives
 nearest_existing() { local p="$1"; while [ ! -e "$p" ] && [ "$p" != "/" ]; do p="$(dirname "$p")"; done; echo "$p"; }
 
@@ -158,7 +168,8 @@ app_py()  { echo "${WT_PYTHON_BIN:-$(app_dir)/.venv/bin/python}"; }
 # ---------------------------------------------------------------- release creation
 # make_release SRC ID : copy code (never DBs, .git, .env, tests, caches) into releases/ID, build venv, smoke-import.
 make_release() {
-  local src="$1" id="$2" rel="$WT_PREFIX/releases/$2" py tmp
+  local src="$1" id="$2" rel="$WT_PREFIX/releases/$2" py tmp oldumask item
+  oldumask="$(umask)"; umask 022   # the service user must be able to read the release whatever the caller's umask is
   [ -f "$src/main.py" ] && [ -d "$src/watchtower" ] && [ -f "$src/requirements-prod.txt" ] \
     || die "$src is not a Watchtower source tree (needs main.py, watchtower/, requirements-prod.txt)"
   py="$(find_python)" || die "python >= 3.11 not found (set WT_PYTHON)"
@@ -169,9 +180,13 @@ make_release() {
     printf '  DRY-RUN: copy ALLOWLIST only (main.py watchtower/ shopping/ deploy/ docs/ data/*.json requirements*.txt .env.example README.md CLAUDE.md pytest.ini) to %s\n' "$rel"
   else
     # Allowlist, not a denylist: databases, backups, .git, .env, venvs and tool caches can never be copied.
-    ( cd "$src" && tar --exclude='__pycache__' --exclude='*.pyc' -cf - main.py watchtower shopping deploy docs data/*.json \
-        requirements*.txt .env.example README.md CLAUDE.md pytest.ini 2>/dev/null ) | tar -C "$rel" -xf -
-    [ -f "$rel/main.py" ] && [ -d "$rel/watchtower" ] || die "release copy failed"
+    local items=()
+    for item in main.py watchtower shopping deploy docs data/*.json requirements*.txt .env.example README.md CLAUDE.md pytest.ini; do
+      [ -e "$src/$item" ] && items+=("$item")   # optional files may be absent; required ones are checked below
+    done
+    ( cd "$src" && tar --exclude='__pycache__' --exclude='*.pyc' -cf - "${items[@]}" ) | tar -C "$rel" -xf - \
+      || { umask "$oldumask"; die "release copy failed (tar error above); partial release left in $rel"; }
+    [ -f "$rel/main.py" ] && [ -d "$rel/watchtower" ] || { umask "$oldumask"; die "release copy failed"; }
   fi
   run "$py" -m venv "$rel/.venv"
   run "$rel/.venv/bin/pip" install --no-cache-dir --disable-pip-version-check -r "$rel/requirements-prod.txt"
@@ -183,6 +198,8 @@ make_release() {
       || { rm -rf "$tmp"; die "smoke import failed; release $id NOT activated (left in $rel for inspection)"; }
     rm -rf "$tmp"
   fi
+  [ "$DRY" = 1 ] || chmod -R go+rX "$rel"
+  umask "$oldumask"
 }
 
 new_release_id() { date -u +%Y%m%dT%H%M%SZ; }

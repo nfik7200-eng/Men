@@ -26,7 +26,7 @@ PY="$(app_py)"; APP="$(app_dir)"
 
 # space: need the DB (+WAL) again, with headroom, and never dip below the free-space floor
 need_mb=$(( ( $(du -k "$LIVE"* 2>/dev/null | awk '{s+=$1} END {print s+0}') / 1024 ) * 2 + 1 ))
-mkdir -p "$DIR" 2>/dev/null || [ "$DRY" = 1 ] || die "cannot create $DIR"
+[ "$DRY" = 1 ] || mkdir -p "$DIR" 2>/dev/null || die "cannot create $DIR"
 free_mb=$(( $(free_gb_of "$DIR") * 1024 ))
 [ "$(free_gb_of "$DIR")" -ge "$WT_MIN_FREE_GB" ] || die "only $(free_gb_of "$DIR") GB free in $DIR (< ${WT_MIN_FREE_GB} GB floor): not creating a backup" 3
 [ "$free_mb" -ge "$need_mb" ] || die "need ~${need_mb} MB for the snapshot, ${free_mb} MB free" 3

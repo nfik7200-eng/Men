@@ -112,8 +112,7 @@ groups do not count), not pairs or groups.
 5. Models are only fitted when sufficiency allows. With `--exploratory` they are fitted on insufficient data and the report is
    stamped `EXPLORATORY - NOT EVIDENCE`. Measured exploratory run (seed 0, k=3, union grouping): of 1,284 pairs, **740 were never in any test fold**
    (straddling groups; the earlier "1,718" was a sum over folds, where each straddling pair is counted in k-1 folds). Per fold
-   (train pos/neg, test pos/neg): fold0 0/271, 0/405... i.e. train 0+271, test 6+405; fold1 train 6+762, test 0+72; fold2 train 6+783,
-   test 0+61. All 6 positives land in one fold, so the out-of-fold set has a single class (133 pairs, 0 positives) and no ranking
+   (positives+negatives): fold0 train 0+271, test 6+405; fold1 train 6+762, test 0+72; fold2 train 6+783, test 0+61. All 6 positives land in one fold, so the out-of-fold set has a single class (133 pairs, 0 positives) and no ranking
    metric exists: the honest result is "not evaluable", flagged `underpowered`/`circular`. **It says nothing about real-world accuracy.**
 6. Report: `models/reports/<run_id>.json`, `run_id = ml-<UTC time>-s<seed>-<dataset sha8>`, containing seed, folds, library
    versions (sklearn, numpy, scipy, joblib), git commit, a content-based dataset fingerprint (pairs plus the listing fields the features read), label counts, the sufficiency report, rule baseline, and model results or the refusal reason.
