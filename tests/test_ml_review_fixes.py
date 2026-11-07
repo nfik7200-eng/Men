@@ -344,3 +344,17 @@ def test_json_report_is_serialisable(db, tmp_path):
         small_catalogue(s)
         rep = evaluate.run_evaluation(s, exploratory=True, k=2, out_dir=tmp_path)
         json.loads(open(rep["report_path"]).read())
+
+
+def test_snapshot_without_audit_column_yields_no_human_decisions(tmp_path):
+    import sqlite3
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    f = tmp_path / "old.db"
+    c = sqlite3.connect(f)
+    c.execute("create table match_candidates (id integer primary key, listing_id int, product_id int, status text)")
+    c.execute("insert into match_candidates values (1, 1, 1, 'accepted')")
+    c.commit()
+    c.close()
+    with Session(create_engine(f"sqlite:///{f}")) as s:
+        assert dataset.load_candidate_decisions(s, {1}) == []

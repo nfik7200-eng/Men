@@ -43,7 +43,7 @@ import random
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 
 from watchtower import config
@@ -97,6 +97,9 @@ def load_live_listings(s: Session) -> list[Listing]:
 def load_candidate_decisions(s: Session, live_ids: set[int]) -> list[tuple[int, int, str]]:
     """(listing_id, product_id, status) for HUMAN-decided review candidates on live listings: accepted/rejected AND decided_by
     set (a status flipped without an audit trail is not evidence of a human decision)."""
+    cols = {c["name"] for c in inspect(s.get_bind()).get_columns("match_candidates")}
+    if "decided_by" not in cols:  # older snapshot without the audit trail: no decision can be shown to be human -> none count
+        return []
     rows = s.execute(select(MatchCandidate.listing_id, MatchCandidate.product_id, MatchCandidate.status)
                      .where(MatchCandidate.status.in_(("accepted", "rejected")), MatchCandidate.decided_by.is_not(None))).all()
     return [(l, p, st) for l, p, st in rows if l in live_ids]
@@ -159,8 +162,9 @@ def build_group_map(listings) -> dict[int, str]:
     for r in sorted(rows, key=lambda r: r.id):
         if r.product_id:
             union(r.id, first_by_product.setdefault(r.product_id, r.id))
-        if keys[r.id] is not None:
-            union(r.id, first_by_key.setdefault(keys[r.id], r.id))
+        key = keys[r.id]
+        if key is not None:
+            union(r.id, first_by_key.setdefault(key, r.id))
     return {r.id: f"g{find(r.id)}" for r in rows}
 
 
@@ -272,7 +276,7 @@ def summarize(pairs: list[LabelledPair]) -> dict:
     pos_h = [p for p in human if p.label == 1]
     # distinct POSITIVE products among human positives; a positive without a known product counts as its own (conservative)
     pos_products = {p.product_id if p.product_id is not None else f"pair:{p.key()}" for p in pos_h}
-    out = {"n_pairs": len(pairs)}
+    out: dict = {"n_pairs": len(pairs)}
     for tier in TRUST_TIERS:
         out[f"positives_{tier}"] = sum(p.label == 1 and p.trust == tier for p in pairs)
         out[f"negatives_{tier}"] = sum(p.label == 0 and p.trust == tier for p in pairs)

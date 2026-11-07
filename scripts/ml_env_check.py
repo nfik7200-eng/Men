@@ -21,11 +21,6 @@ def main() -> int:
         return 1
     print(f"sklearn  {sklearn.__version__}\nnumpy    {np.__version__}\nscipy    {scipy.__version__}\njoblib   {joblib.__version__}")
     try:
-        import pandas
-        print(f"pandas   {pandas.__version__}")
-    except Exception as e:  # noqa: BLE001
-        print(f"WARN: pandas unavailable ({e!r}); optional")
-    try:
         rng = np.random.RandomState(0)
         X = np.vstack([rng.normal(-2, 1, (40, 3)), rng.normal(2, 1, (40, 3))])
         y = np.array([0] * 40 + [1] * 40)
