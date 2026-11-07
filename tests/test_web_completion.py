@@ -139,3 +139,13 @@ def test_review_does_not_flag_a_shops_own_category_wording_as_a_spec_conflict(wo
     _admin(c)
     html = c.get("/admin").text
     assert "Different spec values: merchant category" not in html
+
+
+def test_a_crossed_out_price_is_always_labelled_as_the_shops_claim(world):
+    db, c, _ = world
+    with db.session() as s:
+        l = s.query(Listing).filter_by(sku="5812").one()
+        l.original_price_minor = l.price_minor + 1000
+        lid = l.id
+    assert "claimed original" in c.get(f"/listing/{lid}").text
+    assert "not verified by our price history" in c.get("/search?q=raspberry").text
