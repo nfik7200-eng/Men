@@ -62,4 +62,16 @@ describe("wallet workspace", () => {
     renderAt(`/flows?chain=ethereum&address=${ETH_WALLET}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Capital Flows" })).toBeInTheDocument();
   });
+
+  it("keeps the tab mounted when the wallet status refreshes (no reload flash, no lost input)", async () => {
+    const user = userEvent.setup();
+    const fake = installFakeBackend();
+    fake.watchlists.set(99, { id: 99, name: "Whales", description: null, entries: [] });
+    renderAt(`/wallets/ethereum/${ETH_WALLET}/cases`);
+    await user.type(await screen.findByLabelText("Case title"), "Draft title");
+    await user.selectOptions(await screen.findByLabelText("Watchlist"), "99");
+    await user.click(screen.getByRole("button", { name: "Add to watchlist" }));
+    expect(await screen.findByRole("link", { name: "Whales" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Case title")).toHaveValue("Draft title");
+  });
 });

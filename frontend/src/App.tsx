@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
-import { BackendBanner, HealthProvider, Sidebar } from "./components/shell";
+import { BackendBanner, HealthProvider, Sidebar, useHealth } from "./components/shell";
 import { WalletSearch } from "./components/WalletSearch";
 import CapitalFlows from "./pages/CapitalFlows";
 import Chains from "./pages/Chains";
@@ -51,6 +51,7 @@ export default function App() {
 
 function Shell() {
   useFocusOnNavigate();
+  const { generation } = useHealth();
   return (
     <div className="shell">
       <a className="skip-link" href="#content">
@@ -62,7 +63,7 @@ function Shell() {
           <WalletSearch compact />
         </div>
         <BackendBanner />
-        <Routes>
+        <Routes key={generation}>
           <Route path="/" element={<Overview />} />
           <Route path="/chains" element={<Chains />} />
           <Route path="/wallets" element={<Wallets />} />

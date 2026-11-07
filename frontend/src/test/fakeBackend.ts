@@ -196,7 +196,7 @@ export function intelResponse(path: string, method: string, opts: IntelOptions):
   return null;
 }
 
-export type ResearchOptions = { llm?: boolean; models?: boolean; seeded?: boolean; traced?: boolean; fixtureRuns?: boolean };
+export type ResearchOptions = { llm?: boolean; models?: boolean; seeded?: boolean; traced?: boolean; fixtureRuns?: boolean; noClassification?: boolean };
 
 const lr = (label: string, status: string, confidence: number | null, source: string, extra: Json = {}) => ({
   label, status, confidence, source, model_status: source.startsWith("wallet-classifier") ? "experimental_synthetic" : null,
@@ -263,7 +263,7 @@ export function researchResponse(path: string, method: string, opts: ResearchOpt
             rules: { name: "bip-rules", version: "1.0.0", feature_version: "1.0.0", status: "rule_based", data_kind: "stored_observations", dataset_version: null },
             model: { name: "wallet-classifier-ethereum", version: "1.0.1", feature_version: "1.0.0", status: "experimental_synthetic", data_kind: "synthetic", dataset_version: "e".repeat(64) } }
         : { account_type: null, behavioural_roles: [], model: null, status: null },
-      ...(opts.traced ? { report_version: "1.1.0", plan: { focus: ["classification"], steps: 2 }, llm: null } : {}),
+      ...(opts.traced || opts.noClassification ? { report_version: "1.1.0", plan: { focus: ["classification"], steps: 2 }, llm: null } : {}),
       sections: {
         observations: [{ claim_key: "c-1", specialist: "flow_analyst", kind: "blockchain_observation", status: "unverified", statement: "Asset native: in 2, out 0.", confidence: null, evidence: [{ type: "transaction", ref: TX }], contradicts: [] }],
         classification: [{ claim_key: "c-2", specialist: "classification_analyst", kind: "model_prediction", status: "inferred", statement: "Behavioural role 'automated_bot' — model prediction, not a verified fact.", confidence: "low", evidence: [{ type: "classification", ref: "c1" }], contradicts: [] }],

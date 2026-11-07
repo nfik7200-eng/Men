@@ -209,11 +209,18 @@ class ClassificationService:
         limitations = [
             "Classification is based only on activity BIP has retrieved (not lifetime history)."
         ]
-        if model is not None and not runtime.ml_runtime().available:
+        runtime_problem: str | None = None
+        if model is not None:
+            try:
+                runtime.backend()  # loads numpy/scikit-learn; fails if missing or broken
+            except runtime.MLUnavailableError as exc:
+                runtime_problem = str(exc)
+        if model is not None and runtime_problem is not None:
             limitations.append(
-                f"A trained model ({model['name']} {model['version']}) is registered, but the "
-                "ML runtime (numpy, scikit-learn) is not installed in this environment: only "
-                "the deterministic rules baseline ran. No model prediction is shown."
+                f"A model ({model['name']} {model['version']}, status "
+                f"{model['status']}) is registered, but the ML runtime could not be used "
+                f"here: {runtime_problem} Only the deterministic rules baseline ran; no model "
+                "prediction is shown."
             )
             model = None
         if ref.chain == "ethereum":
@@ -226,10 +233,11 @@ class ClassificationService:
         not_assigned: list[J] = []
         anomaly: J = {"status": "not_available", "reason": "no trained anomaly model"}
         if model is None:
-            limitations.append(
-                "No trained model is registered for this chain: only "
-                "deterministic rules were applied."
-            )
+            if runtime_problem is None:  # otherwise the runtime limitation already says why
+                limitations.append(
+                    "No trained model is registered for this chain: only "
+                    "deterministic rules were applied."
+                )
         else:
             if model["status"] == "experimental_synthetic":
                 limitations.append(

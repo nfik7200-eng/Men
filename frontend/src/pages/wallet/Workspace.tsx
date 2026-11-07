@@ -32,8 +32,13 @@ const NEEDS_DATA: ReadonlySet<Tab> = new Set(["flows", "graph", "classification"
 export default function WalletWorkspacePage() {
   const { chain = "", address = "", tab = "overview" } = useParams();
   const [nonce, setNonce] = useState(0);
-  const status = useApi(() => api.walletStatus(chain, address), [chain, address, nonce]);
-  const refresh = () => setNonce((n) => n + 1);
+  // reload() keeps the current status on screen while refetching, so tabs stay mounted
+  // (no flash, input and panel state survive); nonce only refreshes the Evidence tab.
+  const status = useApi(() => api.walletStatus(chain, address), [chain, address]);
+  const refresh = () => {
+    status.reload();
+    setNonce((n) => n + 1);
+  };
   const base = `/wallets/${encodeURIComponent(chain)}/${encodeURIComponent(address)}`;
   const explorer = addressUrl(chain, address);
   const known = TABS.some(([id]) => id === tab);

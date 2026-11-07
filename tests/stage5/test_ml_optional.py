@@ -45,8 +45,9 @@ def test_classification_falls_back_to_rules_when_ml_runtime_is_missing(
         calls: list[str] = []
 
         def counting_backend() -> object:
-            calls.append("backend")
-            return real_backend()  # raises MLUnavailableError: the runtime is reported missing
+            mod = real_backend()  # raises MLUnavailableError: the runtime is reported missing
+            calls.append("backend loaded")  # only reached if the backend was actually loaded
+            return mod
 
         monkeypatch.setattr(runtime, "backend", counting_backend)
 
@@ -54,7 +55,7 @@ def test_classification_falls_back_to_rules_when_ml_runtime_is_missing(
         assert r["model"] is None  # rules output is never attributed to a model
         assert r["account_type"]["status"] == "rule_based"
         assert any("not installed" in lim and "rules baseline" in lim for lim in r["limitations"])
-        assert calls == []  # classification never touched the ML backend
+        assert calls == []  # the ML backend was never loaded or used
 
         t = c.post(f"{API}/ml/training-runs", json={"chain": "ethereum", "source": "synthetic"})
         assert t.status_code == 503
@@ -102,3 +103,41 @@ def test_api_starts_without_ml_packages(tmp_path: Path) -> None:
     )
     assert out.returncode == 0, out.stdout + out.stderr
     assert out.stdout.strip().endswith("OK")
+
+
+def test_missing_runtime_limitations_do_not_contradict_each_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    e = env_with(tmp_path, allow_synthetic_training=True)
+    with TestClient(e.app) as c:
+        w = e.eth.wallet
+        c.post(f"{API}/ingestion/wallet/ethereum/{w}?limit=20")
+        c.post(f"{API}/ml/training-runs", json={"chain": "ethereum", "source": "synthetic"})
+        monkeypatch.setattr(runtime, "ml_runtime", lambda: runtime.MLRuntime(False, ("sklearn",)))
+        lims = c.post(f"{API}/ml/classify/ethereum/{w}").json()["limitations"]
+        assert not any("No trained model is registered" in x for x in lims), lims
+        assert not any("A trained model" in x for x in lims), lims  # it may be synthetic
+        assert any("is registered, but the ML runtime" in x for x in lims), lims
+    e.engine.dispose()
+
+
+def test_partly_installed_runtime_degrades_to_rules_instead_of_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """find_spec succeeds but importing the backend fails (e.g. a broken wheel on Termux)."""
+    e = env_with(tmp_path, allow_synthetic_training=True)
+    with TestClient(e.app) as c:
+        w = e.eth.wallet
+        c.post(f"{API}/ingestion/wallet/ethereum/{w}?limit=20")
+        c.post(f"{API}/ml/training-runs", json={"chain": "ethereum", "source": "synthetic"})
+
+        def broken() -> object:
+            raise runtime.MLUnavailableError("The ML runtime failed to import (bad wheel).")
+
+        monkeypatch.setattr(runtime, "backend", broken)
+        r = c.post(f"{API}/ml/classify/ethereum/{w}")
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["model"] is None
+        assert any("failed to import" in x for x in body["limitations"]), body["limitations"]
+    e.engine.dispose()

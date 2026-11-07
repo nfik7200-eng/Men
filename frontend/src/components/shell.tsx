@@ -45,13 +45,22 @@ export const NAV_GROUPS: NavGroup[] = [
 
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
-type HealthState = ApiState<Health> & { reload: () => void };
+type HealthState = ApiState<Health> & { reload: () => void; generation: number };
 const HealthContext = createContext<HealthState | null>(null);
 
 /** One shared /health request for the badge, the banner and the version label. */
 export function HealthProvider({ children }: { children: ReactNode }) {
   const health = useApi(api.health);
-  return <HealthContext.Provider value={health}>{children}</HealthContext.Provider>;
+  // `generation` increases each time the backend comes back after being unreachable, so the page
+  // can remount and every panel refetches (one Retry recovers the whole page).
+  const [generation, setGeneration] = useState(0);
+  const [wasDown, setWasDown] = useState(false);
+  if (health.status === "error" && !wasDown) setWasDown(true);
+  if (health.status === "ready" && wasDown) {
+    setWasDown(false);
+    setGeneration((g) => g + 1);
+  }
+  return <HealthContext.Provider value={{ ...health, generation }}>{children}</HealthContext.Provider>;
 }
 
 export function useHealth(): HealthState {
@@ -83,7 +92,7 @@ export function BackendBanner() {
         <strong>{offline ? "Backend unreachable" : "Backend health check failed"}</strong>
         <span className="muted">
           {offline
-            ? " The BIP API is not running or not reachable. Pages show what they can; nothing is invented."
+            ? " The BIP API is not running or not reachable. Start it with make api (serves http://127.0.0.1:8000), or the offline fixture backend; then Retry. Nothing is shown in place of missing data."
             : ` ${health.error.message}`}
         </span>
       </div>

@@ -75,17 +75,23 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
 }
 
 export function ErrorState({ error, onRetry }: { error: ApiError; onRetry?: () => void }) {
-  return (
-    <div className="state state-error" role="alert">
-      <strong>{error.isConnectionError ? "Backend unreachable" : "Request failed"}</strong>
-      <div className="state-body">
-        {error.message}
-        {error.isConnectionError ? (
-          <div className="hint">
-            Start it with <code>make api</code> (serves http://127.0.0.1:8000).
-          </div>
+  if (error.isConnectionError)
+    // The page-level banner explains how to start the backend; panels stay quiet (no alert storm).
+    return (
+      <div className="state state-offline" role="status">
+        <strong>Backend unreachable</strong>
+        <div className="state-body">This section needs the BIP API.</div>
+        {onRetry ? (
+          <button type="button" className="btn" onClick={onRetry}>
+            Retry
+          </button>
         ) : null}
       </div>
+    );
+  return (
+    <div className="state state-error" role="alert">
+      <strong>Request failed</strong>
+      <div className="state-body">{error.message}</div>
       {onRetry ? (
         <button type="button" className="btn" onClick={onRetry}>
           Retry

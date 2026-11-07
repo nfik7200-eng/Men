@@ -15,7 +15,7 @@ Companion document: `docs/FRONTEND_API_MAP.md` (page → component → endpoint 
 
 - Keep the existing stack: React 19, Vite, TypeScript strict, react-router 7, Vitest, Playwright e2e (`frontend/e2e/smoke.mjs`). No UI framework, CSS framework, state library or chart library is added.
 - Keep the existing `useApi` hook, `api` client, `ApiError` and the shared `Loading` / `EmptyState` / `ErrorState` components. Extend them; do not replace them.
-- Every existing route keeps working (old URLs redirect, never 404). Every existing Vitest and e2e check keeps passing or is updated with an explanation in `IMPLEMENTATION_LOG.md`.
+- Every existing route keeps working (old URLs keep their pages, never 404). Every existing Vitest and e2e check keeps passing or is updated with an explanation in `IMPLEMENTATION_LOG.md`.
 - No database record is changed or removed. Backend additions are new endpoints or additive migrations only.
 - Honesty rules carry over unchanged: missing is shown as missing (never 0), fixtures carry the demo banner, model outputs are never shown as facts, and nothing is attributed to a real-world identity.
 
@@ -48,14 +48,14 @@ Existing routes are kept. The wallet workspace gains tab sub-paths; standalone p
 | `/wallets` | Wallets (search, stored-wallet list) | Becomes the "recent and stored wallets" index |
 | `/wallets/:chain/:address` | Wallet workspace, Overview tab | Restructured (§4) |
 | `/wallets/:chain/:address/:tab` (new) | Wallet workspace tabs | `activity`, `flows`, `graph`, `classification`, `research`, `cases`, `evidence` |
-| `/flows`, `/graph` | Flows, Graph | Without a wallet: a "choose a wallet" state plus recent wallets. With `?chain=&address=`: redirect to the wallet tab (old links keep working) |
+| `/flows`, `/graph` | Flows, Graph | Without a wallet: a "choose a wallet" state plus recent wallets. With `?chain=&address=`: the standalone view, as before (old links keep working; no redirect) |
 | `/research` | Research index | Research history across all wallets (persisted runs), models and AI provider |
 | `/research/runs/:runKey` (new) | Research run and report | Deep-linkable, survives reloads (§5) |
 | `/opportunities` | Opportunities | Detail drawer per lead |
 | `/investigations`, `/investigations/:id` | Cases | Case shows attached findings and linked research runs |
 | `/watchlists` | Watchlists | Batch "analyse watchlist" action |
 | `/settings` | Settings | Unchanged |
-| `/research?chain=&address=` | (existing deep link) | Redirect to `/wallets/:chain/:address/research` |
+| `/research?chain=&address=` | (existing deep link) | Unchanged: opens that wallet on the Research page (no redirect); the workspace Research tab is the new entry point |
 
 Each route sets `document.title` to `"<Page> · BIP"` (wallet pages use `"<short address> · <chain> · BIP"`). On every route change, focus moves to the page `<h1>` (`tabIndex={-1}`) so screen-reader users hear the new page.
 
@@ -195,7 +195,7 @@ The gap is in the UI:
 - **Traceability gap (Milestone C):** the report's classification block omits `feature_digest`, `taxonomy_version`, `as_of` and the model's `dataset_version`.
   - The fix adds these fields to new reports and bumps `report_version`.
   - Older reports are shown with "Not recorded in this report version". The UI never fills the gaps from the current model, because that would misattribute provenance.
-- **Linking research to cases (ADR-030):** a new table `investigation_research_runs (investigation_id, run_key, attached_at, note)` in an additive migration v6.
+- **Linking research to cases (ADR-030):** a new table `investigation_research_runs (investigation_id, research_run_id, note, attached_at)` in an additive migration v6 (runs are referenced by foreign key; the API uses the public `run_id`).
   - From a run page: "Add to case".
   - On a case page: a list of linked runs with state and links.
   - Deleting a case removes only the links; runs and reports remain.

@@ -144,11 +144,18 @@ function ReportWithProvenance({ run }: { run: ResearchRun }) {
   );
 }
 
-function Rec({ label, value }: { label: string; value: string | null | undefined }) {
+/** Reports before 1.1.0 did not record feature/taxonomy/model-dataset provenance at all. */
+export function isLegacyReport(version: string | undefined): boolean {
+  if (!version) return true;
+  const [maj = 0, min = 0] = version.split(".").map((x) => Number(x));
+  return maj < 1 || (maj === 1 && min < 1);
+}
+
+function Rec({ label, value, missing }: { label: string; value: string | null | undefined; missing: string }) {
   return (
     <>
       <dt>{label}</dt>
-      <dd className={value ? undefined : "muted"}>{value ?? NOT_RECORDED}</dd>
+      <dd className={value ? undefined : "muted"}>{value ?? missing}</dd>
     </>
   );
 }
@@ -156,27 +163,46 @@ function Rec({ label, value }: { label: string; value: string | null | undefined
 export function ProvenancePanel({ run, report }: { run: ResearchRun; report: ResearchReport["report"] }) {
   const c = report.classification;
   const model = c.model;
+  const legacy = isLegacyReport(report.report_version);
+  // a null field means "not recorded" only in old reports; in current ones it is genuinely absent
+  const missing = legacy ? NOT_RECORDED : "Not available";
+  const ran = Boolean(c.classification_id);
   return (
     <section className="panel" aria-label="Provenance">
       <div className="panel-head"><h2>Provenance</h2></div>
       <dl className="kv">
-        <Rec label="Run id" value={run.run_id} />
-        <Rec label="Started" value={fmtTime(run.created_at)} />
-        <Rec label="Finished" value={run.finished_at ? fmtTime(run.finished_at) : null} />
-        <Rec label="Data origin" value={humanize(run.data_origin)} />
-        <Rec label="Report version" value={report.report_version} />
-        <Rec label="Budget used" value={run.usage ? `${run.usage.tool_calls} of ${run.budget.max_tool_calls ?? "?"} tool calls, ${run.usage.model_calls} of ${run.budget.max_model_calls ?? "?"} model calls` : null} />
-        <Rec label="Classification" value={c.classification_id} />
-        <Rec label="Rules" value={c.rules ? `${c.rules.name} ${c.rules.version}` : null} />
-        <dt>Model</dt>
-        <dd>{model ? `${model.name} ${model.version} (${humanize(model.status)}, ${model.data_kind} data)` : "No model prediction used (rules only)"}</dd>
-        <Rec label="Model training dataset" value={model ? (model.dataset_version ? shortId(model.dataset_version) : null) : "—"} />
-        <Rec label="Feature version" value={c.feature_version} />
-        <Rec label="Feature digest" value={c.feature_digest ? shortId(c.feature_digest) : null} />
-        <Rec label="Taxonomy version" value={c.taxonomy_version} />
-        <Rec label="Features as of" value={c.as_of ? fmtTime(c.as_of) : null} />
+        <Rec missing={missing} label="Run id" value={run.run_id} />
+        <Rec missing={missing} label="Started" value={fmtTime(run.created_at)} />
+        <Rec missing="Not finished" label="Finished" value={run.finished_at ? fmtTime(run.finished_at) : null} />
+        <Rec missing={missing} label="Data origin" value={humanize(run.data_origin)} />
+        <Rec missing={NOT_RECORDED} label="Report version" value={report.report_version} />
+        <Rec missing={missing} label="Budget used" value={run.usage ? `${run.usage.tool_calls} of ${run.budget.max_tool_calls ?? "?"} tool calls, ${run.usage.model_calls} of ${run.budget.max_model_calls ?? "?"} model calls` : null} />
+        {!legacy && !ran ? (
+          <>
+            <dt>Classification</dt>
+            <dd>Classification did not run in this research run</dd>
+          </>
+        ) : (
+          <>
+            <Rec missing={missing} label="Classification" value={c.classification_id} />
+            <Rec missing={missing} label="Rules" value={c.rules ? `${c.rules.name} ${c.rules.version}` : null} />
+            <dt>Model</dt>
+            <dd>
+              {model
+                ? `${model.name} ${model.version} (${humanize(model.status)}, ${model.data_kind} data)`
+                : ran
+                  ? "No model prediction used (rules only)"
+                  : NOT_RECORDED}
+            </dd>
+            <Rec missing={missing} label="Model training dataset" value={model ? (model.dataset_version ? shortId(model.dataset_version) : null) : "—"} />
+            <Rec missing={missing} label="Feature version" value={c.feature_version} />
+            <Rec missing={missing} label="Feature digest" value={c.feature_digest ? shortId(c.feature_digest) : null} />
+            <Rec missing={missing} label="Taxonomy version" value={c.taxonomy_version} />
+            <Rec missing={missing} label="Features as of" value={c.as_of ? fmtTime(c.as_of) : null} />
+          </>
+        )}
         <dt>AI provider</dt>
-        <dd>{report.llm && report.llm.provider ? `${report.llm.provider} ${report.llm.model ?? ""}` : report.summary_source === "deterministic" ? "None: deterministic summary" : NOT_RECORDED}</dd>
+        <dd>{report.llm && report.llm.provider ? `${report.llm.provider} ${report.llm.model ?? ""}` : report.summary_source === "deterministic" ? "None: deterministic summary" : missing}</dd>
         <dt>Evidence references</dt>
         <dd>{report.evidence_references.length}</dd>
       </dl>

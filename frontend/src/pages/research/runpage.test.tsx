@@ -74,4 +74,13 @@ describe("research history and run page", () => {
     renderAt(`/research/runs/${RUN1}`);
     expect(await screen.findByText(/Demo data: offline fixtures/)).toBeInTheDocument();
   });
+
+  it("says classification did not run in a current-version report, instead of 'not recorded' or 'rules only'", async () => {
+    installFakeBackend({}, { noClassification: true });
+    renderAt(`/research/runs/${RUN1}`);
+    const prov = await screen.findByRole("region", { name: "Provenance" }, { timeout: 4000 });
+    expect(prov).toHaveTextContent("Classification did not run in this research run");
+    expect(prov).not.toHaveTextContent("Not recorded in this report version");
+    expect(prov).not.toHaveTextContent("rules only");
+  });
 });

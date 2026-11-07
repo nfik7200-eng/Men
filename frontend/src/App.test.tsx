@@ -35,10 +35,13 @@ describe("BIP dashboard", () => {
     const user = userEvent.setup();
     const fetchMock = vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
     renderAt("/settings");
-    const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText("Backend unreachable")).toBeInTheDocument();
+    // panels show a quiet status (the banner carries the explanation), each with its own Retry
+    const body = await screen.findByText("This section needs the BIP API.");
+    const panel = body.closest(".state-offline");
+    if (!(panel instanceof HTMLElement)) throw new Error("no offline panel state");
+    expect(within(panel).getByText("Backend unreachable")).toBeInTheDocument();
     const calls = fetchMock.mock.calls.length;
-    await user.click(within(alert).getByRole("button", { name: "Retry" }));
+    await user.click(within(panel).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(calls));
   });
 
@@ -207,5 +210,27 @@ describe("BIP dashboard", () => {
     renderAt(`/wallets/ethereum/0x${"aa".repeat(20)}`);
     expect((await screen.findAllByText("Request failed")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/No data stored for this address yet|Nothing has been retrieved/)).toBeNull();
+  });
+
+  it("shows one offline notice, not an alert per panel", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 502 }));
+    renderAt("/");
+    await screen.findByRole("status", { name: "Backend status" });
+    await waitFor(() => expect(screen.getAllByText(/Backend unreachable/).length).toBeGreaterThan(1));
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+    expect(screen.getAllByText(/make api/)).toHaveLength(1); // the start hint appears once, in the banner
+  });
+
+  it("recovers every panel from the banner's Retry once the backend is back", async () => {
+    const user = userEvent.setup();
+    const offline = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 502 }));
+    renderAt("/");
+    const banner = await screen.findByRole("status", { name: "Backend status" });
+    offline.mockRestore();
+    installFakeBackend();
+    await user.click(within(banner).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No findings recorded")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Backend status" })).toBeNull();
+    expect(screen.queryByText(/Backend unreachable/)).toBeNull();
   });
 });

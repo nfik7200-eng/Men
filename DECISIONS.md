@@ -247,9 +247,9 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 **Decision.**
 - Navigation is grouped Monitor / Explore / Intelligence / Cases / Settings. The owner approved this on 2026-11-06.
 - The theme stays dark only (owner decision, 2026-11-06).
-- The wallet page becomes a tabbed workspace with path-addressed tabs (`/wallets/:chain/:address/:tab`). Old query-string routes redirect.
+- The wallet page becomes a tabbed workspace with path-addressed tabs (`/wallets/:chain/:address/:tab`). Old query-string routes (`/flows?…`, `/graph?…`, `/research?…`) keep working as standalone pages; they do not redirect (implementation ruling, 2026-11-06).
 - Research runs get a persisted index and a deep-linkable run page (`/research/runs/:runKey`).
-- New additive migration v6: table `investigation_research_runs (investigation_id, run_key, attached_at, note)`. Deleting a case removes only links; runs and reports are never deleted or rewritten.
+- New additive migration v6: table `investigation_research_runs (investigation_id → investigations.id ON DELETE CASCADE, research_run_id → research_runs.id, note, attached_at, UNIQUE(investigation_id, research_run_id))`; the API addresses runs by their public `run_id`. Deleting a case removes only links; runs and reports are never deleted or rewritten.
 - Reports gain feature digest, taxonomy version, as-of and model dataset version, with a `report_version` bump. Older reports show "not recorded"; they are never back-filled from current models.
 
 **Consequences.**
