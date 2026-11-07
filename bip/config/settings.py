@@ -1,0 +1,360 @@
+"""Typed, validated settings loaded from ``BIP_*`` environment variables.
+
+Nested groups use ``__`` (e.g. ``BIP_ROUTER__CROSS_VERIFICATION_SAMPLE_RATE=0.05``). Settings do
+**not** read a ``.env`` file implicitly; for local development run commands through
+``uv run --env-file .env …`` so the source of configuration is always explicit.
+
+Secrets (``postgres_dsn``, ``redis_url``) are :class:`pydantic.SecretStr`: they print as
+``**********``, are registered for log redaction on load, and are never included in
+:class:`~bip.core.exceptions.ConfigurationError` messages. Provider API keys are *not* settings;
+they are referenced by environment-variable name from the provider registry (Stage 2) and read
+with :func:`bip.security.secrets.read_secret`.
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from pathlib import Path
+from typing import Annotated, Any, Literal, Self
+
+from pydantic import (
+    BaseModel,
+    ByteSize,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from bip.contracts.blockchain import get_chain
+from bip.core.exceptions import ConfigurationError
+from bip.security.secrets import register_secret
+
+
+class Environment(StrEnum):
+    DEVELOPMENT = "development"
+    TEST = "test"
+    PRODUCTION = "production"
+
+
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+class RouterFlags(BaseModel):
+    """Feature flags for the future Provider Intelligence Router (Stage 3)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    live_requests_enabled: bool = False
+    """Master switch for real provider requests. No code path uses it yet; it must stay False
+    until the capability prober (Stage 4) exists."""
+    circuit_breakers_enabled: bool = True
+    cross_verification_sample_rate: Annotated[float, Field(ge=0.0, le=1.0)] = 0.01
+
+
+_LOCAL_ORIGIN_PREFIXES = ("http://localhost:", "http://127.0.0.1:", "https://")
+
+
+class ApiSettings(BaseModel):
+    """HTTP API settings (``BIP_API__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    host: str = "127.0.0.1"
+    """Bind address. Defaults to loopback; there is no authentication yet (see docs)."""
+    port: Annotated[int, Field(ge=1, le=65535)] = 8000
+    cors_origins: Annotated[tuple[str, ...], NoDecode] = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    )
+    """Exact origins allowed by CORS. Comma-separated in the environment. ``*`` is rejected."""
+    max_request_bytes: Annotated[int, Field(ge=1024, le=10 * 1024 * 1024)] = 64 * 1024
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _exact_origins(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for origin in value:
+            if "*" in origin:
+                raise ValueError("wildcard CORS origins are not allowed")
+            if not origin.startswith(_LOCAL_ORIGIN_PREFIXES) or origin.endswith("/"):
+                raise ValueError(
+                    "CORS origins must be exact, e.g. http://localhost:5173 or https://host"
+                )
+        return value
+
+
+class DatabaseSettings(BaseModel):
+    """Operational SQLite database settings (``BIP_DATABASE__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    filename: Annotated[str, Field(pattern=r"^[A-Za-z0-9_.\-]{1,64}\.sqlite3$")] = "bip.sqlite3"
+    """File name inside ``<data_root>/operational/``. Never a path."""
+    busy_timeout_ms: Annotated[int, Field(ge=0, le=60_000)] = 5_000
+
+
+class RpcSettings(BaseModel):
+    """Outbound JSON-RPC client limits (``BIP_RPC__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    timeout_s: Annotated[float, Field(gt=0, le=60)] = 10.0
+    max_attempts: Annotated[int, Field(ge=1, le=5)] = 3
+    backoff_base_s: Annotated[float, Field(ge=0, le=10)] = 0.5
+    backoff_cap_s: Annotated[float, Field(ge=0, le=60)] = 8.0
+    max_retry_after_s: Annotated[float, Field(ge=0, le=600)] = 60.0
+    """Longest Retry-After BIP will honour inline; longer waits mark the provider rate-limited."""
+    max_response_bytes: Annotated[int, Field(ge=1024, le=64 * 1024 * 1024)] = 8 * 1024 * 1024
+    use_env_proxy: bool = False
+    """Send requests through HTTPS_PROXY. Disables local IP pinning (the proxy resolves hosts)."""
+
+
+class IngestSettings(BaseModel):
+    """Bounded read-only wallet ingestion (``BIP_INGEST__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    default_limit: Annotated[int, Field(ge=1, le=50)] = 20
+    max_limit: Annotated[int, Field(ge=1, le=50)] = 50
+    ethereum_lookback_blocks: Annotated[int, Field(ge=1, le=50_000)] = 2_000
+    """How many recent blocks the Ethereum log scan covers (standard RPC has no address index)."""
+    ethereum_log_chunk_blocks: Annotated[int, Field(ge=1, le=10_000)] = 500
+    solana_commitment: Literal["confirmed", "finalized"] = "finalized"
+    run_deadline_s: Annotated[float, Field(gt=0, le=300)] = 90.0
+    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=500)] = 150
+
+    @model_validator(mode="after")
+    def _limits(self) -> Self:
+        if self.default_limit > self.max_limit:
+            raise ValueError("default_limit must not exceed max_limit")
+        return self
+
+
+class IntelSettings(BaseModel):
+    """Wallet intelligence bounds and detector thresholds (``BIP_INTEL__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    graph_max_depth: Annotated[int, Field(ge=1, le=3)] = 2
+    graph_max_nodes: Annotated[int, Field(ge=10, le=1000)] = 200
+    graph_max_edges: Annotated[int, Field(ge=10, le=3000)] = 500
+    graph_timeout_s: Annotated[float, Field(gt=0, le=30)] = 5.0
+    max_records_per_wallet: Annotated[int, Field(ge=10, le=20_000)] = 5_000
+    """Upper bound on stored records loaded into one analysis (larger sets are truncated and
+    say so)."""
+    flow_max_window_days: Annotated[int, Field(ge=1, le=3650)] = 365
+    newly_observed_days: Annotated[int, Field(ge=1, le=90)] = 7
+    spike_factor: Annotated[float, Field(ge=1.5, le=50)] = 3.0
+    large_transfer_mad_z: Annotated[float, Field(ge=2, le=50)] = 6.0
+    burst_count: Annotated[int, Field(ge=3, le=100)] = 5
+    burst_window_minutes: Annotated[int, Field(ge=1, le=1440)] = 10
+    concentration_share: Annotated[float, Field(gt=0.2, le=1.0)] = 0.5
+
+
+class ProbeSettings(BaseModel):
+    """Budgets for the provider capability prober (``BIP_PROBE__*``).
+
+    The ``le``/``ge`` bounds are hard safety ceilings: operators can only make probing *more*
+    conservative (fewer calls, shorter runs, longer spacing), never more aggressive.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_calls_per_provider: Annotated[int, Field(ge=1, le=8)] = 8
+    max_calls_per_run: Annotated[int, Field(ge=1, le=48)] = 48
+    max_run_seconds: Annotated[float, Field(gt=0, le=90)] = 90.0
+    max_concurrent_providers: Annotated[int, Field(ge=1, le=2)] = 2
+    request_timeout_s: Annotated[float, Field(gt=0, le=5)] = 5.0
+    retries: Annotated[int, Field(ge=0, le=0)] = 0
+    """Always 0: a failed probe request is recorded, never retried within a run."""
+    max_response_bytes: Annotated[int, Field(ge=1024, le=1024 * 1024)] = 1024 * 1024
+    min_interval_s: Annotated[float, Field(ge=1.0, le=60)] = 1.0
+    """Minimum spacing between two requests to one provider (a floor: only larger is allowed)."""
+    ethereum_history_lookback_blocks: Annotated[int, Field(ge=128, le=1_000_000)] = 100_000
+    """Distance below the head for the single historical-block sample (rounded down to 1,000)."""
+    solana_history_lookback_slots: Annotated[int, Field(ge=150, le=10_000_000)] = 1_000_000
+    """Distance below the finalized slot for the single historical-block sample."""
+
+
+class MLSettings(BaseModel):
+    """Wallet classification (``BIP_ML__*``). Models are trained only on request."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    min_labelled_wallets: Annotated[int, Field(ge=10, le=100_000)] = 30
+    """Minimum labelled wallets (real labels) before any supervised model is trained."""
+    min_positives_per_label: Annotated[int, Field(ge=3, le=10_000)] = 5
+    """Labels with fewer positive examples are not modelled (reported as insufficient)."""
+    min_tx_for_classification: Annotated[int, Field(ge=1, le=1000)] = 3
+    """Below this many observed transactions behavioural roles are 'insufficient_evidence'."""
+    high_precision_target: Annotated[float, Field(ge=0.8, le=1.0)] = 0.95
+    moderate_precision_target: Annotated[float, Field(ge=0.5, le=0.99)] = 0.80
+    min_threshold_support: Annotated[int, Field(ge=3, le=10_000)] = 10
+    """Validation predictions needed at a threshold before it may be used."""
+    allow_synthetic_training: bool = False
+    """Allow training on the built-in synthetic dataset (pipeline demonstration only)."""
+    max_artifact_bytes: Annotated[int, Field(ge=1024, le=512 * 1024 * 1024)] = 64 * 1024 * 1024
+    max_label_import: Annotated[int, Field(ge=1, le=100_000)] = 5_000
+
+
+class AISettings(BaseModel):
+    """AI research (``BIP_AI__*``). No provider is used unless explicitly configured.
+
+    Budget fields are hard ceilings: configuration can only lower them, requests cannot raise
+    them.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    provider: Literal["none", "ollama", "openai_compatible"] = "none"
+    ollama_url: str = "http://127.0.0.1:11434"
+    """Must be a loopback http(s) URL: BIP only talks to a local Ollama."""
+    ollama_model: Annotated[str, Field(max_length=100, pattern=r"^[A-Za-z0-9._:\-/]+$")] | None = (
+        None
+    )
+    """An already-installed model tag. BIP never pulls or modifies Ollama models."""
+    api_base_url: str | None = None
+    """OpenAI-compatible endpoint (https). Optional; never required."""
+    api_model: Annotated[str, Field(max_length=100)] | None = None
+    api_key_env: Annotated[str, Field(pattern=r"^BIP_AI_[A-Z0-9_]+$")] = "BIP_AI_API_KEY"
+    """Name of the environment variable holding the key (the key itself is never a setting)."""
+    request_timeout_s: Annotated[float, Field(gt=0, le=60)] = 45.0
+    max_seconds: Annotated[float, Field(gt=0, le=120)] = 120.0
+    max_tool_calls: Annotated[int, Field(ge=1, le=20)] = 20
+    max_model_calls: Annotated[int, Field(ge=0, le=8)] = 8
+    max_tool_output_bytes: Annotated[int, Field(ge=1024, le=100 * 1024)] = 100 * 1024
+    max_report_bytes: Annotated[int, Field(ge=1024, le=30 * 1024)] = 30 * 1024
+    max_concurrent: Annotated[int, Field(ge=1, le=2)] = 2
+    max_model_output_bytes: Annotated[int, Field(ge=1024, le=64 * 1024)] = 16 * 1024
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="BIP_",
+        env_nested_delimiter="__",
+        env_file=None,
+        extra="forbid",
+        frozen=True,
+        validate_default=True,
+    )
+
+    env: Environment = Environment.DEVELOPMENT
+    log_level: LogLevel = "INFO"
+    log_format: Literal["json", "text"] = "json"
+
+    data_root: Path = Path("var/data")
+    """Root of all BIP data. Relative paths resolve against the working directory."""
+    temp_dir: Path | None = None
+    """Scratch space; defaults to ``<data_root>/tmp``."""
+    max_data_bytes: ByteSize = ByteSize(5 * 1024**3)
+    """Hard cap on bytes BIP may store under ``data_root`` (ADR-011 prototype cap: 5 GiB)."""
+    min_free_bytes: ByteSize = ByteSize(5 * 1024**3)
+    """Writes pause when free space on the data filesystem would drop below this."""
+    min_free_ratio: Annotated[float, Field(ge=0.0, le=0.5)] = 0.05
+
+    enabled_chains: Annotated[tuple[str, ...], NoDecode] = ("ethereum", "solana")
+    """Comma-separated in the environment: ``BIP_ENABLED_CHAINS=ethereum,solana``."""
+
+    router: RouterFlags = RouterFlags()
+    api: ApiSettings = ApiSettings()
+    database: DatabaseSettings = DatabaseSettings()
+    rpc: RpcSettings = RpcSettings()
+    ingest: IngestSettings = IngestSettings()
+    intel: IntelSettings = IntelSettings()
+    probe: ProbeSettings = ProbeSettings()
+    ml: MLSettings = MLSettings()
+    ai: AISettings = AISettings()
+
+    postgres_dsn: SecretStr | None = None
+    """Optional. Not needed for unit tests; no database code exists yet."""
+    redis_url: SecretStr | None = None
+
+    @field_validator("enabled_chains", mode="before")
+    @classmethod
+    def _split_chains(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("enabled_chains")
+    @classmethod
+    def _known_chains(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value:
+            raise ValueError("at least one chain must be enabled")
+        if len(set(value)) != len(value):
+            raise ValueError("enabled_chains contains duplicates")
+        for chain in value:
+            get_chain(chain)
+        return value
+
+    @field_validator("postgres_dsn")
+    @classmethod
+    def _postgres_scheme(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not value.get_secret_value().startswith(
+            ("postgresql://", "postgres://", "postgresql+psycopg://")
+        ):
+            raise ValueError("must start with postgresql:// (value not shown)")
+        return value
+
+    @field_validator("redis_url")
+    @classmethod
+    def _redis_scheme(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not value.get_secret_value().startswith(("redis://", "rediss://")):
+            raise ValueError("must start with redis:// or rediss:// (value not shown)")
+        return value
+
+    @model_validator(mode="after")
+    def _environment_rules(self) -> Self:
+        if self.env is Environment.PRODUCTION:
+            if not self.data_root.is_absolute():
+                raise ValueError("data_root must be an absolute path in production")
+            if self.log_format != "json":
+                raise ValueError("log_format must be 'json' in production")
+        if (
+            self.temp_dir is not None
+            and not self.temp_dir.is_absolute()
+            and self.env is Environment.PRODUCTION
+        ):
+            raise ValueError("temp_dir must be an absolute path in production")
+        return self
+
+    @property
+    def resolved_data_root(self) -> Path:
+        return self.data_root.expanduser().resolve()
+
+    @property
+    def resolved_temp_dir(self) -> Path:
+        base = self.temp_dir if self.temp_dir is not None else self.data_root / "tmp"
+        return base.expanduser().resolve()
+
+
+def _format_errors(exc: ValidationError) -> str:
+    lines: list[str] = []
+    for err in exc.errors(include_input=False, include_url=False, include_context=False):
+        loc = ".".join(str(part) for part in err["loc"]) or "settings"
+        lines.append(f"  - BIP_{loc.upper().replace('.', '__')}: {err['msg']}")
+    return "invalid configuration:\n" + "\n".join(lines)
+
+
+def load_settings(**overrides: Any) -> Settings:
+    """Load settings from the environment (plus explicit overrides) or raise a readable error.
+
+    Error messages list variable names and reasons only, never the offending values.
+    """
+    try:
+        settings = Settings(**overrides)
+    except ValidationError as exc:
+        raise ConfigurationError(_format_errors(exc)) from None
+    register_secret(settings.postgres_dsn)
+    register_secret(settings.redis_url)
+    return settings

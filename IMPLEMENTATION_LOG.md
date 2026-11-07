@@ -1,0 +1,561 @@
+# Implementation Log
+
+Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
+
+## 2026-11-07 — Independent review of the UI integration and fixes
+
+A fresh reviewer on the most capable model reviewed `61a3e49..d120e93`. It reported 0 Critical, 4 Important and 11 Minor findings, with a verdict of "With fixes". Two Minor findings were regraded to Important by their effect on a user: a broken ML wheel on Termux, and docs claiming redirects. All Important findings were fixed in `a679689`, each with a test that failed first.
+
+- Final review: fresh reviewer (most capable model) on 61a3e49..d120e93 — 0 Critical, 4 Important, 11 Minor; verdict "With fixes"
+- Final: fixed I1 provenance wording — runpage 'says classification did not run…' RED→GREEN, suite 96/96 (a679689)
+- Final: fixed I2 contradictory limitations — test_missing_runtime_limitations_do_not_contradict_each_other RED→GREEN, pytest 512 (a679689)
+- Final: fixed M8 (regraded Important: Termux broken wheel) — test_partly_installed_runtime_degrades_to_rules_instead_of_failing RED→GREEN (a679689)
+- Final: fixed I3 single offline state + Retry recovery — App tests 'one offline notice' and 'recovers every panel' RED→GREEN (a679689)
+- Final: fixed I4 workspace refresh unmount — 'keeps the tab mounted…' RED→GREEN (a679689)
+- Final: fixed M13 (regraded Important: docs claimed redirects) — ADR-030/spec corrected; docs-only (a679689)
+- Final: Ruling: test 'shows a connection error with a working retry' now expects a quiet panel status, not role=alert — that alert storm was finding I3 — cost if wrong: none
+- Final: Ruling: earlier optional-ML test asserted runtime.backend() is never called; corrected to 'never successfully loaded' — classify now probes the runtime by design; subprocess test proves no ML import — cost if wrong: none
+- Final: minor (deferred): malformed run id deep link shows generic 422 error instead of not-found
+- Final: minor (deferred): wallet status endpoint uses _require_chain (stricter than sibling wallet endpoints)
+- Final: minor (deferred): wallet_status data_origin vocabulary 'live' vs 'stored_observations' elsewhere
+- Final: minor (deferred): watchlist skipped-entries hint says 'run again' though the backend always analyses the first N
+- Final: minor (deferred): case Unlink failure is silent
+- Final: minor (deferred): recent wallets are recorded but not displayed anywhere yet
+- Final: minor (deferred): Copy does nothing on non-secure origins (LAN IP) — no feedback
+- Final: minor (deferred): ADR-030/031 still Proposed though implemented (owner approval needed)
+- Final: minor (deferred): label review buttons shown on already-trainable labels; counts() rescans labels per chain
+
+**Checks after the fixes**
+```
+$ uv run pytest -q   -> 512 passed
+$ npx vitest run     -> 96 passed
+$ npm run e2e        -> 51/51 checks passed
+$ node e2e/layout.mjs -> all checks passed (412x915 touch, 1360x900)
+```
+
+## 2026-11-07 — UI integration: phone fixes, Android backend path, Milestones B–D, e2e
+
+**Starting point:** `61a3e49` (Milestone A), clean tree. Work followed the Superpowers workflow: systematic-debugging for the reported defects, then writing-plans (`docs/superpowers/plans/2026-11-06-bip-ui-integration.md`), executing-plans and test-driven-development.
+
+**Root-cause fixes reported from the owner's phone**
+- **Unstyled UI in `vite` dev** (`a64ab4b`).
+  - Cause: the static CSP meta tag had `style-src 'self'`, which blocked the inline `<style>` elements Vite injects in dev. Production builds load CSS files, which is why CI and e2e never saw it.
+  - Fix: the CSP is now injected per command (strict for builds), placed after Vite's inline dev preamble.
+  - Verified in Chromium: computed font changed from Times New Roman to the system UI stack.
+- **Repeated 502 errors** (`a64ab4b`). The Vite proxy answers 502 with no BIP error envelope when the backend is down; that is now recognised as "backend unreachable".
+- **Backend could not start without scikit-learn** (`2c8725c`).
+  - numpy and scikit-learn moved to a default-installed `ml` dependency group (same versions, same lock resolution).
+  - `bip.ml.backend` loads lazily, so classification without the runtime uses rules only and says so; training returns `503 ml_unavailable`.
+  - Verified with a venv built `--no-group ml --no-dev`: API and fixture backend start, ingest, classify (rules) and run research.
+  - **Not yet verified on the ARM64 proot device itself.**
+
+**Milestones B–D** (Tasks 1–11 of the plan; commits `d3cd627`..`99c01ae`)
+- **Tokens and controls:** design tokens; contrast fixes (`--faint` raised to ≥ 4.5:1; control borders ≥ 3:1); 44 px touch / 32 px desktop controls; sentence-case headings; compact mobile header.
+- **Navigation and search:** grouped navigation, skip link, page titles, focus on navigation, a single backend-offline banner; global Ethereum/Solana search.
+- **Shared components:** Address, DataTable (cards below 600 px), Grade.
+- **Backend:**
+  - `GET /wallets/{c}/{a}/status`;
+  - `404 route_not_found` (ADR-031);
+  - report provenance fields, report v1.1.0;
+  - migration v6 `investigation_research_runs` with link endpoints (ADR-030);
+  - `trainable_wallets` in label counts.
+- **Workspace and research pages:** a tabbed wallet workspace; a persisted research history and deep-linkable run page with a provenance panel, rerun and add-to-case.
+- **Curation, cases and providers:** label curation; case research links; attaching findings from the Evidence tab; provider detail; watchlist filter and batch analysis.
+
+**Defects found by verification against real processes, not unit tests**
+- A text-node overflow (unbroken address) at desktop width once data existed. The layout check now seeds data.
+- 16 px address links in table cells.
+- Workspace tabs stacked vertically because of a global `nav` rule.
+- The fake watchlist-analysis shape (`results`) did not match the real contract (`items`/`analysed`/`skipped`).
+- Selects nested in labels had accessible names that included the selected option.
+
+**Rulings** (decisions taken without a separate owner answer, with their cost if wrong)
+- Setup: Ruling: work directly on claude/modest-fermi-0yklvj (no worktree) — owner mandates this branch — cost if wrong: none, branch is already isolated from main
+- Task 2: Ruling: short menu labels with NAV.heading for page h1 — spec §2.1 shortens labels but keeps headings — cost if wrong: label rename
+- Task 3: Ruling: search sits at the top of the main column on all widths, not in the mobile top bar — keeps the sticky header under 96px on the S24 FE — cost if wrong: move one element
+- Task 4: Ruling: DataTable is applied to wallet tables in Task 8 (ActivityTab), not here — those tables move into the workspace — cost if wrong: none
+- Task 5: Ruling: updated tests/api/test_api.py unknown-route assertion to route_not_found — that behaviour change is ADR-031's purpose — cost if wrong: a client relying on not_found for bad URLs
+- Task 5: Ruling: walletStatus client test written with the method (not watched failing) — thin typed wrapper; endpoint proven RED→GREEN — cost if wrong: low
+- Task 6: Ruling: separate REPORT_VERSION=1.1.0 instead of bumping ENGINE_VERSION — the planner/engine did not change, only the report shape — cost if wrong: one constant
+- Task 7: Ruling: tests/stage4 v3-upgrade fixture also drops V6 tables first — FK to research_runs requires it — cost if wrong: none
+- Task 8: Ruling: no redirect from /flows?..., /graph?..., /research?... — standalone pages keep working with their params; preserves existing behaviour/tests — cost if wrong: two entry points to the same view
+- Task 8: Ruling: updated 4 existing tests for moved UI (copy 'No data stored'→'Nothing has been retrieved'; transactions under Activity tab; intel under Evidence tab) — features moved, none removed — cost if wrong: none
+- Task 9: Ruling: history shown under the /research wallet picker instead of a new default tab — keeps existing 'Choose a wallet' behaviour — cost if wrong: one more click to reach history on desktop
+- Task 10: Ruling: added counts.trainable_wallets + min_labelled_wallets to GET /ml/labels (backend) — the gate cannot be computed reliably client-side from a paged list — cost if wrong: one additive field
+- Task 10: Ruling: provider detail reuses ProfileDetail (already shows reliability and consistency) plus capability history — avoids duplicating Stage 4 UI — cost if wrong: none
+- Task 11: Ruling: fake watchlist-analyze shape corrected to the real contract (items/analysed/skipped) after a real-backend check exposed the mismatch — cost if wrong: none
+- Task 12: Ruling: label/select a11y fix (explicit htmlFor) made in Task 12 — found only by real-browser accessible-name computation — cost if wrong: none
+
+**Checks** (2026-11-07, Python 3.13 venv, Node 22)
+```
+$ uv run ruff check .            -> All checks passed!
+$ uv run ruff format --check .   -> 164 files already formatted
+$ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q               -> 510 passed
+$ npx vitest run                 -> Tests 92 passed (92)
+$ npx eslint . ; npx tsc -b      -> clean
+$ npm run build                  -> built
+$ npm run e2e                    -> 51/51 checks passed (real backend + offline fixture backend + Chromium,
+                                    incl. backend restart persistence and layout at 412x915 touch / 1360x900)
+$ gitleaks dir . ; gitleaks git 61a3e49..HEAD -> no leaks found
+```
+
+**Not done:**
+- No live RPC or LLM verification (network policy).
+- Not run on the owner's phone.
+- Graph list view and sticky table headers deferred.
+- Independent code review: see the next entry.
+
+## 2026-11-06 — UI integration, Milestone A: architecture and design specification
+
+**Starting point:** `8e7fc29`, clean tree, same commit on the remote. Owner decisions: dark theme only; grouped navigation approved; Milestones A–E approved, with only A to be carried out now.
+
+**Done (documentation only; no application code changed)**
+- **`docs/FRONTEND_ARCHITECTURE.md`:**
+  - scope and constraints;
+  - grouped navigation and the route plan (old URLs redirect);
+  - global wallet search (Ethereum and Solana by format, transaction hashes recognised and declined, never triggers ingestion);
+  - wallet workspace with path-addressed tabs;
+  - research history, run page and the report provenance panel;
+  - dark design system with measured contrast and the evidence-grade component;
+  - responsive and touch rules; states and copy; accessibility checklist; milestone verification plan.
+- **`docs/FRONTEND_API_MAP.md`:** every page mapped to its endpoints. 79 backend route+method pairs; 58 client methods, of which 53 are called (unused: `provider`, `network`, `job`, `researchRuns`, `attachFinding`). Gaps and planned endpoints are listed.
+- **ADR-030 and ADR-031 (Proposed):** workspace, research ↔ case link in an additive migration v6, and report traceability fields; wallet status endpoint and `route_not_found`.
+- Roadmap progress row, `CURRENT_STATE.md` and the README document index were updated.
+
+**404 investigation (reproduced in a browser against the offline fixture backend)**
+- The browser sweep logged every response with status ≥ 400. The only one was `GET /api/v1/wallets/ethereum/0x…aa` (404) on the first visit to a wallet with nothing stored.
+- The backend raises `RecordNotFoundError`, which becomes `not_found`. `WalletProfilePage` (`frontend/src/pages/Wallets.tsx:215`) shows "No data stored for this address yet". Verdict: expected, and handled.
+- Latent defect: `GET /api/v1/nonexistent` also returns `404 not_found`, and the UI checks only the status. A missing endpoint would therefore read as "nothing stored". The fix is planned for Milestone C (ADR-031).
+
+**Other measured findings**
+- **Contrast:** `--faint` #5a6b71 is 3.0–3.5:1 (fails AA for text). The control border `--line-2` is 1.5:1 (fails the 3:1 non-text minimum). All other tokens pass (5.4–14.7:1).
+- **Address validation:** BIP has no EIP-55 checksum validation (no Keccak). The spec states this instead of promising checksum checks.
+- **Persistence:** research runs, reports and claims are already persisted (migration v5). The gap is UI only. Reports lack feature digest, taxonomy version, as-of and model dataset version; adding them is planned.
+
+**Checks (docs-only change; full suites run to confirm no regression)**
+```
+$ uv run ruff check .            -> All checks passed!
+$ uv run ruff format --check .   -> 157 files already formatted
+$ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q               -> 498 passed in 53.95s
+$ npx vitest run                 -> Tests 49 passed (49)
+$ npx eslint .                   -> no output (clean)
+$ npx tsc -b --noEmit            -> exit 0
+$ gitleaks dir . / git --staged  -> no leaks found
+```
+- Browser audit: the existing built frontend (`vite preview`) and `tests.stage2.serve_offline` (offline fixtures), 12 routes at 1360 px and 390 px. Scripts and screenshots are kept in the session scratchpad, not in the repository.
+
+**Not done (by design)**
+- No frontend or backend code changes; Milestone B waits for owner review.
+
+## 2026-11-04 — Stage 5 (Build Prompt 06): ML wallet classification and AI research
+
+**Starting point:** `4894453`, clean tree, same commit on the remote.
+
+**Environment:** this development sandbox has 4 CPUs, 15 GB RAM and 29 GB free disk. The owner's VPS was not touched.
+
+**Done**
+- **Dependencies.** Added `scikit-learn==1.9.1` and `numpy==2.5.4` (uv lock; CPU only; ADR-027). No LightGBM, XGBoost, CatBoost or deep learning. No model downloads.
+- **`bip/ml/`:**
+  - taxonomy: 10 account types, 25 roles, sensitive-label caveats;
+  - features: 27 features, version 1.0.0, availability per feature, as-of leakage control, coverage;
+  - `bip-rules` baseline: account type and 4 roles with evidence;
+  - label store: statuses and provenance, append-only reviews, no self-training;
+  - training:
+    - gate on distinct wallets;
+    - explicit examples only; conflicting labels dropped;
+    - wallet-grouped out-of-time split;
+    - Random Forest per label with balanced weights;
+    - sigmoid calibration only with ≥ 10 positives and ≥ 10 negatives;
+    - thresholds validated on measured precision, never below 0.5;
+    - Isolation Forest and an HDBSCAN summary;
+    - dataset hash; sha256-verified artifacts kept in the data directory;
+  - classification service: strict output contract, abstention, contradictions, append-only history.
+- **`bip/research/`:**
+  - LLM providers: none by default; loopback-only Ollama that never pulls models; optional https OpenAI-compatible provider with a connect-time peer check;
+  - 10 typed, read-only tools with per-specialist permissions;
+  - engine: deterministic interpreter and planner, 8 specialists, claims with statuses, LLM synthesis validated against existing claims and screened, budgets, cancellation, restart recovery, reruns, 30 KB reports.
+- **Migration v5.** Additive: 13 tables.
+- **API.** 11 `/api/v1/ml/*` routes and 8 `/api/v1/research/*` routes.
+- **Frontend.** AI Research page:
+  - classification with status pills, "model score … (not certainty)" and synthetic warnings;
+  - research plan preview, progress, cancel, and a report grouped by claim kind;
+  - model registry and evaluation;
+  - AI provider status.
+- **Docs.** `docs/ML_WALLET_CLASSIFICATION.md`, `docs/AI_RESEARCH_METHODOLOGY.md`, ADR-027 to 029; README, CURRENT_STATE, DEVELOPMENT, roadmap, SECURITY, RISK (R26–R28) and PROVIDER_REGISTRY updated.
+
+**Honest results**
+- **Real labelled wallets: 0.** Training on stored labels returns `insufficient_data`. **No real model was trained.**
+- **Synthetic demo** (240 generated wallets, 6 roles, seed 7):
+  - test-split F1 is about 0.78–1.0 per label;
+  - these numbers measure recovery of the generator's own rules, not real-world performance;
+  - the model is registered as `experimental_synthetic`, and its predictions are capped at `low_confidence`.
+- **LLM:** none configured. LLM synthesis is tested only with a deterministic fake provider, including prompt-injection attempts.
+
+**Independent review (code-review agent): 6 defects plus 3 lower-severity items, each fixed with a regression test**
+1. Duplicate AI statements failed the run. Claims are now deduplicated after synthesis.
+2. Failed or truncated tools vanished silently. Each now adds a limitation and a `missing_information` claim.
+3. The 30 KB report cap was not guaranteed. A staged trim now re-measures after every step and falls back to a summary-only report.
+4. A failed start leaked a concurrency slot. The slot is released on any error.
+5. The training gate counted snapshots, and a wallet could appear in two splits. The gate now counts distinct wallets, the split is grouped by wallet, and conflicting labels are dropped.
+6. The OpenAI-compatible host was not resolution-checked. It is now resolved at configuration time, and the peer address is re-checked after connecting.
+
+Lower-severity items fixed:
+- feature importances were missing for uncalibrated models;
+- synthetic models could report high confidence; they are now capped at low;
+- LLM reads had no total deadline.
+
+Also fixed:
+- research state transitions can no longer leave a terminal state;
+- a time-dependent pipeline test was made deterministic.
+
+**Verification (actual output)**
+```
+uv run ruff check . / format --check   -> All checks passed / 155 files already formatted
+uv run pyright (strict; bip/ml/backend.py basic) -> 0 errors, 0 warnings, 0 informations
+uv run pytest -q                       -> 498 passed (Python 3.13)
+venv312 python -m pytest -q            -> 498 passed (Python 3.12)
+frontend: eslint, tsc                  -> clean
+npx vitest run                         -> 49 passed
+make e2e                               -> 45/45 (7 new AI Research checks on the offline fixture backend)
+gitleaks dir .                         -> no leaks found
+```
+
+## 2026-11-04 — Stage 4 (Build Prompt 05): budgeted provider capability prober and reliability intelligence
+
+**Network check first (no provider contacted).**
+- The agent-proxy status on 2026-11-04 showed the same egress policy that refused CONNECT to the RPC hosts on 2026-11-03.
+- As instructed, no live request was repeated just to reproduce that failure.
+- **No live probe was run, and no real provider capability has been observed.**
+
+**Done**
+- **Read-only allow-list.**
+  - Added `eth_getCode`, Solana `getVersion`, `getBlockHeight` and `getLatestBlockhash`.
+  - `is_write_capable` pattern guard, checked at import and when a probe is sent.
+  - Registry entries gained `documentation_basis` / `documentation_checked`.
+- **`ProviderRouter.probe`.**
+  - One request: pinned provider, no retries or failover, no identity side-call.
+  - Shared throttle, with spacing ≥ `min_interval_s`.
+  - Honours Retry-After cooldowns.
+  - Rate limits are not recorded as lifecycle failures.
+- **`bip/providers/`.**
+  - `capabilities.py`: catalogue, Ethereum 12 and Solana 14 capabilities, including derived ones.
+  - `prober.py`:
+    - planning and validation;
+    - budgets (ceilings 8/48/90 s/2/5 s/0/1 MB/≥ 1 s);
+    - concurrency with a thread pool of at most 2;
+    - classification: capability status separate from connectivity, environment restrictions explicit;
+    - response validation;
+    - stop rules;
+    - live-derived samples only.
+  - `intelligence.py`: run persistence, reliability (`reliability@1.0.0`), consistency checks, historical coverage labels.
+- **Migration v4.** Additive: four tables.
+- **API.** 9 routes under `/api/v1/providers/...` (profiles, profile, history, reliability, consistency, preview, start run, list runs, get run). They are registered before `/providers/{provider_id}`.
+- **Dashboard.** A provider intelligence console on the Providers page: capability profiles, a per-provider capability matrix, reliability and historical coverage, a budget preview required before "Run bounded provider check", results, history, environment-restriction notes and the fixture banner.
+- **CLI.** `make probe` (opt-in `BIP_LIVE_RPC=1`).
+- **Fakes.** Extended to answer the new methods: a head-block transaction and log, synthesized history, `eth_getCode`, Solana version, block height and blockhash.
+- **Docs.** `docs/PROVIDER_CAPABILITY_METHODOLOGY.md`, ADR-025/026; DEVELOPMENT, README, roadmap, PROVIDER_REGISTRY, SECURITY_ARCHITECTURE, RISK_REGISTER (R24–R25) and CURRENT_STATE updated.
+
+**Verification (actual output)**
+```
+uv run ruff check . / format --check   -> All checks passed / all files formatted
+uv run pyright (strict)                -> 0 errors, 0 warnings, 0 informations
+uv run pytest -q                       -> 454 passed (Python 3.13)
+venv312 python -m pytest -q            -> 454 passed (Python 3.12)
+frontend: eslint, tsc                  -> clean
+npx vitest run                         -> 44 passed
+make e2e                               -> 38/38 (8 new provider-console checks on the offline fixture backend)
+gitleaks dir .                         -> no leaks found
+```
+- Checked by screenshot (fixture backend):
+  - the capability matrix opens under its row;
+  - the never-probed providers show "No observations" rather than a reliability state.
+
+**Independent review (code-review agent): 6 defects, each fixed with a regression test (follow-up commit)**
+1. A capability filter could skip the identity check, so data from another network could be recorded as "supported". Identity is now always tested first.
+2. Later runs' `not_tested` rows hid earlier evidence in the profile. The profile now uses the latest *tested* observation per capability.
+3. The environment-restriction banner stayed after connectivity recovered. It is now shown only while no later observation reached a provider.
+4. A finalized block that failed validation still fed consistency checks. Context values are now written only after validation.
+5. Malformed preview queries returned 500. They now return 422.
+6. `historical_access_failed` was applied to rejected parameters and oversized responses. It now applies only to null or not-available answers (skipped slots excluded).
+
+After the fixes: pytest 460 passed (3.13 and 3.12), Vitest 44, e2e 38/38, ruff and pyright clean, gitleaks clean.
+
+**Live validation:** none. Providers reached live: 0. The cause is the environment's egress restriction, not any observed provider failure.
+
+## 2026-11-03 — Stage 3 (Build Prompt 04): wallet intelligence, cross-provider verification, relationship graphs
+
+**Live connectivity retry (one bounded attempt, as instructed).** `make live-smoke` at 2026-11-03T17:25:24Z reached 0 of 2 keyless providers. Direct mode fails DNS; proxy mode gets 403 on CONNECT. It was not retried again, no proxy bypass was attempted, and no alternative endpoint was used. **No live observation was retrieved in this stage, and no evidence was corroborated live.**
+
+**Done**
+- **Verification model.**
+  - `VerificationStatus.INVALIDATED` added; display labels are corroborated / conflicted / invalidated / unverified.
+  - Every RPC provider declares an `infrastructure` group; `registry.independent()` (ADR-021).
+  - `bip/intel/verify.py` fetches the same transaction from up to two independent providers, compares normalized fields, and records `provider_observations` and `evidence_verifications`. Source records are never modified.
+- **Migration v3.** Additive and idempotent: five tables plus `transactions.created_contract`. Ingestion now stores `receipt.contractAddress`.
+- **`bip/intel/`:**
+  - dataset loader (scoped, hashable);
+  - profile (scope-labelled metrics);
+  - 9 descriptive behaviour rules;
+  - 5 anomaly detectors with published specs;
+  - capital flows (canonical source: `transfers`; no USD);
+  - bounded evidence-backed graph;
+  - `rising_participation` research leads;
+  - analysis runner with input-hash reuse, per-detector outcomes and deterministic findings.
+- **API.** `/api/v1/intelligence/*` (16 routes). Every response carries `data_origin`, scope and verification; inputs are validated and bounded.
+- **Dashboard:**
+  - wallet intelligence sections: analysis, verification with per-transaction verify, metrics, behaviour, detectors, findings, counterparties, interactions, limitations;
+  - Capital Flows replaces the placeholder: per asset, chart, counterparties, largest transfers, repeated paths;
+  - new Relationship Graph page (SVG: zoom, pan, node/edge evidence details);
+  - Opportunities replaces the placeholder;
+  - Overview shows verification and intelligence metrics;
+  - a "Demo data: offline fixtures" banner appears whenever `data_origin = offline_fixture` (set by `tests/stage2/serve_offline.py`).
+- **Docs.** New `docs/INTELLIGENCE_METHODOLOGY.md`; ADR-021 to ADR-024 (Proposed); README, CURRENT_STATE, DEVELOPMENT, roadmap and RISK_REGISTER (R21–R23) updated.
+
+**Independent review (code-review agent) and fixes.** Each fix has a regression test:
+1. The graph double-counted rows re-read at depth ≥ 2. Rows are now deduplicated by row id.
+2. Silent truncation when the per-level row limit was hit. Now reported as `row_limit_reached`.
+3. "Not found" by two providers was marked `invalidated`. History depth is unknown, so it is now `unverified`.
+4. An unparseable provider answer was shown as `conflict`. It is now a failed lookup (`could_not_run` when nothing usable was returned).
+5. Recomputed findings kept stale status after corroboration. They are refreshed in place, keeping the id and investigation link.
+6. Wallet findings were filtered in Python over the latest 2,000 rows. They are now filtered in SQL with `json_extract`.
+7. Verification was unbounded under concurrency. It is now serialized (409 `verification_busy`), capped at 20 transactions / 60 s per wallet, and stops early when no independent provider exists.
+8. Provider error text was stored and returned. Now only exception class and BIP error class are kept. A test confirms endpoint keys never appear in responses.
+
+Also fixed:
+- flows report untimed transfers excluded by a window;
+- lead event counts count one event per transfer, not per participant;
+- the new-contract detector uses an exact, case-sensitive match.
+
+Not changed:
+- The `data_origin` marker is per database, not per record. It persists with the database, so a fixture database stays labelled.
+
+**Verification (actual output)**
+```
+uv run ruff check .              -> All checks passed!
+uv run ruff format --check .     -> 125 files already formatted
+uv run pyright (strict)          -> 0 errors, 0 warnings, 0 informations
+uv run pytest -q                 -> 404 passed   (Python 3.13)
+venv312 python -m pytest -q      -> 404 passed   (Python 3.12)
+npm run lint / typecheck         -> clean
+npx vitest run                   -> 38 passed
+make e2e                         -> 30/30 checks passed (Phase A real backend; Phase B "[offline fixture]")
+gitleaks dir .                   -> no leaks found
+```
+- The e2e Phase B wallet corroboration check reports "Checked 1 of 2: 1 could not run", which is correct: the fixture backend has a single provider per chain.
+- Palette for graph node kinds and flow in/out validated with the dataviz validator (dark surface `#11171b`): 3 categorical slots, all checks pass; shape is the secondary encoding.
+
+**Candidate and verification counts in this environment**
+- Research leads on real data: **0** (no real data exists). Offline-fixture evaluation: `insufficient_data` (1 ingested wallet per chain; the rule needs 3).
+- Live observations: 0. Corroborated: 0. Conflicted: 0. Unverified: every stored record. All stored records are offline fixtures or test data.
+
+**Not done (by design)**
+- No accounts, keys, paid services, Parquet, graph database or new dependencies.
+- No AI in any path. No transaction signing, no writes to any chain.
+
+## 2026-11-03 — Stage 2 follow-up: independent review fixes and live retry
+
+Each of these review findings was first reproduced by a failing test in `tests/stage2/test_review_regressions.py`, then fixed.
+
+1. **Solana cursor could skip signatures.** This happened when more new signatures than `limit` arrived, or a run was interrupted mid-batch. Now the cursor's `newest` moves only after a whole batch is ingested. A batch that fills the limit resets the range (no false contiguity), and older history advances per transaction.
+2. **Ethereum cursor advanced before ingestion.** Windows were marked scanned even when transactions were truncated or failed. Now the cursor is computed after ingestion, in a `finally`, and never moves past the newest unfinished transaction's block.
+3. **Failed transactions produced transfers.** Failed Solana transactions no longer decode transfer instructions (counted and flagged instead). Failed EVM transactions yield no native-value transfer.
+4. **Out-of-range RPC values crashed instead of being rejected.** Timestamps are bounded (≤ 9999-12-31), positions ≤ 2^63−1 (SQLite INTEGER), and token amounts must be ASCII digits. `run()` now always finishes a run, recording `internal_error`. The API maps malformed provider data to 502 `upstream_invalid`.
+5. **Migration v2 was not crash-safe.** pysqlite auto-commits DDL. Each step is now idempotent (`PRAGMA table_info` check, `checkfirst`, `IF NOT EXISTS`), and is tested by migrating a database with a half-applied v2.
+- Hardening: stored ingestion error text is redacted, and the transport has a total read deadline (3× the timeout).
+
+**Verification (actual output):**
+- ruff clean; pyright strict 0 errors; pytest **357 passed**.
+- Vitest 30 passed; build OK; e2e 21/21.
+- **Live retry 2026-11-03T16:59Z: 0/2 providers reachable.** Direct mode fails DNS; proxy mode is refused with 403. This is unchanged: the sandbox network policy still denies RPC hosts.
+
+## 2026-11-03 — Stage 2: Provider registry and read-only data engine
+
+**Scope.**
+- Provider registry and lifecycle, router, hardened transport, and Ethereum and Solana adapters.
+- Bounded wallet ingestion, migration v2, API and dashboard integration.
+- An opt-in live smoke tool.
+- Built on the existing `bip/` package, API, SQLite and UI. Nothing was rewritten.
+
+**Plugins and tools.**
+- Context7 and the GitHub plugin failed to connect (proxy refusal), so no library docs came from Context7.
+- Web search was used for provider endpoints, auth and limits.
+- Pyright ran via the CLI.
+- An independent code-review agent (`feature-dev:code-reviewer`) reviewed the stage.
+- Superpowers skills were available, but no skill-driven workflow was invoked.
+
+**Live network results (real, 2026-11-03).**
+- `make live-smoke` reached **0/2** keyless providers:
+  - direct mode: DNS resolution failed;
+  - proxy mode: the proxy refused CONNECT (403).
+- The sandbox network policy blocks RPC hosts.
+- The proxy transport itself was verified against an allowed host (pypi.org): the TLS tunnel worked, a 301 was refused and the size cap triggered.
+- **No real provider has answered a BIP request yet.**
+
+**Defects found and fixed during the stage.**
+- Registry validator raised `UnsafeURLError` instead of `ValueError` (bad URLs escaped as raw exceptions). Fixed.
+- A 429 with a single provider could retry during its cooldown. It now waits inline at most 5 s, otherwise stops.
+- DNS failure was mislabelled `unsafe_destination`, and proxy refusal was labelled generic `connection`. These are now `connection` ("DNS resolution failed") and `proxy`.
+- A reorg detected through a receipt block-hash mismatch was labelled `parse_error`. It is now `reorg_detected`.
+- Signature-only Solana rows were not linked to the wallet. Added the `wallet_activity` table.
+- SPL transfers between token accounts owned by the wallet were not shown for it. These are now included through owner metadata.
+- e2e: stale `vite preview` children survived stop (now killed by process group); an Overview/Chains selector race was fixed.
+
+**Verification (actual output).**
+```
+uv run ruff check . / ruff format --check .  -> clean
+uv run pyright (strict)                        -> 0 errors (Python 3.12 and 3.13)
+uv run pytest -q                               -> 345 passed (offline; RPC via fake nodes)
+npm run lint / npm run typecheck               -> clean
+npx vitest run                                 -> 30 passed
+npm run build                                  -> built
+node e2e/smoke.mjs                             -> 21/21 (Phase A real backend; real-network health
+                                                  check observed "Check failed"; Phase B offline fixture)
+gitleaks (staged)                              -> no leaks found
+make live-smoke                                -> 0/2 providers reachable (network policy)
+```
+
+## 2026-11-03 — Stage 1b: BIP 0.1 integrated application foundation
+
+**Scope.** A locally runnable prototype: FastAPI backend, SQLite persistence, REST API and a React/TypeScript dashboard connected to it. No blockchain, provider or AI integration. No authentication. No VPS changes.
+
+**Reused from Stage 1 (not rebuilt)**
+- `Settings`, extended with `api` and `database` groups.
+- `StorageRoot` and `Layer`, extended with `OPERATIONAL`: they locate the SQLite file.
+- `DiskGuard` gates every API write.
+- `AddressRef` / chain registry validate every chain and address.
+- The `Finding` contract is the findings request body, and its evidence rules are enforced.
+- `Provenance` is stored as JSON on chain rows.
+- The redacting logger is used for all API errors.
+
+**Added**
+- `bip/db/`: SQLAlchemy Core schema v1 (12 tables, natural-key unique constraints, foreign keys with cascades, indexes); versioned migrator that refuses newer schemas; UTC datetime column type; repository with typed errors (404/409/422/503 mapping).
+- Chain-data writers `store_transaction` / `store_transfer`. These are idempotent and update wallet first/last observation. They are not exposed through the API.
+- `bip/providers/catalog.py`: 14 providers from `PROVIDER_REGISTRY.md`. Configuration is detected by variable presence only. Every provider is `unavailable`.
+- `bip/api/`: app factory and lifespan; 19 route handlers under `/api/v1`. It also adds an error envelope, a body-size limit (Content-Length and streamed), security headers, a CORS exact-origin allow-list, and `python -m bip.api`.
+- `frontend/`: Vite + React 19 + TypeScript (strict, `exactOptionalPropertyTypes`).
+  - Nine navigation sections and a typed API client, with loading, empty, error and retry states.
+  - Address validation that mirrors the backend.
+  - A restrictive CSP.
+  - Capital Flows and Opportunities are explicit "Not built yet" placeholders.
+- Tooling and docs: Makefile targets (`api`, `web`, `web-*`, `e2e`, `check-all`), CI frontend job, `.env.example` additions, ADR-015 (SQLite), ADR-016 (stack moved forward), roadmap Stage 1b, `docs/DEVELOPMENT.md` (database, endpoints, error codes, security).
+
+**Dependencies added**
+- Runtime:
+  - `fastapi` 0.162 (brings `starlette` 1.10): the API framework requested.
+  - `uvicorn` 0.54: ASGI server.
+  - `sqlalchemy` 2.1: parameterized, dialect-portable SQL (ADR-015).
+- Dev: `httpx2` 2.16, which Starlette 1.10's TestClient requires (plain `httpx` emits a deprecation warning).
+- Frontend runtime: `react`, `react-dom`, `react-router-dom`.
+- Frontend dev: `vite`, `@vitejs/plugin-react`, `typescript`, `vitest`, `jsdom`, `@testing-library/*`, `eslint` with `typescript-eslint` and `eslint-plugin-react-hooks`.
+- No Postgres, Redis, Docker or chain SDKs.
+
+**Defects found and fixed during this stage**
+- Pyright strict flagged protected `Row._asdict()` use, untyped SQLite hooks and `Iterator`-typed context managers. Switched to `.mappings()`, typed the hooks and used `Generator`.
+- The React Hooks v7 linter flagged a ref write during render and a synchronous `setState` in an effect in `useApi`. The hook was rewritten so state changes only in async callbacks, and loading is derived from a request key.
+- The end-to-end run found that `frame-ancestors` is ignored in a meta CSP. It was removed rather than leaving a no-op.
+- **Independent review, both confirmed by failing tests first:**
+  - A chunked oversize body returned 400, not 413, because FastAPI rewraps body-parser exceptions. The limit exception is now an `HTTPException(413)`.
+  - The findings API accepted self-asserted `cross_verified` evidence for transactions never stored, which the UI would show as verified. Verified evidence must now be a stored chain record, otherwise 422.
+- Also from the review: the SQLite URL is now built with `URL.create`, so special characters in the path cannot corrupt it.
+
+**Verification (actual commands and output)**
+```
+$ uv run ruff check .                 -> All checks passed!
+$ uv run ruff format --check .        -> all files formatted
+$ uv run pyright                      -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q                    -> 272 passed (213 Stage 1 + 59 new: 49 API/DB, 10 settings)
+$ npm run lint / npm run typecheck    -> clean
+$ npx vitest run                      -> 26 passed (3 files)
+$ npm run build                       -> built (JS 296 kB, 91 kB gzip)
+$ node e2e/smoke.mjs                  -> 15/15 checks passed
+```
+The end-to-end run used the real backend on a temporary data root, the built UI through `vite preview` and headless Chromium. It covered:
+- health through the proxy, and zero counts on an empty database;
+- chains shown as not connected;
+- watchlist create and add, with address normalization;
+- duplicate rejection, and investigation create plus status change;
+- the SQLite file under the data root, and persistence across a **backend restart**;
+- dashboard counts;
+- 422 and 404 wallet responses, no paths in settings, and CORS refusing a foreign origin;
+- no horizontal overflow at 390 px, and no unexpected console errors.
+
+**Not done (by design or blocked)**
+- Authentication and authorization (documented as future work, API bound to loopback).
+- Chain adapters and ingestion, so the database holds no chain data, and the UI and API say so.
+- The end-to-end test is not in CI (it needs Chromium).
+
+**CI on GitHub (`09bb27c`):** `checks`, `frontend` and `secret-scan` all succeeded (push and pull_request runs).
+
+## 2026-11-03 — Stage 1: Repository foundation & core engineering contracts
+
+**Scope.** Offline foundation only. No RPC, provider, database, LLM or frontend code. No network access at runtime. No VPS changes.
+
+**Done**
+- Project: `pyproject.toml` (hatchling build, `requires-python >=3.12`), `uv.lock`, `Makefile`, `.env.example`, `.gitignore` (ignores `.env`, `var/`, `data/`, `*.parquet`, `*.car`), `.pre-commit-config.yaml`, `.github/workflows/ci.yml`.
+- `bip/config/settings.py`: `Settings` / `load_settings()`. `BIP_*` env vars and nested `__`. Environment, log level/format, data root, temp dir, byte-size quotas (`5GiB` syntax), free-space floors, enabled chains (comma list validated against the chain registry), router feature flags, optional `SecretStr` Postgres/Redis URLs. Production rules: absolute data root, JSON logs. Errors list variable names and reasons, never values.
+- `bip/security/secrets.py`: `read_secret()` (`$NAME` or `$NAME_FILE`; both set is rejected), exact-value registry, pattern redaction (URL userinfo, bearer/basic tokens, sensitive `key=value`/JSON pairs, opaque URL path segments). `0x`-hex identifiers are left readable. Every pattern is bounded, and input over 256 KiB is truncated before redaction.
+- `bip/core/logging.py`: JSON/text logging. A mandatory filter redacts message, args, `extra=` fields (values under sensitive key names are masked) and exception text.
+- `bip/security/url_validation.py`: `validate_url()`, `check_ip()`, `validate_redirect()`, with limitations documented (DNS rebinding, redirects, pinning required in Stage 3).
+- `bip/storage/paths.py`: `StorageRoot` (traversal, absolute, NUL and symlink-escape rejection; `create_exclusive()` uses `O_EXCL` and never overwrites). `bip/storage/disk_guard.py`: `DiskGuard` (BIP quota, free bytes, free ratio; fails safe when usage cannot be measured; never deletes).
+- `bip/contracts/`: chain registry (`ethereum`, `solana`, `base`, `arbitrum`, `bnb`), `BlockPosition` vs `SlotPosition`, EVM hex and Solana base58 identifiers (decoded to exact byte length), `AddressRef` (no identity field), `Provenance`, `EvmBlock`/`SolanaBlock`, `EvmTransaction`/`SolanaTransaction`, `EvmLog`/`SolanaInstruction`, `TokenTransfer` (raw amounts, unknown decimals stay `None`, `unclassified` by default), `ContractDeployment`, and `Finding`/`Claim`/`EvidenceRef`/`Attribution` with evidence rules.
+- Docs: `docs/DEVELOPMENT.md` (new), README setup, CURRENT_STATE, roadmap progress, ADR-014.
+
+**Dependencies added**
+- Runtime: `pydantic` (2.14.2), `pydantic-settings` (2.16.2). These were already chosen in ADR-004. `pydantic-settings` provides typed env loading and `NoDecode` for comma lists.
+- Dev: `pytest` (9.2.0), `ruff` (0.17.3), `pyright` (1.1.414).
+- The lockfile resolves 17 packages in total. No HTTP client, web3 or Solana SDK has been added yet.
+
+**Defects found and fixed during this stage**
+- Logging leaked values passed as `extra={"api_key": ...}`. Fixed by masking by key name.
+- JSON-style `"password": "..."` was not redacted. Fixed in the key-value pattern.
+- A substring match on `token` would have masked `token_address`. Changed to suffix matching.
+- Two redaction regexes were super-linear on hostile input (2–45 s on 65–80 KB strings). The URL-userinfo scheme is now bounded, the URL-path rule is a linear parser, the key-prefix is bounded, and there is a 256 KiB input cap. Regression tests cover these cases.
+
+**Independent review (code-review agent) — findings confirmed by running them, then fixed**
+- Passwords containing `@` or `/` partly survived URL-userinfo redaction (`postgresql://user:p@ss@host` left `ss`). The pattern now ends at the last `@`. It may over-redact, which is the safe direction.
+- Non-string `extra=` values (e.g. exceptions) reached JSON logs unredacted through `default=str`. `redact_value` now renders and redacts every non-scalar object.
+- `https://[fec0::1]/` (deprecated IPv6 site-local) was accepted. `fec0::/10` is now blocked.
+- Orphaned (reorged-out) evidence counted as verified. `EvidenceRef.is_verified` now excludes `finality=orphaned`.
+- A parent path that is a file raised a raw `FileExistsError`. It now raises `StoragePathError`.
+- Not changed (by design, documented): keys whose sensitive word is not at the end (`secret_key_base`, `password1`) are not pattern-masked. Unresolved hostnames such as `127.0.0.1.nip.io` pass when `resolve=False`, and connection-time pinning (Stage 3) must catch them.
+
+**CI on GitHub (commit 663e949)**
+- `checks` (ruff, pyright, pytest on Python 3.12) passed.
+- `secret-scan` failed on a false positive: the synthetic `X-API-KEY` fixture in `tests/unit/test_secrets.py`. Reproduced locally with gitleaks 8.24.3. Fixed with a `.gitleaksignore` fingerprint for that historical commit, and the fixture is now assembled at runtime. The local scans `gitleaks git` (PR range), `gitleaks dir .` and `gitleaks git --staged` each report "no leaks found".
+- CI re-run on `3342f86`: `checks` and `secret-scan` both succeeded (push and pull_request runs).
+
+**Verification (actual commands and output)**
+```
+$ uv run ruff check .            -> All checks passed!
+$ uv run ruff format --check .   -> 46 files already formatted
+$ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q               -> 213 passed
+$ (Python 3.12.3 venv) pytest    -> 213 passed; pyright -> 0 errors
+$ gitleaks dir . / git --staged  -> no leaks found
+```
+- `.env.example` was loaded through `uv run --env-file .env.example` and validates.
+- Gitleaks 8.24.3 was run locally from a binary in the session scratchpad; nothing was installed in the project. The full `pre-commit` hook set was not run locally.
+
+**Not done (by design)**
+- No provider registry, router, HTTP client, adapters, Parquet writer, database, AI or UI.
+- No installs on the VPS, no downloads beyond Python dev dependencies into the project `.venv`.
+
+## 2026-11-03 — Stage 0: Blueprint
+
+**Done**
+- Replaced the placeholder README with the BIP overview.
+- Created CLAUDE.md, CURRENT_STATE.md, DECISIONS.md (13 Proposed ADRs), this log.
+- Created docs: MASTER_SPECIFICATION, DATA_ACQUISITION_STRATEGY, PROVIDER_REGISTRY, DATA_ARCHITECTURE, SECURITY_ARCHITECTURE, IMPLEMENTATION_ROADMAP, RISK_REGISTER.
+
+**Research method**
+- Web searches on 2026-11-03 for provider free tiers (Alchemy, Infura, dRPC, Ankr, QuickNode, Chainstack, Helius, PublicNode, Solana public RPC), datasets (BigQuery sandbox, crypto_ethereum, goog_blockchain, crypto_solana, Old Faithful, era1), indexers (Etherscan V2, The Graph, DefiLlama, Dune), GitHub API limits, EIP-4444 status, node disk sizes, object storage free tiers.
+- Direct WebFetch of provider sites failed (DNS blocked by session network policy). All figures are graded `V-search` / `Conflict` / `3rd-party` / `Unknown` accordingly.
+
+**Verification**
+- Cross-reference check of stage numbers between docs (fixed mismatches between DATA_ARCHITECTURE/README and the roadmap).
+- No code, so no tests were run.
+
+**Not done (by design)**
+- No installs, downloads, accounts, API calls to providers, or VPS changes.
