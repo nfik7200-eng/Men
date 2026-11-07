@@ -27,6 +27,7 @@
     Last fetch {{ c.last_fetch_at | dt if c.last_fetch_at else 'never' }}.</p>
   {% if c.next_up %}
   <details><summary>Next in line ({{ c.next_up | length }} of {{ c.never_attempted }}) — discovered, not collected, not a listing</summary>
+    <p class="muted">Ranking as of the last collection run; a dash means no score has been recorded for that page yet.</p>
     <div class="scroll"><table><tr><th>Page</th><th>Score</th><th class="hide-sm">Why</th></tr>
     {% for n in c.next_up %}<tr><td class="muted" style="word-break:break-all">{{ n.url }}</td><td>{{ n.score if n.score is not none else '–' }}</td>
       <td class="hide-sm muted">{{ n.why | join('; ') if n.why else (n.reason or '–') }}</td></tr>{% endfor %}</table></div>

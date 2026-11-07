@@ -112,3 +112,15 @@ def test_observations_are_append_only(tmp_path):
 def test_verify_reports_legacy_alias_rows_as_a_metric(tmp_path):
     path = _db(tmp_path)
     assert integrity_report(path)["metrics"]["crawl_rows_sharing_a_listing"] == 0
+
+
+def test_verify_flags_a_self_labelled_listing_that_shares_a_product(tmp_path):
+    path = _db(tmp_path)
+    db = Database(f"sqlite:///{path}")
+    with db.session() as s:
+        a, b = (s.query(Listing).filter_by(external_id=e).one() for e in ("a1", "b1"))
+        b.product_id = a.product_id
+        a.match_status = b.match_status = "self"
+    db.engine.dispose()
+    bad = {c["name"] for c in integrity_report(path)["checks"] if not c["ok"]}
+    assert "shared_product_status_is_not_self" in bad

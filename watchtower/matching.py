@@ -499,7 +499,7 @@ def prune_candidates(s: Session) -> dict:
     product, that have no cross-merchant member to compare with, or that the CURRENT matcher scores 'none'; refresh
     scores; listings left in 'review' without any pending candidate become 'self'; a lone 'auto' without a partner
     becomes 'self'."""
-    out = {"candidates_dropped": 0, "review_to_self": 0, "auto_to_self": 0}
+    out = {"candidates_dropped": 0, "review_to_self": 0, "auto_to_self": 0, "self_to_auto": 0}
     for c in s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all():
         l = c.listing
         members = [m for m in _members(s, c.product_id) if m.source_id != l.source_id]
@@ -529,4 +529,13 @@ def prune_candidates(s: Session) -> dict:
         if not any(m.id != l.id and m.source_id != l.source_id for m in _members(s, l.product_id)):
             l.match_status = "self"
             out["auto_to_self"] += 1
+    # the opposite inconsistency (legacy runs): a 'self' listing that shares its product with another merchant's listing.
+    # Heal it only when the CURRENT matcher agrees the pairing is automatic; anything else is left for `verify` to report.
+    for l in s.scalars(select(Listing).where(Listing.match_status == "self", Listing.active.is_(True))).all():
+        others = [m for m in _members(s, l.product_id) if m.id != l.id and m.source_id != l.source_id]
+        scores = [match_score(l, m) for m in others]
+        if others and all(r.decision == "auto" for r in scores):
+            best = min(scores, key=lambda r: r.score)
+            l.match_status, l.match_confidence, l.match_reasons = "auto", best.score, best.reasons
+            out["self_to_auto"] += 1
     return out

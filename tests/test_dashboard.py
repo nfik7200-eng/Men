@@ -175,3 +175,10 @@ def test_coverage_page_separates_discovered_from_collected_and_explains_what_is_
     assert j.status_code == 200 and j.json()["data_class"] == "live"
     assert {x["key"] for x in j.json()["sources"]} == {"adafruit", "sparkfun"}
     assert all("url" in n and "score" in n for x in j.json()["sources"] for n in x["next_up"])
+
+
+def test_research_page_shows_history_depth_and_cross_merchant_status_in_the_card_not_only_the_text(world):
+    db, c, t0 = world
+    html = c.get("/research?q=raspberry+pi+zero+2+w").text
+    assert "Price history:" in html and "observation" in html and "verified price drop needs 3+" in html or "Verified price drop" in html
+    assert "Also sold at" in html or "No other shop in our data" in html or "awaiting human review" in html

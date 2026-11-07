@@ -182,3 +182,30 @@ def test_accept_confirms_a_lone_self_member_of_the_target(db):
     resolve_candidate(s, c.id, accept=True)
     s.flush()
     assert l.product_id == m.product_id and m.match_status == "confirmed"
+
+
+def test_a_listing_sharing_a_product_with_another_shop_is_never_labelled_self(db):
+    """Product page showed 'match self 0.60' beside an Adafruit listing of the same product (6 such rows on the real snapshot)."""
+    from watchtower.matching import _members
+    ensure_sources(db)
+    s = db.Session()
+    srcs = []
+    for key in ("shopa", "shopb"):
+        src = Source(key=key, name=key, base_url=f"https://{key}.example", currency="USD", kind="live")
+        s.add(src)
+        s.flush()
+        srcs.append(src)
+    a, *_ = ingest_listing(s, srcs[0], None, _raw("a1", "Raspberry Pi Zero 2 W"), T0)
+    b, *_ = ingest_listing(s, srcs[1], None, _raw("b1", "Raspberry Pi Zero 2 W"), T0)
+    s.flush()
+    assert a.product_id == b.product_id  # unambiguous: merged automatically at ingest
+    b.match_status, b.match_confidence = "self", 0.6  # the state legacy runs left behind
+    s.flush()
+    out = prune_candidates(s)
+    s.flush()
+    assert b.match_status == "auto" and a.match_status == "auto" and (b.match_confidence or 0) > 0.6 and out["self_to_auto"] == 1
+    # an AMBIGUOUS shared product is not healed to 'auto' (the matcher would not have merged it): left for verify to report
+    b.match_status = "self"
+    b.title = "Raspberry Pi Zero 2 W Kit"
+    s.flush()
+    assert prune_candidates(s)["self_to_auto"] == 0 and b.match_status == "self"

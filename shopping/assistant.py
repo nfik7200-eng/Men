@@ -52,6 +52,7 @@ class Pick:
     price_status: str = "verified"
     import_estimate: dict | None = None
     possible: list[dict] = field(default_factory=list)  # unverified candidates awaiting human review: NOT compared
+    history: str = ""  # how much price history backs this price (live listings only)
     also: list[dict] = field(default_factory=list)  # the same product at other shops: source, price, how sure we are
 
 
@@ -386,6 +387,12 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
                     Listing.active.is_(True), Listing.price_minor.is_not(None))):
                 p.also.append({"source": o.source.name, "price": fmt_money(o.price_minor, o.currency), "listing_id": o.id,
                                "sure": "confirmed by a person" if o.match_status == "confirmed" else "automatic match, not human-verified"})
+    for p in top + alternatives:
+        if p.deal and p.listing.source.kind == "live":
+            l, n = p.listing, p.deal.n_obs or 0
+            days = (l.last_observed_at - l.first_seen_at).days if l.last_observed_at and l.first_seen_at else 0
+            p.history = (f"Price history: {n} observation{'s' if n != 1 else ''} over {days} day{'s' if days != 1 else ''}"
+                         + ("" if p.deal.label == "Verified price drop" else "; a verified price drop needs 3+ observations over 7+ days"))
     gaps = [f"Our data has no {g}; those aspects cannot be assessed here." for g in intent["gaps"]]
     if not cands and clarification is None:
         if over:
@@ -428,11 +435,8 @@ def render_text(r: dict) -> str:
         if p.misses: lines.append("   Falls short: " + "; ".join(p.misses))
         if p.unknown: lines.append("   Not stated in source: " + "; ".join(p.unknown))
         if p.deal: lines.append(f"   Deal assessment: {p.deal.label} (confidence {p.deal.confidence})")
-        if p.deal and p.listing.source.kind == "live":
-            n = p.deal.n_obs or 0
-            days = ((l.last_observed_at - l.first_seen_at).days if l.last_observed_at and l.first_seen_at else 0)
-            lines.append(f"   Price history: {n} observation{'s' if n != 1 else ''} over {days} day{'s' if days != 1 else ''}"
-                         + ("" if p.deal.label == "Verified price drop" else "; a verified price drop needs 3+ observations over 7+ days"))
+        if p.history:
+            lines.append("   " + p.history)
         if p.also:
             lines.append("   Also sold at: " + "; ".join(f"{a['source']} {a['price']} ({a['sure']})" for a in p.also))
         if p.possible:

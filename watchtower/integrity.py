@@ -44,6 +44,10 @@ CHECKS: dict[str, tuple[str, str]] = {
         "SELECT count(*) FROM listings l WHERE l.match_status = 'review' AND l.active = 1 AND NOT EXISTS "
         "(SELECT 1 FROM match_candidates m WHERE m.status = 'pending' AND (m.listing_id = l.id OR m.product_id = l.product_id))",
         "listing shown as 'in review' with nothing to review"),
+    "shared_product_status_is_not_self": (
+        f"SELECT count(*) FROM listings l {_LIVE} AND l.active = 1 AND l.match_status = 'self' AND EXISTS (SELECT 1 FROM listings m "
+        "WHERE m.product_id = l.product_id AND m.id != l.id AND m.source_id != l.source_id AND m.active = 1)",
+        "listing says 'own product' but shares one with another merchant's listing"),
     "live_text_or_images_stored": (f"SELECT count(*) FROM listings l {_LIVE} AND (length(coalesce(l.description, '')) > 0 "
                                    "OR l.image_url IS NOT NULL)", "facts-only storage rule for live sources"),
 }

@@ -18,6 +18,10 @@
   <p class="muted">{{ l.source.name }} · listing #{{ l.id }} · observed {{ l.last_observed_at | dt }} · price {{ p.price_status }}</p>
   <ul>{% for m in p.meets %}<li class="ok-t">✓ {{ m }}</li>{% endfor %}{% for m in p.misses %}<li class="bad-t">✗ {{ m }}</li>{% endfor %}{% for m in p.unknown %}<li class="muted">? {{ m }}</li>{% endfor %}</ul>
   {% if p.deal %}<p>Deal assessment: <span class="badge">{{ p.deal.label }}</span> <span class="muted">confidence {{ p.deal.confidence }}</span></p>{% endif %}
+  {% if p.history %}<p class="muted">{{ p.history }}.</p>{% endif %}
+  {% if p.also %}<p>Also sold at: {% for a in p.also %}<a href="/listing/{{ a.listing_id }}">{{ a.source }} {{ a.price }}</a> <span class="muted">({{ a.sure }})</span>{{ '; ' if not loop.last }}{% endfor %}</p>
+  {% elif p.possible %}<p class="muted">Possible match, awaiting human review (not counted as the same product): {% for a in p.possible %}<a href="/listing/{{ a.listing_id }}">{{ a.source }} “{{ a.title[:50] }}”</a>{{ '; ' if not loop.last }}{% endfor %}</p>
+  {% elif p.listing.source.kind == 'live' %}<p class="muted">No other shop in our data sells this product (yet).</p>{% endif %}
   {% if p.import_estimate and p.import_estimate.available %}{% set e = p.import_estimate %}
   <p><b>Estimated landed cost: {{ '≥ ' if e.partial }}{{ e.total_minor | money(e.currency) }}</b> <span class="badge warn">estimate</span>
   <span class="muted">{{ 'shipping unknown; ' if e.partial }}rates {{ 'verified' if e.rule_verified else 'ASSUMED, unverified' }} ({{ e.rule }})</span></p>{% endif %}
