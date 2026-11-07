@@ -193,7 +193,7 @@ swap_symlink() { # swap_symlink TARGET LINK  (atomic)
 }
 
 wait_healthy() { # wait_healthy [tries]
-  local n="${1:-20}" i
+  local n="${1:-${WT_HEALTH_TRIES:-20}}" i
   for ((i = 1; i <= n; i++)); do
     if [ "$(curl -fsS --max-time 4 "http://127.0.0.1:$WT_PORT/health" 2>/dev/null || true)" = ok ]; then log "health: ok"; return 0; fi
     sleep 2

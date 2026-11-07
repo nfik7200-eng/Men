@@ -16,7 +16,7 @@ log "ok   disk: $(free_gb_of "$WT_STATE") GB free on $WT_STATE"
 if [ "$DB" = 1 ]; then
   [ -f "$WT_ENV_FILE" ] && load_env "$WT_ENV_FILE"
   PY="$(app_py)"; APP="$(app_dir)"; mkdir -p "$WT_BACKUP_DIR"
-  tmp="$WT_BACKUP_DIR/.healthcheck-$$.db"; trap 'rm -f -- "$tmp"' EXIT
+  tmp="$WT_BACKUP_DIR/.healthcheck-$$.db"; trap 'rm -f -- "$tmp" "$tmp-wal" "$tmp-shm"' EXIT
   if ( cd "$APP" && "$PY" -m watchtower.cli backup --out "$tmp" >/dev/null ) && ( cd "$APP" && "$PY" -m watchtower.cli verify --db "$tmp" | tail -n1 ); then
     log "ok   fresh snapshot verified"
   else log "FAIL snapshot/verify"; rc=1; fi

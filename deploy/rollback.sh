@@ -28,5 +28,5 @@ log "current: $CUR  ->  $TARGET"
 run ln -sfn "$CUR" "$WT_PREFIX/previous.tmp"; run mv -T "$WT_PREFIX/previous.tmp" "$WT_PREFIX/previous"
 swap_symlink "$TARGET" "$WT_PREFIX/current"
 run sysctl_ restart watchtower-web.service
-if [ "$DRY" = 0 ] && [ "${WT_NO_SYSTEMCTL:-0}" != 1 ]; then wait_healthy 20 || die "service unhealthy after rollback: journalctl -u watchtower-web -n 100" 8; fi
+if [ "$DRY" = 0 ] && [ "${WT_NO_SYSTEMCTL:-0}" != 1 ]; then wait_healthy || die "service unhealthy after rollback: journalctl -u watchtower-web -n 100" 8; fi
 log "rollback done (code only; DB untouched)"

@@ -23,7 +23,7 @@ is_ours || die "$WT_PREFIX was not created by install.sh (no marker): refusing"
 validate_env "$WT_ENV_FILE" || die "env file not valid" 5
 check_disk "$WT_PREFIX" "$WT_STATE"
 need_root
-OLD="$(readlink "$WT_PREFIX/current")"; ID="$(new_release_id)"
+OLD="$(readlink "$WT_PREFIX/current")"; OLDPREV="$(readlink "$WT_PREFIX/previous" 2>/dev/null || true)"; ID="$(new_release_id)"
 
 log "== pre-update backup =="
 if [ "$DRY" = 1 ]; then log "DRY-RUN: would run as $WT_USER: $(app_dir)/deploy/backup.sh"; else
@@ -36,9 +36,10 @@ run ln -sfn "$OLD" "$WT_PREFIX/previous.tmp"; run mv -T "$WT_PREFIX/previous.tmp
 swap_symlink "releases/$ID" "$WT_PREFIX/current"
 run sysctl_ restart watchtower-web.service
 if [ "$DRY" = 0 ]; then
-  if [ "${WT_NO_SYSTEMCTL:-0}" = 1 ] || wait_healthy 20; then log "update ok: current -> releases/$ID (previous -> $OLD)"; else
+  if [ "${WT_NO_SYSTEMCTL:-0}" = 1 ] || wait_healthy; then log "update ok: current -> releases/$ID (previous -> $OLD)"; else
     warn "health check FAILED after switch: reverting to $OLD"
     ln -sfn "$OLD" "$WT_PREFIX/current.tmp"; mv -T "$WT_PREFIX/current.tmp" "$WT_PREFIX/current"
+    if [ -n "$OLDPREV" ]; then ln -sfn "$OLDPREV" "$WT_PREFIX/previous.tmp"; mv -T "$WT_PREFIX/previous.tmp" "$WT_PREFIX/previous"; else rm -f "$WT_PREFIX/previous"; fi
     sysctl_ restart watchtower-web.service || true
     die "update reverted; inspect: journalctl -u watchtower-web -n 100. DB snapshot from before the update is in $WT_BACKUP_DIR (restore.sh if the new code altered data)" 8
   fi

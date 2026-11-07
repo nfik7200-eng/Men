@@ -35,6 +35,10 @@ if [ "$DRY" = 1 ]; then
   log "DRY-RUN: would run: (cd $APP && $PY -m watchtower.cli backup --out $OUT) then: $PY -m watchtower.cli verify --db $OUT"
 else
   ( cd "$APP" && "$PY" -m watchtower.cli backup --out "$OUT" ) || die "backup failed"
+  # Make the snapshot a single self-contained file: the CLI leaves it in WAL mode, which would leave -wal/-shm
+  # sidecars next to every backup. Only the NEW snapshot is touched; verify below runs after this.
+  "$PY" -I -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); print("journal_mode ->", c.execute("PRAGMA journal_mode=DELETE").fetchone()[0]); c.close()' "$OUT" || true
+  rm -f -- "$OUT-wal" "$OUT-shm"
   if ! ( cd "$APP" && "$PY" -m watchtower.cli verify --db "$OUT" ) ; then
     mv -- "$OUT" "$OUT.UNVERIFIED" 2>/dev/null || true
     die "snapshot FAILED verification; kept as $OUT.UNVERIFIED (never pruned, never used by restore). Not pruning." 6
@@ -49,7 +53,7 @@ for f in "${files[@]}"; do
   n=$((n + 1))
   [ "$n" -le "$KEEP" ] && continue
   if [ -n "$(find "$f" -maxdepth 0 -type f -mtime +"$AGE" -print)" ]; then
-    if [ "$PRUNE" = 1 ] && [ "$DRY" = 0 ]; then rm -f -- "$f"; log "pruned $f"; else log "would prune (use --prune): $f"; fi
+    if [ "$PRUNE" = 1 ] && [ "$DRY" = 0 ]; then rm -f -- "$f" "$f-wal" "$f-shm"; log "pruned $f"; else log "would prune (use --prune): $f"; fi
   fi
 done
 log "retention: $total snapshot(s) present, keeping newest $KEEP and anything younger than $AGE days"
