@@ -20,3 +20,8 @@ longest-waiting, each with its own budget (no merchant takes another's capacity)
    columns to `crawl_urls` (`sync_columns`).
 4. Set `"enabled": true` and the environment variable, then call `schedule run-due` from a scheduler you approve
    (e.g. once a day). Verified deals need 3+ collections over 7+ days, so plan for at least eight consecutive days.
+
+## Clearing a blocked source
+`run-due` skips a source whose latest run ended `blocked` (the site answered 401/403/451), and never retries it unattended.
+After an operator has reviewed why, and only if collecting is still permitted, one successful manual
+`python -m watchtower.cli collect --source K` becomes the latest run and the source is schedulable again.

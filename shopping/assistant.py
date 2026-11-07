@@ -231,10 +231,11 @@ def _uncollected(s: Session, question: str, intent: dict, represented: set[int],
                    if b for w in re.findall(r"[a-z0-9]+", b.lower())}
     out = []
     # cheap SQL pre-filter on the most distinctive word (every candidate must contain ALL words, so this loses nothing)
-    key = max((w for w in set(words) if w.isalnum()), key=lambda w: (len(w), w))
-    rows = s.execute(select(CrawlUrl, Source).join(Source, Source.id == CrawlUrl.source_id).where(
-        Source.kind == "live", CrawlUrl.listing_id.is_(None), CrawlUrl.gone.is_(False),
-        or_(CrawlUrl.url.ilike(f"%{key}%"), CrawlUrl.name_hint.ilike(f"%{key}%"))).order_by(Source.key, CrawlUrl.url)).all()
+    key = max((w for w in set(words) if w.isalnum()), key=lambda w: (len(w), w), default=None)  # decimals ('2.4ghz') have none
+    cond = [Source.kind == "live", CrawlUrl.listing_id.is_(None), CrawlUrl.gone.is_(False)]
+    if key:
+        cond.append(or_(CrawlUrl.url.ilike(f"%{key}%"), CrawlUrl.name_hint.ilike(f"%{key}%")))
+    rows = s.execute(select(CrawlUrl, Source).join(Source, Source.id == CrawlUrl.source_id).where(*cond).order_by(Source.key, CrawlUrl.url)).all()
     for c, src in rows:
         if src.id in represented or _classify(c) not in ("never_attempted", "fetch_error"):
             continue

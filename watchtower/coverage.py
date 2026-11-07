@@ -88,8 +88,9 @@ def source_coverage(s: Session, src: Source, now: datetime | None = None) -> dic
     fetched_ok = acquired + n("parse_error") + n("ingest_invalid")
     never = [c for c in eligible_rows if cls[c.id] == "never_attempted"]
     waiting = [c for c in eligible_rows if cls[c.id] in ("never_attempted", "fetch_error")]
-    with_counterpart = sum(1 for c in waiting if any(r.get("name") == "cross_merchant" and r.get("points", 0) >= CROSS_STRONG
-                                                      for r in (c.priority_reasons or [])))
+    scored = any(c.priority_score is not None for c in waiting)  # no run since scoring existed => unknown, not zero
+    with_counterpart = (sum(1 for c in waiting if any(r.get("name") == "cross_merchant" and r.get("points", 0) >= CROSS_STRONG
+                                                      for r in (c.priority_reasons or [])))) if scored else None
     runs = list(s.scalars(select(CollectionRun).where(CollectionRun.source_id == src.id, CollectionRun.finished_at.is_not(None))))
     pages, secs = sum(r.pages_fetched or 0 for r in runs), sum(r.duration_s or 0 for r in runs)
     ages = [(now - seen).total_seconds() / 3600 for seen in s.scalars(

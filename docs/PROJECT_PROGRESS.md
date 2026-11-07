@@ -3,7 +3,7 @@
 ## Mission 005 — verified now
 | Claim | Evidence |
 |---|---|
-| Mission 004 preserved | branch `claude/sweet-franklin-dsta71`; the 8 Mission-004 commits (7d3b1a7 … 7dda481) intact; 14 new local commits on top; nothing pushed; PR #3 untouched (draft) |
+| Mission 004 preserved | branch `claude/sweet-franklin-dsta71`; the 8 Mission-004 commits (7d3b1a7 … 7dda481) intact; 15 new local commits on top (see `git log 7dda481..HEAD`); nothing pushed; PR #3 untouched (draft) |
 | Real DB untouched | sha256 of `data/watchtower.db` (`b5c68461…`) and `-wal` (`7c1b5baa…`) identical at start and end; every experiment/server ran on copies of the verified snapshot (sha256 `7f9419c3…`); `status`/`rematch`/migrations never run against the real DB |
 | Tests / quality | **368 passed** (316 baseline); coverage **92 %** (= baseline); Pyright **75** errors (= pre-mission baseline, 0 new); ruff has no project config (default rules report ~150 pre-existing style findings; not a project standard) |
 | Count reconciliation | 282 listings / 343 obs = **live scope only** (Adafruit 192 + SparkFun 90; 207 + 136 obs). 468 / 901 = **whole snapshot** (adds 186 demo listings / 558 demo obs). 440 / 831 = **stale plain `cp`** of the WAL-mode file (lost run 14: 28 SparkFun listings, 70 obs). All three are the same database at different scope/consistency; reports use the snapshot sha above |
@@ -16,11 +16,11 @@
 | Append-only history | ORM guard refuses updating/deleting an `Observation` (no DB trigger: that would be a migration on the live DB) |
 | Scheduler | `data/schedule.json` committed **disabled**; runs only with config `enabled` **and** `WATCHTOWER_SCHEDULER_ENABLED=1`, through the policy gate; installs nothing (docs/SCHEDULING.md) |
 | UI | Playwright desktop (1280×900) + Pixel 7: 10 pages each (home, search, product, coverage, 3 research queries, deals, watchlist, 404): 0 px overflow, 0 server errors; screenshots inspected; server ran on a snapshot copy |
+| **Acceptance criteria NOT met** | #8 (existing merchants collected live) and #9 (cross-merchant acquisition improves) — blocked on a real contact + owner approval; cross-merchant products still **6**, not more; the 1 → 8 figure is *planned selection*, not acquisition; §17D repeat collection is **fixture-based on a disposable DB**, not live; the real DB still fails `verify` on 2 invariants (11 mirrored review pairs, 6 `self` labels) until the owner-approved backup + `rematch` |
 | Cost | $0 additional; no paid service, plugin, daemon or cron installed |
 
 **Tooling and model use (honest).** Primary model: Sonnet 5.5 (session was briefly switched to Opus 5.5 earlier by the user). The native
-Advisor tool was available: **3 consultations in this mission** (before the acquisition design; before scheduling/DB/metric changes,
-which caught 3 metric defects; one more before declaring done, see LOOP_ENGINEERING). Reviews: ordinary read-only
+Advisor tool was available: **3 consultations in this mission**: (1) before the acquisition architecture; (2) one combined call before scheduling/DB changes and before finalising the coverage metrics (it caught 3 metric defects, fixed before reporting); (3) before declaring done. The mission's four decision points were therefore covered by three calls. Reviews: ordinary read-only
 reviewer/simplifier subagents (`feature-dev:code-reviewer`, `code-simplifier`); `/review-council` **could not be run by me** (it is
 user-invocation only), and `/frontend-design` was not needed (the one new page reuses the existing styles). `/feature-dev` was invoked
 but its approval gates were skipped because the mission said to proceed autonomously. Pyright was run from the CLI (the LSP server was not exposed as a tool). Context7/GitHub MCP failed to connect (proxy 403) and were unused.

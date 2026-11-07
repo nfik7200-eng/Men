@@ -258,7 +258,6 @@ def test_starvation_is_bounded_across_mixed_tiers(live_db):
     ensure_sources(live_db)
     with live_db.session() as s:
         src, rows = _spark_rows(s, [f"zz-board-{i:02d}" for i in range(6)])
-        tiers = {c.url: (0 if i < 12 else 2) for i, c in enumerate(rows)}  # placeholder, replaced below
         more = _spark_rows(s, [f"raspberry-pi-model-{i:02d}" for i in range(12)])[1]
         allrows = rows + more
         tiers = {c.url: (2 if c in rows else 0) for c in allrows}

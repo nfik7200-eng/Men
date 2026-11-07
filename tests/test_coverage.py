@@ -46,7 +46,7 @@ def test_discovered_fetched_and_acquired_are_different_numbers(live_db):
         assert c["eligible_coverage"] == 2 / 6
         assert c["extraction_success_rate"] == 2 / 3  # of the 3 eligible pages that answered, 2 yielded a listing
         assert c["avg_seconds_per_page"] == 10.0
-        assert c["unfetched_with_counterpart"] == 0
+        assert c["unfetched_with_counterpart"] is None  # no scores recorded yet: unknown, never a literal 0
 
 
 def test_legacy_rows_without_an_outcome_are_counted_from_their_listing(live_db):
@@ -66,6 +66,7 @@ def test_deferred_urls_with_a_counterpart_elsewhere_are_reported(live_db):
     with live_db.session() as s:
         src = _world(s)
         r = s.query(CrawlUrl).filter_by(source_id=src.id, url="https://www.sparkfun.com/item-7.html").one()
+        r.priority_score = 70.0
         r.priority_reasons = [{"name": "cross_merchant", "points": 40, "why": "exact name match with 'Raspberry Pi Zero 2 W' at Adafruit"}]
         c = coverage.source_coverage(s, src, NOW)
         assert c["unfetched_with_counterpart"] == 1
@@ -127,3 +128,19 @@ def test_two_urls_of_one_listing_count_once_legacy_aliases_included(live_db):
         c = coverage.source_coverage(s, src, NOW)
         assert c["acquired"] == 1 and c["duplicates"] == 1 and c["eligible"] == 1  # the row matching listing.url is the canonical one
         assert c["eligible_coverage"] == 1.0
+
+
+def test_counterpart_count_is_unknown_not_zero_until_a_run_has_scored_the_waiting_urls(live_db):
+    ensure_sources(live_db)
+    with live_db.session() as s:
+        src, rows = _spark_rows(s, ["a-board", "b-board"])
+        assert coverage.source_coverage(s, src, NOW)["unfetched_with_counterpart"] is None
+        rows[0].priority_score, rows[0].priority_reasons = 50.0, [{"name": "tier", "points": 40, "why": "t"}]
+        assert coverage.source_coverage(s, src, NOW)["unfetched_with_counterpart"] == 0  # scored, and none has a counterpart: a real 0
+
+
+def test_uncollected_lookup_survives_a_question_made_only_of_decimal_values(db):
+    from shopping import assistant
+    ensure_sources(db)
+    with db.session() as s:
+        assert assistant._uncollected(s, "2.4ghz 1.5gb", {"keywords": ["2.4ghz", "1.5gb"], "model_tokens": []}, set()) == []
