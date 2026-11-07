@@ -168,7 +168,7 @@ def test_plan_classifies_every_non_selected_url_with_a_reason(live_db):
         rows[0].gone = True
         rows[1].last_outcome, rows[1].next_check_at, rows[1].last_fetched_at = "disallowed", NOW + timedelta(days=3), NOW
         rows[2].last_fetched_at, rows[2].next_check_at = NOW - timedelta(hours=2), NOW + timedelta(hours=20)  # fetched, not yet due
-        rows[3].fail_count = acquisition.MAX_FAILS  # never acquired, keeps failing
+        rows[3].fail_count, rows[3].next_check_at = acquisition.MAX_FAILS, NOW + timedelta(days=7)  # never acquired, keeps failing
         plan = _plan(s, src, rows, cap=10, discovered={r.url for r in rows[:5]})  # row 5 vanished from discovery
         got = {c.url.rsplit("/", 1)[1][:-5]: (c.selection_state, c.selection_reason) for c in rows}
         assert got["a-board-one"] == ("rejected", "gone")
@@ -273,3 +273,51 @@ def test_starvation_is_bounded_across_mixed_tiers(live_db):
         assert len(picked) == len(allrows)
         assert max(picked[c.url] for c in more) < min(picked[c.url] for c in rows)  # tier 0 drains first ...
         assert max(picked.values()) <= 18  # ... and everything is reached within pool/slots runs (18 URLs / 2 slots = 9, generous x2)
+
+
+# ============================================================ (5) findings of the independent review of the above
+def test_retry_limit_is_a_cooldown_not_a_permanent_rejection(live_db):
+    """Review: a shop down for ~4 days pushed every never-fetched URL past MAX_FAILS and rejected it forever."""
+    ensure_sources(live_db)
+    with live_db.session() as s:
+        src, rows = _spark_rows(s, ["a-board-one", "a-board-two"])
+        rows[0].fail_count, rows[0].next_check_at = acquisition.MAX_FAILS, NOW + timedelta(days=10)   # cooling down
+        rows[1].fail_count, rows[1].next_check_at = acquisition.MAX_FAILS, NOW - timedelta(hours=1)   # cooldown elapsed
+        plan = _plan(s, src, rows, cap=10)
+        assert (rows[0].selection_state, rows[0].selection_reason) == ("rejected", "retry_limit")
+        assert rows[1].selection_state == "selected" and [c.url for c in plan.fresh] == [rows[1].url]  # one more bounded try
+
+
+def test_backoff_after_the_retry_limit_is_a_long_but_finite_cooldown():
+    from watchtower.collector import _backoff
+    assert _backoff(1) < _backoff(3) <= timedelta(days=7)
+    assert _backoff(acquisition.MAX_FAILS) >= timedelta(days=7) and _backoff(50) == _backoff(acquisition.MAX_FAILS)
+
+
+def test_robots_disallowed_urls_do_not_spend_the_page_budget(live_db):
+    """Review: a first-time disallowed URL used to take a fetch slot just to be labelled."""
+    site = _site(disallow={U["a5291"]})
+    run_source(live_db, "adafruit", fetcher=site, max_pages=1, now_fn=lambda: NOW)
+    with live_db.session() as s:
+        assert s.query(Listing).filter_by(sku="5812").count() == 1  # the single slot went to an allowed page
+        c = s.query(CrawlUrl).filter_by(url=U["a5291"]).one()
+        assert c.last_outcome == "disallowed" and c.selection_state == "rejected" and c.last_fetched_at is None
+    assert U["a5291"] not in site.requested  # never requested
+
+
+def test_a_run_where_everything_selected_was_disallowed_is_not_reported_healthy(live_db):
+    site = _site(disallow={U["a5291"]})
+    site.pages["https://www.adafruit.com/category/105"] = '<a href="/product/5291">a</a>'  # the only page we know of is disallowed
+    rid = run_source(live_db, "adafruit", fetcher=site, now_fn=lambda: NOW)
+    with live_db.session() as s:
+        r = s.get(CollectionRun, rid)
+        assert r.pages_fetched == 0 and r.status != "ok" and "disallowed" in (r.error or "")
+
+
+def test_a_malformed_schedule_entry_is_a_config_error_not_a_traceback(tmp_path):
+    from watchtower import schedule
+    import json
+    p = tmp_path / "s.json"
+    p.write_text(json.dumps({"enabled": False, "sources": {"adafruit": "daily"}}))
+    with pytest.raises(schedule.ScheduleError):
+        schedule.load(p)

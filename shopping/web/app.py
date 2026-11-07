@@ -1,4 +1,5 @@
 """FastAPI app: server-rendered pages + JSON API under /api/v1. Modular monolith: no business logic here."""
+import time
 import math
 import threading
 from pathlib import Path
@@ -36,6 +37,9 @@ Money = Annotated[float | None, Query(ge=0, le=1e9, allow_inf_nan=False)]
 Text = Annotated[str, Query(max_length=200)]
 _running: set[str] = set()
 _lock = threading.Lock()
+
+
+COVERAGE_TTL_S = 30  # seconds the public coverage report is reused
 
 
 def create_app(db: Database | None = None) -> FastAPI:
@@ -215,13 +219,21 @@ def create_app(db: Database | None = None) -> FastAPI:
         return render(request, "deals.html", top=deals.top_deals(s, 30, category or None, kinds=kinds), category=category,
                       facets=facets(s), banner=banner(s), data=data)
 
+    _cov_cache: dict = {"at": 0.0, "rep": None}
+
+    def cached_coverage(s):
+        """The report scans every crawl_urls row; the route is public, so recompute at most every 30 s."""
+        if _cov_cache["rep"] is None or time.monotonic() - _cov_cache["at"] > COVERAGE_TTL_S:
+            _cov_cache["rep"], _cov_cache["at"] = coverage_report(s, with_next_up=True), time.monotonic()
+        return _cov_cache["rep"]
+
     @app.get("/coverage")
     def coverage_page(request: Request, s=Depends(get_s)):
-        return render(request, "coverage.html", rep=coverage_report(s, with_next_up=True), banner=banner(s))
+        return render(request, "coverage.html", rep=cached_coverage(s), banner=banner(s))
 
     @app.get("/api/v1/coverage")
     def api_coverage(s=Depends(get_s)):
-        return JSONResponse(jsonable_encoder(coverage_report(s, with_next_up=True)))
+        return JSONResponse(jsonable_encoder(cached_coverage(s)))
 
     @app.get("/research")
     def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):

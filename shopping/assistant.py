@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from watchtower.deals import DealScore, PeerContext, score_listing
@@ -214,6 +214,10 @@ def _fit(l: Listing, intent: dict) -> Pick:
     return p
 
 
+_HINT_TOKEN = re.compile(r"[a-z0-9]+(?:\.[0-9]+)?")
+_HINT_FILLER = {"the", "a", "and", "with", "for", "of", "to", "in", "on"}
+
+
 def _uncollected(s: Session, question: str, intent: dict, represented: set[int], limit: int = 3) -> list[dict]:
     """Real-shop pages that were DISCOVERED (their address names something like the question) but never collected, at shops
     that have no pick. Disclosure only: such a page has no price, stock or history and is never a pick or a comparison."""
@@ -221,17 +225,20 @@ def _uncollected(s: Session, question: str, intent: dict, represented: set[int],
     if len(set(words)) < 2:
         return []
     q = norm_units(question)
-    qtok = set(re.findall(r"[a-z0-9]+(?:\.[0-9]+)?", q))
+    qtok = set(_HINT_TOKEN.findall(q))
     brand_words = {w for (b,) in s.execute(select(Listing.brand).join(Source, Source.id == Listing.source_id).where(Source.kind == "live").distinct())
                    if b for w in re.findall(r"[a-z0-9]+", b.lower())}
     out = []
+    # cheap SQL pre-filter on the most distinctive word (every candidate must contain ALL words, so this loses nothing)
+    key = max((w for w in set(words) if w.isalnum()), key=lambda w: (len(w), w))
     rows = s.execute(select(CrawlUrl, Source).join(Source, Source.id == CrawlUrl.source_id).where(
-        Source.kind == "live", CrawlUrl.listing_id.is_(None), CrawlUrl.gone.is_(False)).order_by(Source.key, CrawlUrl.url)).all()
+        Source.kind == "live", CrawlUrl.listing_id.is_(None), CrawlUrl.gone.is_(False),
+        or_(CrawlUrl.url.ilike(f"%{key}%"), CrawlUrl.name_hint.ilike(f"%{key}%"))).order_by(Source.key, CrawlUrl.url)).all()
     for c, src in rows:
         if src.id in represented or _classify(c) not in ("never_attempted", "fetch_error"):
             continue
         hint = norm_units(c.name_hint or hint_from_url(c.url) or "")  # the stored hint, else the words in the URL itself
-        extra = set(re.findall(r"[a-z0-9]+(?:\.[0-9]+)?", hint)) - qtok - brand_words - {"the", "a", "and", "with", "for", "of", "to", "in", "on"}
+        extra = set(_HINT_TOKEN.findall(hint)) - qtok - brand_words - _HINT_FILLER
         # every word of the page's name must be accounted for by the question: 'pico 2 w' is not 'pico w', a tutorial is not a product
         if hint and all(has_word(w, hint) for w in set(words)) and not extra and not title_conflict(q, hint):
             out.append({"source": src.name, "url": c.url})

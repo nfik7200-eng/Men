@@ -22,7 +22,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from .matching import name_signature, title_conflict
 from .models import CrawlUrl, Listing, Source
@@ -32,7 +32,7 @@ CROSS_EXACT, CROSS_STRONG, CROSS_FAMILY = 40, 28, 10
 NEW_COVERAGE_POINTS = 10
 RETRY_POINTS = 5
 AGING_STEP, AGING_CAP = 3, 15
-MAX_FAILS = 5  # a never-acquired URL that failed this many times is rejected until its sitemap entry changes
+MAX_FAILS = 5  # after this many failures a never-acquired URL is retried only after a long cooldown (collector._backoff)
 
 
 @dataclass
@@ -64,17 +64,18 @@ def hint_from_url(url: str) -> str | None:
 
 def counterpart_pool(s: Session, own_source_id: int) -> list[Listing]:
     """Active listings of OTHER live merchants: the products this merchant could be compared with."""
-    return list(s.scalars(select(Listing).join(Source, Source.id == Listing.source_id).where(
+    return list(s.scalars(select(Listing).options(joinedload(Listing.source)).join(Source, Source.id == Listing.source_id).where(
         Source.kind == "live", Listing.source_id != own_source_id, Listing.active.is_(True))))
 
 
-def _cross_merchant(hint: str | None, pool: list[Listing]) -> Component:
+def _cross_merchant(hint: str | None, pool: list[Listing], sigs: dict[int, frozenset] | None = None) -> Component:
     if not hint:
         return Component("cross_merchant", 0, "no name hint for this URL (opaque id): cannot compare before fetching")
     best: tuple[float, str] | None = None
     veto: str | None = None
     for l in pool:
-        sh, sl = name_signature(hint, l.brand), name_signature(l.title, l.brand)
+        sh = name_signature(hint, l.brand)
+        sl = sigs[l.id] if sigs is not None else name_signature(l.title, l.brand)
         if not sh or not sl:
             continue
         overlap = len(sh & sl) / len(sh | sl)
@@ -103,6 +104,7 @@ def rank_fresh(s: Session, src: Source, fresh: list[CrawlUrl], tiers: dict[str, 
                now: datetime) -> list[Scored]:
     """Score never-fetched URLs; best first. Pure with respect to the database (writes nothing)."""
     pool = counterpart_pool(s, src.id)
+    sigs = {l.id: name_signature(l.title, l.brand) for l in pool}  # once per listing, not once per (URL, listing)
     own = {name_signature(l.title, l.brand) for l in s.scalars(select(Listing).where(Listing.source_id == src.id, Listing.active.is_(True)))}
     out = []
     for c in fresh:
@@ -110,7 +112,7 @@ def rank_fresh(s: Session, src: Source, fresh: list[CrawlUrl], tiers: dict[str, 
         tier = tiers.get(c.url, 9)
         sc.components.append(Component("tier", TIER_POINTS.get(tier, 0), f"adapter tier {tier}"))
         hint = hints.get(c.url)
-        sc.components.append(_cross_merchant(hint, pool))
+        sc.components.append(_cross_merchant(hint, pool, sigs))
         dup = bool(hint) and name_signature(hint, None) in own
         sc.components.append(Component("new_coverage", 0 if dup else NEW_COVERAGE_POINTS,
                                        "same name as a listing already collected here" if dup else "no listing of that name collected yet"))
@@ -156,8 +158,8 @@ def plan_run(s: Session, src: Source, known: dict[str, CrawlUrl], discovered: se
             mark(c, "rejected", "gone")
         elif c.last_outcome == "disallowed" and c.next_check_at and c.next_check_at > now:
             mark(c, "rejected", "disallowed")
-        elif c.listing_id is None and c.last_fetched_at is None and (c.fail_count or 0) >= MAX_FAILS:
-            mark(c, "rejected", "retry_limit")
+        elif c.listing_id is None and c.last_fetched_at is None and (c.fail_count or 0) >= MAX_FAILS and c.next_check_at and c.next_check_at > now:
+            mark(c, "rejected", "retry_limit")  # cooling down; one more bounded try once the (long) cooldown has elapsed
         elif c.next_check_at is not None and c.next_check_at > now:
             mark(c, "deferred", "not_due")
         elif c.last_fetched_at is None:

@@ -138,6 +138,25 @@ def main(argv=None):
             print("observations:", s.query(Observation).count())
 
 
+def _configured_sqlite_path() -> str | None:
+    """File path of the configured database when it is SQLite, else None."""
+    from . import config
+    prefix = "sqlite:///"
+    return config.DB_URL[len(prefix):] if config.DB_URL.startswith(prefix) else None
+
+
+def _snapshot_copy(db_arg: str, cmd: str):
+    """Resolve --db for the read-only snapshot commands; None (after printing why) unless it is an existing file that is
+    NOT the configured live database."""
+    from pathlib import Path
+    path = Path(db_arg).resolve()
+    live = _configured_sqlite_path()
+    if not path.is_file() or (live and path == Path(live).resolve()):
+        print(f"{cmd}: --db must be an existing snapshot/copy, never the configured live database")
+        return None
+    return path
+
+
 def _schedule(args) -> int:
     from . import config, schedule
     path = args.config or str(config.ROOT / "data" / "schedule.json")
@@ -166,13 +185,9 @@ def _schedule(args) -> int:
 def _coverage(args) -> int:
     import json
     from datetime import datetime, timezone
-    from pathlib import Path
-    from . import config
     from .coverage import coverage_report
-    path = Path(args.db).resolve()
-    live = config.DB_URL[len("sqlite:///"):] if config.DB_URL.startswith("sqlite:///") else None
-    if not path.is_file() or (live and path == Path(live).resolve()):
-        print("coverage: --db must be an existing snapshot/copy, never the configured live database")
+    path = _snapshot_copy(args.db, "coverage")
+    if path is None:
         return 2
     db = Database(f"sqlite:///{path}")
     db.sync_columns()  # older COPY -> current schema
@@ -194,14 +209,11 @@ def _coverage(args) -> int:
 
 def _plan(args) -> int:
     from datetime import datetime, timezone
-    from pathlib import Path
     from sqlalchemy import select
     from . import acquisition, config
     from .collector import RECHECK_SHARE
-    path = Path(args.db).resolve()
-    live = config.DB_URL[len("sqlite:///"):] if config.DB_URL.startswith("sqlite:///") else None
-    if not path.is_file() or (live and path == Path(live).resolve()):
-        print("plan: --db must be an existing snapshot/copy, never the configured live database")
+    path = _snapshot_copy(args.db, "plan")
+    if path is None:
         return 2
     adapter = ADAPTERS[args.source]
     cap = min(args.max_pages, config.MAX_PAGE_BUDGET) if args.max_pages else config.page_budget(adapter.key, adapter.default_max_pages)
@@ -231,10 +243,10 @@ def _plan(args) -> int:
             if row is None:
                 print(f"  explain: {args.explain} is not a known URL")
             else:
-                new = next((i for i, sc in enumerate(plan.ranked, 1) if sc.crawl.url == args.explain), None)
+                new, scored = next(((i, sc) for i, sc in enumerate(plan.ranked, 1) if sc.crawl.url == args.explain), (None, None))
                 old = legacy.index(args.explain) + 1 if args.explain in legacy else None
                 print(f"  explain {args.explain}: legacy rank {old} of {len(legacy)} (tier {tiers[args.explain]}, alphabetical), new rank {new}")
-                for c in (next(sc for sc in plan.ranked if sc.crawl.url == args.explain).components if new else []):
+                for c in (scored.components if scored else []):
                     print(f"      {c.name:14} {c.points:5g}  {c.why}")
         s.rollback()
     return 0
@@ -242,13 +254,13 @@ def _plan(args) -> int:
 
 def _verify(db_path: str | None) -> int:
     from pathlib import Path
-    from . import config
     from .integrity import integrity_report
     import sqlite3
-    if not db_path and not config.DB_URL.startswith("sqlite:///"):
+    live = _configured_sqlite_path()
+    if not db_path and live is None:
         print("verify: only SQLite databases are supported")
         return 2
-    path = Path(db_path) if db_path else Path(config.DB_URL[len("sqlite:///"):])
+    path = Path(db_path or live or "")
     if not path.is_file():
         print(f"verify: database not found: {path}")
         return 2
@@ -270,10 +282,11 @@ def _backup(out: str | None) -> int:
     from pathlib import Path
     from . import config
     from .db import SnapshotError, snapshot
-    if not config.DB_URL.startswith("sqlite:///"):
+    live = _configured_sqlite_path()
+    if live is None:
         print("backup: only SQLite databases are supported")
         return 2
-    src = Path(config.DB_URL[len("sqlite:///"):])
+    src = Path(live)
     dst = Path(out) if out else config.ROOT / "data" / "backups" / f"watchtower-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.db"
     try:
         r = snapshot(src, dst)

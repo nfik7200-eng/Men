@@ -45,7 +45,7 @@ def duplicate_ids(s: Session, rows: list[CrawlUrl]) -> set[int]:
     return dups
 
 
-def _classify(c: CrawlUrl, dups: frozenset[int] | set[int] = frozenset()) -> str:
+def _classify(c: CrawlUrl, dups: frozenset[int] | set[int] = frozenset(), now: datetime | None = None) -> str:
     o = c.last_outcome
     if c.id in dups:
         return "duplicate"
@@ -53,8 +53,9 @@ def _classify(c: CrawlUrl, dups: frozenset[int] | set[int] = frozenset()) -> str
         return "gone"
     if o == "disallowed":
         return "disallowed"
-    if c.listing_id is None and c.last_fetched_at is None and (c.fail_count or 0) >= MAX_FAILS:
-        return "retry_limit"
+    if (c.listing_id is None and c.last_fetched_at is None and (c.fail_count or 0) >= MAX_FAILS
+            and c.next_check_at is not None and c.next_check_at > (now or utcnow())):
+        return "retry_limit"  # cooling down
     if o == "alias":
         return "duplicate"
     if o == "no_product":
@@ -77,7 +78,7 @@ def source_coverage(s: Session, src: Source, now: datetime | None = None) -> dic
     cls = {}
     dups = duplicate_ids(s, rows)
     for c in rows:
-        cls[c.id] = k = _classify(c, dups)
+        cls[c.id] = k = _classify(c, dups, now)
         kinds[k] = kinds.get(k, 0) + 1
     n = lambda k: kinds.get(k, 0)
     rejected = {k: n(k) for k in ("gone", "disallowed", "retry_limit") if n(k)}

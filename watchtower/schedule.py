@@ -43,6 +43,8 @@ def load(path) -> dict:
     if not isinstance(cfg.get("sources"), dict):
         raise ScheduleError("schedule config needs a 'sources' object")
     for key, v in cfg["sources"].items():
+        if not isinstance(v, dict):
+            raise ScheduleError(f"{key}: expected an object with min_interval_hours and max_pages")
         a = ADAPTERS.get(key)
         if a is None or a.kind != "live":
             raise ScheduleError(f"{key}: only real-retailer (live) sources may be scheduled")
@@ -71,10 +73,15 @@ def run_due(db: Database, path, now: datetime | None = None, runner=run_source) 
     with db.session() as s:
         last = {k: s.scalar(select(func.max(CollectionRun.started_at)).join(Source, Source.id == CollectionRun.source_id).where(Source.key == k))
                 for k in cfg["sources"]}
+        latest_status = {k: s.scalar(select(CollectionRun.status).join(Source, Source.id == CollectionRun.source_id).where(Source.key == k)
+                                     .order_by(CollectionRun.id.desc()).limit(1)) for k in cfg["sources"]}
     res = Result("ran")
     # never-run sources first, then the longest-waiting: no merchant is favoured, each gets its own budget
     for key in sorted(cfg["sources"], key=lambda k: (last[k] is not None, last[k] or now, k)):
         v = cfg["sources"][key]
+        if latest_status[key] == "blocked":  # 401/403/451 last time: STOP until an operator has looked at it (CLAUDE.md)
+            res.skipped[key] = "last run was blocked by the site (401/403/451); an operator must review before it is retried"
+            continue
         prev = last[key]
         if prev is not None:
             hours = (now - prev).total_seconds() / 3600
@@ -86,4 +93,6 @@ def run_due(db: Database, path, now: datetime | None = None, runner=run_source) 
             res.ran.append(key)
         except (SourceNotApproved, SourceNotConfigured, SourceDisabled, SourceBusy, FetchError) as e:
             res.skipped[key] = str(e)[:200]
+        except Exception as e:  # the collector already recorded the failed run; one source must not abort the others
+            res.skipped[key] = f"crashed: {type(e).__name__}"
     return res

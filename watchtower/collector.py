@@ -202,7 +202,10 @@ def _crawl(db, adapter, fetcher, cap, run_id, src_id, now_fn):
 
 # --------------------------------------------------------------------------- product-page crawl (sitemap/category discovery)
 def _backoff(fail_count: int) -> timedelta:
-    return timedelta(hours=min(6 * 2 ** max(fail_count - 1, 0), 24 * 7))
+    """6 h, 12 h, 24 h, 48 h, then (from acquisition.MAX_FAILS) a flat 7-day cooldown: bounded, never hammering, never forever."""
+    if fail_count >= acquisition.MAX_FAILS:
+        return timedelta(days=7)
+    return timedelta(hours=6 * 2 ** (max(fail_count, 1) - 1))
 
 
 def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
@@ -242,6 +245,14 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
         hints = {normalise_url(e.loc): (e.hint or acquisition.hint_from_url(e.loc)) for e in entries}
         # 2. explainable selection: re-checks keep most of the budget; never-fetched URLs are ranked (acquisition.py) and
         # every decision is recorded on the crawl_urls row
+        allowed = getattr(fetcher, "allowed", None)
+        if allowed is not None:  # robots is cached after the gate: label disallowed URLs WITHOUT spending a fetch slot on them
+            for u in discovered & known.keys():
+                c = known[u]
+                if not c.gone and c.last_outcome != "disallowed" and not allowed(u):
+                    c.last_outcome, c.last_outcome_detail = "disallowed", "robots.txt disallows this URL"
+                    c.next_check_at = now + DISALLOWED_RECHECK
+                    ex["disallowed"] = ex.get("disallowed", 0) + 1
         plan = acquisition.plan_run(s, src, known, discovered, prio, hints, cap, now, RECHECK_SHARE)
         recheck, fresh = plan.recheck, plan.fresh
         ex["plan"] = plan.counts
@@ -354,6 +365,10 @@ def _crawl_products(db, adapter, fetcher, cap, run_id, src_id, now_fn):
             status = "ok" if not (recheck or fresh) else ("failed" if errors else "ok")  # nothing due is a healthy no-op
         elif errors and status == "ok":
             status = "partial"
+        if ex.get("disallowed") and run.pages_fetched == 0:  # a run that read nothing because robots said no is not "healthy"
+            errors.append(f"{ex['disallowed']} URL(s) disallowed by robots.txt; nothing fetched")
+            if status == "ok":
+                status = "failed"
         # A sampled/prioritised crawl is NEVER complete, so absence never implies removal.
         _finish(s, run, src, status, False, errors, now_fn, t0, ex)
         log.info("run %s %s: %s pages, %s new listings, %s unchanged", adapter.key, run.status, run.pages_fetched,

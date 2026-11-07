@@ -83,3 +83,23 @@ def test_cli_schedule_status_and_run_due_when_disabled(tmp_path, capsys, monkeyp
     monkeypatch.setattr(config, "DB_URL", f"sqlite:///{tmp_path / 'w.db'}")
     assert cli.main(["schedule", "run-due", "--config", str(_cfg(tmp_path))]) == 0
     assert "disabled" in capsys.readouterr().out.lower()
+
+
+def test_a_source_whose_last_run_was_blocked_is_not_retried_by_the_scheduler(live_db, tmp_path, monkeypatch):
+    """CLAUDE.md: on 401/403/451 STOP. An unattended job must not re-hit a site that refused us; an operator clears it."""
+    monkeypatch.setenv("WATCHTOWER_SCHEDULER_ENABLED", "1")
+    with live_db.session() as s:
+        s.add(CollectionRun(source_id=s.query(Source).filter_by(key="adafruit").one().id, started_at=NOW - timedelta(days=3), status="blocked"))
+    calls = []
+    res = schedule.run_due(live_db, _cfg(tmp_path, enabled=True), now=NOW, runner=lambda db, key, **kw: calls.append(key))
+    assert "adafruit" not in calls and "blocked" in res.skipped["adafruit"] and "operator" in res.skipped["adafruit"]
+    assert calls == ["sparkfun"]
+
+
+def test_one_crashing_source_does_not_abort_the_others(live_db, tmp_path, monkeypatch):
+    monkeypatch.setenv("WATCHTOWER_SCHEDULER_ENABLED", "1")
+    def runner(db, key, **kw):
+        if key == "adafruit":
+            raise RuntimeError("boom")
+    res = schedule.run_due(live_db, _cfg(tmp_path, enabled=True), now=NOW, runner=runner)
+    assert res.ran == ["sparkfun"] and "RuntimeError" in res.skipped["adafruit"]
