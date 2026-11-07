@@ -10,6 +10,25 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 ## Status
 
+**UI integration (2026-11-06/07).** The dashboard is now a mobile-first intelligence console.
+- **Navigation and search:** grouped navigation (Monitor, Explore, Intelligence, Cases); a global Ethereum/Solana wallet search.
+- **Wallet workspace:** a tabbed page with Overview, Activity, Flows, Graph, Classification, Research, Cases and Evidence.
+- **Research:** persisted research history, and a deep-linkable run page whose report shows its provenance (report version, rules and model versions, model training dataset, feature digest, taxonomy).
+- **Curation and cases:** label curation against the training gate; research runs and findings linked to cases; provider detail with capability history.
+- **Verification:** checked in Chromium at the Galaxy S24 FE size (412x915, touch) and at desktop size; see [`docs/FRONTEND_ARCHITECTURE.md`](docs/FRONTEND_ARCHITECTURE.md).
+- **Android:** the backend also runs **without scikit-learn** (Android/Termux). Classification then falls back to the labelled rules baseline.
+
+### Quick start (offline fixtures, no keys, no network)
+
+```bash
+uv sync --locked
+cd frontend && npm ci && cd ..
+BIP_DATA_ROOT=$HOME/bip-fixture uv run python -m tests.stage2.serve_offline 8000   # terminal 1
+cd frontend && npx vite                                                             # terminal 2
+```
+
+Open http://127.0.0.1:5173. Every page showing fixture data says "Demo data: offline fixtures". On an Android phone (Termux + Ubuntu), see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md#android-phone-termux--ubuntu-via-proot-distro).
+
 **Stage 3, wallet intelligence.** BIP can retrieve, validate, store and display Ethereum and Solana data from JSON-RPC providers (Stage 2). It then analyses what it stored:
 - scope-labelled wallet profiles and descriptive behaviour rules;
 - deterministic, explainable anomaly detectors;

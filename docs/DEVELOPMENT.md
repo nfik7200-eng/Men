@@ -59,6 +59,10 @@ If the backend is not running, the UI shows "Backend unreachable" (the Vite prox
 | Pre-commit hooks (ruff, gitleaks, large-file guard) | `uvx pre-commit install`, then `uvx pre-commit run --all-files` | `make precommit` |
 | Install frontend packages (locked) | `cd frontend && npm ci` | `make install-frontend` |
 | Start the API (http://127.0.0.1:8000) | `uv run python -m bip.api` | `make api` |
+| Start the offline fixture backend (labelled demo data) | `BIP_DATA_ROOT=$HOME/bip-fixture uv run python -m tests.stage2.serve_offline 8000` | |
+| Frontend dev server (proxies `/api` to :8000) | `cd frontend && npx vite` | |
+| Layout check against a running frontend (412x915 touch + 1360x900) | `cd frontend && node e2e/layout.mjs [http://127.0.0.1:5173]` | |
+| End-to-end (real backend + fixture backend + Chromium) | `cd frontend && npm run build && npm run e2e` | |
 | Start the frontend dev server (http://127.0.0.1:5173) | `cd frontend && npm run dev` | `make web` |
 | Frontend lint / types / tests | `npm run lint`, `npm run typecheck`, `npm test` | `make web-lint web-typecheck web-test` |
 | Production build of the frontend | `npm run build` | `make web-build` |
@@ -222,6 +226,20 @@ curl -X POST "http://127.0.0.1:8000/api/v1/ingestion/wallet/solana/<ADDRESS>?lim
 | POST | `/ingestion/wallet/{chain}/{address}?limit=N` | One bounded synchronous run (N ≤ 50). 409 if another run is active |
 | GET | `/ingestion/jobs`, `/ingestion/jobs/{id}` | Run records with counts, coverage notes and errors |
 | POST | `/investigations/{id}/findings` | Attach a `Finding`. The contract's evidence rules are enforced, and evidence claiming verified provenance must be a transaction stored in the database (self-asserted verification is rejected with 422) |
+
+### UI integration endpoints (ADR-030, ADR-031)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/wallets/{chain}/{address}/status` | 200 for any valid address. `stored`, counts (`null` when not stored, never 0), last ingestion, data origin, related classifications, research runs, watchlists and cases |
+| GET, POST | `/investigations/{id}/research-runs` | Research runs linked to a case · link a run (`{run_id, note}`). 409 if already linked, 404 `not_found` if the case or run is unknown |
+| DELETE | `/investigations/{id}/research-runs/{run_id}` | Remove a link only; runs and reports are never deleted |
+| any | (unmatched path) | `404 route_not_found`, distinct from `404 not_found` for a missing record |
+
+Changes to existing endpoints:
+- `GET /ml/labels` `counts` gains `trainable_wallets` (distinct real wallets per chain whose labels can train) and `min_labelled_wallets`.
+- `GET /ml/models` gains `runtime` (`{available, missing}`).
+- Research reports are `report_version` 1.1.0, with feature digest and version, taxonomy version, as-of and the model's `dataset_version`.
 
 ### ML classification and AI research endpoints (Stage 5)
 

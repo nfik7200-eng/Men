@@ -1,8 +1,11 @@
 # Current State
 
-_Last updated: 2026-11-06 (UI integration, Milestone A: specification only)_
+_Last updated: 2026-11-07 (UI integration: Milestones B–D implemented, E verification done; independent review pending)_
 
 ## Phase
+**UI integration (2026-11-06/07): implemented and verified offline.** See the capability matrix below and `IMPLEMENTATION_LOG.md`.
+
+Earlier in this phase:
 **UI integration, Milestone A (2026-11-06): specification only. No code changed.**
 - Produced `docs/FRONTEND_ARCHITECTURE.md` (design system, grouped navigation, global search, wallet workspace, research persistence and traceability, responsive and touch rules, states) and `docs/FRONTEND_API_MAP.md` (page → endpoint map, gaps).
 - Investigated the audit's console 404. It is the expected `404 not_found` for an unstored wallet, handled by the UI. A latent defect was found: unmatched routes return the same code. A fix is proposed in ADR-031.
@@ -19,6 +22,42 @@ Earlier phase:
 - **Live provider verification is still blocked.** The bounded live retry on 2026-11-03 at 17:25Z reached 0 of 2 keyless providers (DNS fails direct; the proxy refuses CONNECT with 403). No real Ethereum or Solana provider has answered a BIP request yet.
 - **No evidence has been corroborated live.** Corroboration needs two providers on independent infrastructure. Only one keyless provider per chain is configured, so a corroboration request reports `could_not_run`.
 - BIP is a local prototype with **no authentication**.
+
+## Capability matrix (2026-11-07)
+
+Statuses:
+- **Complete and verified:** implemented, with automated tests and a real-browser or real-process check.
+- **Implemented, needs verification:** works offline, never exercised against real external systems.
+- **Partial:** some parts exist.
+- **Not implemented.**
+- **Blocked:** needs an external dependency.
+
+| Capability | Status | Evidence / blocker |
+|---|---|---|
+| Frontend styling in `vite` dev (the phone's unstyled-page bug) | Complete and verified | Root cause: the CSP blocked Vite's inline dev styles. Per-command CSP (`src/csp.ts`), Chromium check |
+| Backend-offline handling (proxy 502s) | Complete and verified | `client.test.ts`; single banner; Chromium with no backend |
+| Grouped navigation, skip link, titles, focus on navigation | Complete and verified | `App.test.tsx`, e2e |
+| Global wallet search (Ethereum and Solana) | Complete and verified | `search.test.ts`, `WalletSearch.test.tsx`, e2e |
+| Responsive layout: Galaxy S24 FE 412x915 touch and 1360x900 | Complete and verified | `e2e/layout.mjs` (all routes, seeded data): no overflow, targets ≥ 44/32 px |
+| Wallet workspace (8 tabs) driven by `/wallets/{c}/{a}/status` | Complete and verified | `workspace.test.tsx`, `test_wallet_status.py`, e2e |
+| `route_not_found` vs `not_found` | Complete and verified | `test_wallet_status.py`, `App.test.tsx` |
+| Research history and run page with report provenance (report v1.1.0) | Complete and verified | `runpage.test.tsx`, `test_research.py`, e2e incl. backend restart |
+| Research runs linked to cases (migration v6, additive) | Complete and verified | `test_case_research_links.py` (v5→v6 with data), e2e |
+| Finding → case attachment from the Evidence tab | Complete and verified | `task10.test.tsx` (the endpoint existed in Stage 3) |
+| Label curation and training-gate progress | Complete and verified | `test_ml.py`, `task10.test.tsx` |
+| Provider detail with capability history | Complete and verified | `task10.test.tsx`, layout |
+| Watchlist filter and batch analysis | Complete and verified | `watchlists.test.tsx`, real-backend click |
+| Backend without scikit-learn (Android path) | Implemented, needs verification on the device | `test_ml_optional.py` (subprocess with ML imports blocked), a venv built with `--no-group ml --no-dev`. **Not yet run on the owner's ARM64 proot** |
+| Ethereum and Solana adapters, ingestion, provenance, idempotency | Implemented, needs verification | Offline fakes only. **Blocked:** the sandbox egress policy denies RPC hosts |
+| Cross-provider corroboration | Blocked | Needs a second independent provider per chain (free account, owner approval) |
+| Capability prober / live provider evidence | Blocked | Network policy; run `make probe` from an allowed network |
+| Wallet intelligence, flows, graph, detectors, research leads | Implemented, needs verification | Offline fixtures only; no real-data output yet |
+| ML classification pipeline | Partial | Pipeline, rules baseline and synthetic demo work. **No real model** (no real labels) |
+| AI research with an LLM | Implemented, needs verification | Fake LLM only; no Ollama configured here |
+| Authentication / multi-user | Not implemented | Local prototype (documented) |
+| Graph list-view alternative, sticky table headers | Not implemented | Deferred (see `docs/FRONTEND_ARCHITECTURE.md` status) |
+| Transaction-hash search | Not implemented | Recognised and declined in the UI |
+| Production deployment, PostgreSQL | Not implemented | ADR-gated; not requested yet |
 
 ## Status by component (honest labels)
 
@@ -49,7 +88,7 @@ Earlier phase:
 | ML classification: taxonomy (10 account types, 25 roles), 27 versioned features (missing ≠ zero, as-of leakage control), rules baseline, scikit-learn training (out-of-time split, calibration, validated thresholds, Isolation Forest, HDBSCAN), abstention, contracts | Implemented and tested. **Only synthetic-trained models exist; no real-world metrics** | `tests/stage5/test_ml.py` |
 | AI research: interpreter, fixed planner, 10 typed tools with permissions, 8 specialists, claims with statuses, LLM synthesis (validated and screened), budgets, cancellation, recovery, rerun, reports | Implemented and tested with a fake LLM. **No real LLM used** | `tests/stage5/test_research.py`, `test_pipeline.py` |
 | AI Research page (classification, plan preview, progress and cancel, report, model registry and evaluation, AI provider status) | Implemented and tested | Vitest, e2e Phase B |
-| UI integration Milestones B–E (grouped navigation, global search, wallet workspace, research history page, case ↔ research links, label curation UI, wallet status endpoint) | **Specified, not implemented** | `docs/FRONTEND_ARCHITECTURE.md` |
+| UI integration Milestones B–D (grouped navigation, global search, wallet workspace, research history page, case ↔ research links, label curation UI, wallet status endpoint) | Implemented and tested | See capability matrix |
 | Real-data intelligence output | **None yet**: every analysed record so far is an offline fixture (labelled "Demo data") | — |
 | AI research, historical crawler, live followers, Parquet lake | Planned | — |
 
@@ -69,7 +108,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 - `claude/nifty-ptolemy-1emo3n`: separate Graphify developer tooling. Not merged, not part of BIP code.
 
 ## Awaiting owner approval
-1. ADRs 001–031 (all Proposed). ADR-030/031 (wallet workspace and research ↔ case link; wallet status endpoint and `route_not_found`) are specified, not implemented. ADR-027 to ADR-029 (scikit-learn plus rules baseline; deterministic planner with LLM synthesis only; in-process bounded research runs) are implemented provisionally. ADR-025/026 (budgeted manual prober; reliability sample rules) are implemented provisionally. ADR-021 to ADR-024 (provider independence groups, on-demand SQLite intelligence, reproducible runs, research leads not recommendations) are implemented provisionally. Already implemented provisionally: ADR-004, ADR-014 to ADR-016, and ADR-017 to ADR-020 (TOML registry, stdlib transport, synchronous bounded ingestion, log-based Ethereum discovery).
+1. ADRs 001–031 (all Proposed). ADR-030/031 (wallet workspace and research ↔ case link; wallet status endpoint and `route_not_found`) are implemented provisionally. ADR-027 to ADR-029 (scikit-learn plus rules baseline; deterministic planner with LLM synthesis only; in-process bounded research runs) are implemented provisionally. ADR-025/026 (budgeted manual prober; reliability sample rules) are implemented provisionally. ADR-021 to ADR-024 (provider independence groups, on-demand SQLite intelligence, reproducible runs, research leads not recommendations) are implemented provisionally. Already implemented provisionally: ADR-004, ADR-014 to ADR-016, and ADR-017 to ADR-020 (TOML registry, stdlib transport, synchronous bounded ingestion, log-based Ethereum discovery).
 2. Storage target beyond the ~5 GB prototype cap.
 3. Free accounts: Alchemy, Infura, Chainstack, Helius, Etherscan, GitHub PAT, Google Cloud BigQuery sandbox.
 4. Where Postgres (and later Redis) run, and with what resource limits.

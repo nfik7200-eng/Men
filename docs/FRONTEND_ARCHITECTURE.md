@@ -1,6 +1,13 @@
 # Frontend Architecture and Design Specification
 
-_Status: Milestone A specification (2026-11-06). **Nothing in this document is implemented yet** unless a section says "exists today". Owner decisions recorded here: dark theme only; grouped navigation approved. Architectural choices are in ADR-030 and ADR-031 (Proposed)._
+_Status (2026-11-07): **implemented** as specified, except for the deviations below (rulings in `IMPLEMENTATION_LOG.md`). Plan: `docs/superpowers/plans/2026-11-06-bip-ui-integration.md`. Owner decisions: dark theme only; grouped navigation. Architectural choices are in ADR-030 and ADR-031 (Proposed)._
+
+**Deviations from this specification:**
+- **Search placement:** the global search sits at the top of the main column on every width, not in the mobile top bar, to keep the sticky header under 96 px.
+- **Old wallet URLs:** `/flows?…`, `/graph?…` and `/research?…` keep working as standalone pages instead of redirecting into the workspace.
+- **Research history:** it is listed under the `/research` wallet picker rather than in its own tab.
+- **Fonts:** system fonts are used, since no font decision was made.
+- **Not yet implemented:** the graph's list-view alternative (§7), sticky table headers, and a 2-second poll pause when the browser tab is hidden. Run polling is 1 second while the page is open.
 
 Companion document: `docs/FRONTEND_API_MAP.md` (page → component → endpoint map, gaps, planned endpoints).
 

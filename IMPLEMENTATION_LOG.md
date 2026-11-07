@@ -2,6 +2,79 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-07 — UI integration: phone fixes, Android backend path, Milestones B–D, e2e
+
+**Starting point:** `61a3e49` (Milestone A), clean tree. Work followed the Superpowers workflow: systematic-debugging for the reported defects, then writing-plans (`docs/superpowers/plans/2026-11-06-bip-ui-integration.md`), executing-plans and test-driven-development.
+
+**Root-cause fixes reported from the owner's phone**
+- **Unstyled UI in `vite` dev** (`a64ab4b`).
+  - Cause: the static CSP meta tag had `style-src 'self'`, which blocked the inline `<style>` elements Vite injects in dev. Production builds load CSS files, which is why CI and e2e never saw it.
+  - Fix: the CSP is now injected per command (strict for builds), placed after Vite's inline dev preamble.
+  - Verified in Chromium: computed font changed from Times New Roman to the system UI stack.
+- **Repeated 502 errors** (`a64ab4b`). The Vite proxy answers 502 with no BIP error envelope when the backend is down; that is now recognised as "backend unreachable".
+- **Backend could not start without scikit-learn** (`2c8725c`).
+  - numpy and scikit-learn moved to a default-installed `ml` dependency group (same versions, same lock resolution).
+  - `bip.ml.backend` loads lazily, so classification without the runtime uses rules only and says so; training returns `503 ml_unavailable`.
+  - Verified with a venv built `--no-group ml --no-dev`: API and fixture backend start, ingest, classify (rules) and run research.
+  - **Not yet verified on the ARM64 proot device itself.**
+
+**Milestones B–D** (Tasks 1–11 of the plan; commits `d3cd627`..`99c01ae`)
+- **Tokens and controls:** design tokens; contrast fixes (`--faint` raised to ≥ 4.5:1; control borders ≥ 3:1); 44 px touch / 32 px desktop controls; sentence-case headings; compact mobile header.
+- **Navigation and search:** grouped navigation, skip link, page titles, focus on navigation, a single backend-offline banner; global Ethereum/Solana search.
+- **Shared components:** Address, DataTable (cards below 600 px), Grade.
+- **Backend:**
+  - `GET /wallets/{c}/{a}/status`;
+  - `404 route_not_found` (ADR-031);
+  - report provenance fields, report v1.1.0;
+  - migration v6 `investigation_research_runs` with link endpoints (ADR-030);
+  - `trainable_wallets` in label counts.
+- **Workspace and research pages:** a tabbed wallet workspace; a persisted research history and deep-linkable run page with a provenance panel, rerun and add-to-case.
+- **Curation, cases and providers:** label curation; case research links; attaching findings from the Evidence tab; provider detail; watchlist filter and batch analysis.
+
+**Defects found by verification against real processes, not unit tests**
+- A text-node overflow (unbroken address) at desktop width once data existed. The layout check now seeds data.
+- 16 px address links in table cells.
+- Workspace tabs stacked vertically because of a global `nav` rule.
+- The fake watchlist-analysis shape (`results`) did not match the real contract (`items`/`analysed`/`skipped`).
+- Selects nested in labels had accessible names that included the selected option.
+
+**Rulings** (decisions taken without a separate owner answer, with their cost if wrong)
+- Setup: Ruling: work directly on claude/modest-fermi-0yklvj (no worktree) — owner mandates this branch — cost if wrong: none, branch is already isolated from main
+- Task 2: Ruling: short menu labels with NAV.heading for page h1 — spec §2.1 shortens labels but keeps headings — cost if wrong: label rename
+- Task 3: Ruling: search sits at the top of the main column on all widths, not in the mobile top bar — keeps the sticky header under 96px on the S24 FE — cost if wrong: move one element
+- Task 4: Ruling: DataTable is applied to wallet tables in Task 8 (ActivityTab), not here — those tables move into the workspace — cost if wrong: none
+- Task 5: Ruling: updated tests/api/test_api.py unknown-route assertion to route_not_found — that behaviour change is ADR-031's purpose — cost if wrong: a client relying on not_found for bad URLs
+- Task 5: Ruling: walletStatus client test written with the method (not watched failing) — thin typed wrapper; endpoint proven RED→GREEN — cost if wrong: low
+- Task 6: Ruling: separate REPORT_VERSION=1.1.0 instead of bumping ENGINE_VERSION — the planner/engine did not change, only the report shape — cost if wrong: one constant
+- Task 7: Ruling: tests/stage4 v3-upgrade fixture also drops V6 tables first — FK to research_runs requires it — cost if wrong: none
+- Task 8: Ruling: no redirect from /flows?..., /graph?..., /research?... — standalone pages keep working with their params; preserves existing behaviour/tests — cost if wrong: two entry points to the same view
+- Task 8: Ruling: updated 4 existing tests for moved UI (copy 'No data stored'→'Nothing has been retrieved'; transactions under Activity tab; intel under Evidence tab) — features moved, none removed — cost if wrong: none
+- Task 9: Ruling: history shown under the /research wallet picker instead of a new default tab — keeps existing 'Choose a wallet' behaviour — cost if wrong: one more click to reach history on desktop
+- Task 10: Ruling: added counts.trainable_wallets + min_labelled_wallets to GET /ml/labels (backend) — the gate cannot be computed reliably client-side from a paged list — cost if wrong: one additive field
+- Task 10: Ruling: provider detail reuses ProfileDetail (already shows reliability and consistency) plus capability history — avoids duplicating Stage 4 UI — cost if wrong: none
+- Task 11: Ruling: fake watchlist-analyze shape corrected to the real contract (items/analysed/skipped) after a real-backend check exposed the mismatch — cost if wrong: none
+- Task 12: Ruling: label/select a11y fix (explicit htmlFor) made in Task 12 — found only by real-browser accessible-name computation — cost if wrong: none
+
+**Checks** (2026-11-07, Python 3.13 venv, Node 22)
+```
+$ uv run ruff check .            -> All checks passed!
+$ uv run ruff format --check .   -> 164 files already formatted
+$ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q               -> 510 passed
+$ npx vitest run                 -> Tests 92 passed (92)
+$ npx eslint . ; npx tsc -b      -> clean
+$ npm run build                  -> built
+$ npm run e2e                    -> 51/51 checks passed (real backend + offline fixture backend + Chromium,
+                                    incl. backend restart persistence and layout at 412x915 touch / 1360x900)
+$ gitleaks dir . ; gitleaks git 61a3e49..HEAD -> no leaks found
+```
+
+**Not done:**
+- No live RPC or LLM verification (network policy).
+- Not run on the owner's phone.
+- Graph list view and sticky table headers deferred.
+- Independent code review: see the next entry.
+
 ## 2026-11-06 — UI integration, Milestone A: architecture and design specification
 
 **Starting point:** `8e7fc29`, clean tree, same commit on the remote. Owner decisions: dark theme only; grouped navigation approved; Milestones A–E approved, with only A to be carried out now.
