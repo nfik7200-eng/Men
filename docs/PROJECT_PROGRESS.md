@@ -3,7 +3,7 @@
 ## Mission 005 — verified now
 | Claim | Evidence |
 |---|---|
-| Mission 004 preserved | branch `claude/sweet-franklin-dsta71`; the 8 Mission-004 commits (7d3b1a7 … 7dda481) intact; 16 new local commits on top (see `git log 7dda481..HEAD`); nothing pushed; PR #3 untouched (draft) |
+| Mission 004 preserved | branch `claude/sweet-franklin-dsta71`; the 8 Mission-004 commits (7d3b1a7 … 7dda481) intact; new local commits on top (`git log 7dda481..HEAD`); nothing pushed; PR #3 untouched (draft) |
 | Real DB untouched | sha256 of `data/watchtower.db` (`b5c68461…`) and `-wal` (`7c1b5baa…`) identical at start and end; every experiment/server ran on copies of the verified snapshot (sha256 `7f9419c3…`); `status`/`rematch`/migrations never run against the real DB |
 | Tests / quality | **368 passed** (316 baseline); coverage **92 %** (= baseline); Pyright **75** errors (= pre-mission baseline, 0 new); ruff has no project config (default rules report ~150 pre-existing style findings; not a project standard) |
 | Count reconciliation | 282 listings / 343 obs = **live scope only** (Adafruit 192 + SparkFun 90; 207 + 136 obs). 468 / 901 = **whole snapshot** (adds 186 demo listings / 558 demo obs). 440 / 831 = **stale plain `cp`** of the WAL-mode file (lost run 14: 28 SparkFun listings, 70 obs). All three are the same database at different scope/consistency; reports use the snapshot sha above |
