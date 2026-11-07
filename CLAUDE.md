@@ -6,7 +6,7 @@ Modular monolith (Python 3.11+): `watchtower/` = shared engine (sources, fetcher
 ## Commands
 - Install: `pip install -r requirements.txt`
 - Collect real data: `WATCHTOWER_CONTACT=contact@your-org.net python -m watchtower.cli collect [--source K] [--max-pages N]`
-- Run app: `uvicorn main:app --port 8000`   · Tests: `python -m pytest`
+- Run app: `uvicorn main:app --port 8000 --no-proxy-headers`   · Tests: `python -m pytest`
 - Snapshot DB (WAL-safe; never `cp` the .db): `python -m watchtower.cli backup [--out PATH]` · Integrity: `python -m watchtower.cli verify --db PATH`
 - Acquisition: offline selection preview `python -m watchtower.cli plan --db COPY --source K [--explain URL]` · coverage `python -m watchtower.cli coverage --db COPY` · per-source budget `WATCHTOWER_BUDGET_<KEY>` (ceiling 500)
 - Scheduler is DISABLED by default (`data/schedule.json` + `WATCHTOWER_SCHEDULER_ENABLED=1`); never install cron/services without the owner's approval (docs/SCHEDULING.md)

@@ -13,7 +13,7 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 export WATCHTOWER_CONTACT="contact@your-org.net"        # identifies the crawler to site owners
 python -m watchtower.cli collect --max-pages 6      # real collection (≈30 s, polite 1.5 s delay)
-uvicorn main:app --port 8000                        # open http://localhost:8000
+uvicorn main:app --port 8000 --no-proxy-headers   # open http://localhost:8000 (never trust X-Forwarded-For unless WATCHTOWER_TRUST_PROXY=1 behind your own proxy)
 python -m pytest                                    # 143 tests, no network needed
 ```
 Run `collect` again later (cron/daily): each run appends observations; price changes, restocks and removals become events.
@@ -28,7 +28,7 @@ Run `collect` again later (cron/daily): each run appends observations; price cha
 JSON API: `/api/v1/listings`, `/listings/{id}`, `/listings/{id}/history`, `/deals`, `/events`, `/sources`, `/research?q=`.
 
 ## Deploy (cheap)
-One small VPS or free-tier VM: `pip install -r requirements.txt`, run `uvicorn main:app --host 127.0.0.1` behind Caddy/nginx (TLS),
+One small VPS or free-tier VM: `pip install -r requirements.txt`, run `uvicorn main:app --host 127.0.0.1 --no-proxy-headers` behind Caddy/nginx (TLS),
 a systemd timer or cron for `python -m watchtower.cli collect`, and a daily copy of the SQLite file. Set `WATCHTOWER_ADMIN_TOKEN`.
 Watchlists are per-browser (anonymous cookie) until real accounts exist. Read `docs/AUDIT_REPORT.md` §5 (open risks) before exposing publicly; run behind TLS and set `WATCHTOWER_ADMIN_TOKEN`.
 
