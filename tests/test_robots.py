@@ -81,3 +81,12 @@ def test_robots_text_and_rule_counts_are_capped():
     r.can_fetch(UA, "https://x.test/zzz")
     assert time.perf_counter() - t < 2.0 and sum(len(g.rules) for g in r.groups) <= 5000
     assert Robots("User-agent: *\n" + "#" * (2 * 1024 * 1024) + "\nDisallow: /secret\n").can_fetch(UA, "https://x.test/secret") is True  # beyond 512 KiB: ignored (RFC 9309)
+
+
+def test_an_html_page_served_as_robots_txt_yields_no_rules_and_no_crash():
+    """Some sites answer /robots.txt with their HTML app shell (e.g. a single-page app). RFC 9309: unparseable lines are
+    ignored, so no rule applies; the policy review must record that the file is not a real robots file."""
+    html = "<!doctype html><html><head><title>App: loading</title><script>var a = {x: 1};</script></head><body>Disallow everything: no</body></html>"
+    r = Robots(html)
+    assert r.present and not any(g.rules for g in r.groups)
+    assert r.can_fetch(UA, "https://x.test/anything") is True
