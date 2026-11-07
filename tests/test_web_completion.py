@@ -126,3 +126,16 @@ def test_price_statistics_show_currency_on_every_amount(world):
     db, c, _ = world
     html = c.get(f"/listing/{_first_listing_id(db)}").text
     assert not re.search(r"<th>Mean</th><td>\d", html) and not re.search(r"<th>Median</th><td>\d", html)
+
+
+def test_review_does_not_flag_a_shops_own_category_wording_as_a_spec_conflict(world):
+    db, c, _ = world
+    with db.session() as s:
+        a = s.query(Listing).filter_by(sku="5812").one()
+        b = s.query(Listing).join(Source, Source.id == Listing.source_id).filter(Source.key == "sparkfun").first()
+        a.specs = {**(a.specs or {}), "merchant_category": "Raspberry Pi > Boards"}
+        b.specs = {**(b.specs or {}), "merchant_category": "Development Boards"}
+        s.add(MatchCandidate(listing_id=a.id, product_id=b.product_id, score=0.6, reasons=["x"]))
+    _admin(c)
+    html = c.get("/admin").text
+    assert "Different spec values: merchant category" not in html

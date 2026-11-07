@@ -40,6 +40,9 @@ _running: set[str] = set()
 _lock = threading.Lock()
 
 
+NON_COMPARABLE_SPECS = {"merchant_category"}  # each shop's own category wording: differing is expected, not evidence
+
+
 def urlencode_params(items, drop: str | None = None) -> str:
     """Query string from (key, value) pairs, URL-encoded, minus one key (the pager rebuilds `page`)."""
     from urllib.parse import urlencode
@@ -347,7 +350,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         """Both sides of a review question with the spec keys that differ, so the reviewer compares facts, not titles."""
         members = [m for m in s.scalars(select(Listing).options(joinedload(Listing.source)).where(
             Listing.product_id == c.product_id, Listing.active.is_(True))) if m.source_id != c.listing.source_id]
-        keys = sorted({k for x in [c.listing] + members for k in (x.specs or {})})
+        keys = sorted({k for x in [c.listing] + members for k in (x.specs or {})} - NON_COMPARABLE_SPECS)
         differing = [k for k in keys if len({repr((x.specs or {}).get(k)) for x in [c.listing] + members}) > 1]
         return {"members": members, "spec_keys": keys, "differing": differing}
 
