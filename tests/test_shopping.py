@@ -120,7 +120,7 @@ def test_review_queue_accept_merges(seeded, monkeypatch):
     monkeypatch.setattr(config, "ADMIN_TOKEN", "t" * 32)
     c = TestClient(create_app(seeded))
     assert c.post("/admin/login", data={"token": "t" * 32}, follow_redirects=False).status_code == 303
-    assert "possibly the same" in c.get("/admin").text
+    assert "Possible counterpart" in c.get("/admin").text  # side-by-side review wording (was "possibly the same")
     c.post("/admin/match/1/accept", data={})
     with seeded.session() as s:
         assert s.get(Listing, bid).product_id == aid and s.get(Listing, bid).match_status == "confirmed"

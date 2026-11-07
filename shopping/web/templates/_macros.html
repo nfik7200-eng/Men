@@ -2,7 +2,7 @@
 <div class="badges">
   {% if l.price_minor is none %}<span class="badge bad">Price unavailable</span>
   {% elif pstatus == 'stale' %}<span class="badge warn">Stale price</span>
-  {% else %}<span class="badge ok">Price verified</span>{% endif %}
+  {% else %}<span class="badge ok" title="Seen at the last collection. 'Verified' is reserved for price history we can prove (3+ collections over 7+ days).">Price observed</span>{% endif %}
   {% if l.availability == 'in_stock' %}<span class="badge ok">In stock</span>
   {% elif l.availability == 'out_of_stock' %}<span class="badge bad">Out of stock</span>
   {% elif l.availability == 'backorder' %}<span class="badge warn">Backorder</span>

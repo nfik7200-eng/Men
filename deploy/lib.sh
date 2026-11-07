@@ -23,7 +23,7 @@ FORCE=0
 
 log()  { printf '[%s] %s\n' "$(basename "$0")" "$*"; }
 warn() { printf '[%s] WARN: %s\n' "$(basename "$0")" "$*" >&2; }
-die()  { printf '[%s] ERROR: %s\n' "$(basename "$0")" "$*" >&2; exit "${2:-1}"; }
+die()  { printf '[%s] ERROR: %s\n' "$(basename "$0")" "$1" >&2; exit "${2:-1}"; }
 
 # run CMD...: print in dry-run, execute otherwise.
 run() {
@@ -166,11 +166,12 @@ make_release() {
   log "building release $id from $src (python: $py)"
   run mkdir -p "$rel"
   if [ "$DRY" = 1 ]; then
-    printf '  DRY-RUN: tar -C %s (excluding .git data/*.db* data/backups .env .venv tests __pycache__) | tar -C %s -x\n' "$src" "$rel"
+    printf '  DRY-RUN: copy ALLOWLIST only (main.py watchtower/ shopping/ deploy/ docs/ data/*.json requirements*.txt .env.example README.md CLAUDE.md pytest.ini) to %s\n' "$rel"
   else
-    tar -C "$src" --exclude=./.git --exclude='./data/*.db' --exclude='./data/*.db-*' --exclude=./data/backups \
-        --exclude=./.env --exclude=./.venv --exclude=./tests --exclude='__pycache__' --exclude='.pytest_cache' -cf - . \
-      | tar -C "$rel" -xf -
+    # Allowlist, not a denylist: databases, backups, .git, .env, venvs and tool caches can never be copied.
+    ( cd "$src" && tar --exclude='__pycache__' --exclude='*.pyc' -cf - main.py watchtower shopping deploy docs data/*.json \
+        requirements*.txt .env.example README.md CLAUDE.md pytest.ini 2>/dev/null ) | tar -C "$rel" -xf -
+    [ -f "$rel/main.py" ] && [ -d "$rel/watchtower" ] || die "release copy failed"
   fi
   run "$py" -m venv "$rel/.venv"
   run "$rel/.venv/bin/pip" install --no-cache-dir --disable-pip-version-check -r "$rel/requirements-prod.txt"

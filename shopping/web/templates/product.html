@@ -20,9 +20,9 @@
   <td>{{ l.availability.replace('_', ' ') }}</td>
   <td>{{ l.last_observed_at | dt }}<div class="muted">{{ it.fresh }}</div></td>
   <td class="hide-sm">{{ it.stats.n_collections }}{% if it.stats.minimum is not none %}<div class="muted">min {{ it.stats.minimum | money(l.currency) }} · max {{ it.stats.maximum | money(l.currency) }}</div>{% endif %}</td>
-  <td class="hide-sm">{{ l.match_status }}{% if l.match_confidence %} · {{ '%.2f' % l.match_confidence }}{% endif %}</td>
+  <td class="hide-sm">{{ l.match_status | match_label(l.match_confidence) }}</td>
 </tr>{% endfor %}</table></div>
 <h2>Why these are the same product</h2>
-<div class="card">{% for it in items %}{% if it.l.match_reasons %}<p><b>{{ it.l.source.name }}:</b> <span class="muted">{{ it.l.match_reasons | join('; ') }}</span></p>{% endif %}{% endfor %}
+<div class="card">{% for it in items %}{% if it.l.match_reasons %}<p><b>{{ it.l.source.name }}:</b> <span class="muted">{{ it.l.match_reasons | join('; ') | plain_reason }}</span></p>{% endif %}{% endfor %}
 <p class="muted">Matches use identifiers (GTIN, manufacturer part number) when published, otherwise brand + normalised name. Variants (generation, RAM, condition, bundle, colour) are never merged automatically; uncertain pairs wait for review.</p></div>
 {% endblock %}

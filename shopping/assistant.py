@@ -366,7 +366,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     if soft_kw and not intent["category"] and not brand_kw:  # keywords ARE the product when nothing else names it
         cands = [l for l in cands if any(has_word(k, text_of(l)) for k in soft_kw)]
         if not cands:
-            caveats.append(f"No collected listing matches {soft_kw}.")
+            caveats.append(f"No collected listing matches: {', '.join(soft_kw)}.")
     elif soft_kw:
         unmatched = [k for k in soft_kw if not any(has_word(k, text_of(l)) for l in cands)]
         if unmatched:

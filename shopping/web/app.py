@@ -1,4 +1,5 @@
 """FastAPI app: server-rendered pages + JSON API under /api/v1. Modular monolith: no business logic here."""
+import re
 import time
 import math
 import threading
@@ -39,6 +40,18 @@ _running: set[str] = set()
 _lock = threading.Lock()
 
 
+def match_label(status: str | None, confidence: float | None) -> str:
+    """Plain-language match status for people (the raw status stays in the data)."""
+    pct = f", {round(confidence * 100)}% confidence" if confidence else ""
+    return {"self": "Only listing for this product", "auto": f"Automatic match{pct}", "confirmed": "Confirmed by a person",
+            "review": "Awaiting review"}.get(status or "", status or "")
+
+
+def plain_reason(text: str) -> str:
+    """'identical name [\'4\', \'b\']' -> 'identical name (4, b)': matcher reasons were stored with Python list reprs."""
+    return re.sub(r"\[([^\]]*)\]", lambda m: "(" + ", ".join(re.findall(r"'([^']*)'", m.group(1))) + ")", text or "")
+
+
 COVERAGE_TTL_S = 30  # seconds the public coverage report is reused
 
 
@@ -51,6 +64,8 @@ def create_app(db: Database | None = None) -> FastAPI:
     security.install(app)
     tpl = Jinja2Templates(directory=HERE / "templates")
     tpl.env.filters["money"] = fmt_money
+    tpl.env.filters["match_label"] = match_label
+    tpl.env.filters["plain_reason"] = plain_reason
     tpl.env.filters["dt"] = lambda d: d.strftime("%Y-%m-%d %H:%M UTC") if d else "never"
     tpl.env.globals.update(SORTS=SORTS, fmt_money=fmt_money)
 
@@ -190,7 +205,8 @@ def create_app(db: Database | None = None) -> FastAPI:
             if est.get("available") and ship is None and l.shipping_minor is not None:
                 est["notes"].append("Shipping is the source's own quote for its default destination; it may not apply to yours.")
         link = affiliate.build_link(l)
-        return render(request, "listing.html", l=l, obs=obs, chart=price_chart(pts, l.currency), npts=len(pts), events=events,
+        policy = s.scalar(select(SourcePolicy).where(SourcePolicy.source_id == l.source_id))
+        return render(request, "listing.html", l=l, obs=obs, chart=price_chart(pts, l.currency), npts=len(pts), events=events, policy=policy,
                       deal=ds, stats=stats, others=same_product(s, l), est=est, dest=dest, ship=ship, ins=ins, hand=hand, to=to, link=link,
                       pstatus=price_status(l, l.source), fresh=freshness(l, l.source), banner=banner(s),
                       watching=bool(s.scalar(select(WatchItem.id).where(WatchItem.owner == owner_of(request), WatchItem.listing_id == l.id))))
@@ -302,15 +318,44 @@ def create_app(db: Database | None = None) -> FastAPI:
         r.delete_cookie(security.COOKIE_ADMIN, path="/admin")
         return r
 
+    def queue_rows(s):
+        return s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all()
+
+    def budget_rows():
+        from watchtower import config as wcfg
+        return [{"key": k, "name": a.name, "default": a.default_max_pages, "effective": wcfg.page_budget(k, a.default_max_pages),
+                 "live": a.kind == "live"} for k, a in ADAPTERS.items() if a.kind == "live"]
+
+    def scheduler_status():
+        import os
+        from watchtower import config as wcfg, schedule
+        try:
+            cfg = schedule.load(wcfg.ROOT / "data" / "schedule.json")
+        except Exception as ex:  # a broken file must not break the admin page
+            return {"error": str(ex)[:160], "enabled": False, "env": False, "sources": {}, "ceiling": wcfg.MAX_PAGE_BUDGET}
+        return {"enabled": cfg["enabled"], "env": os.getenv("WATCHTOWER_SCHEDULER_ENABLED") == "1", "sources": cfg["sources"],
+                "ceiling": wcfg.MAX_PAGE_BUDGET}
+
+    def side_by_side(s, c: MatchCandidate):
+        """Both sides of a review question with the spec keys that differ, so the reviewer compares facts, not titles."""
+        members = [m for m in s.scalars(select(Listing).options(joinedload(Listing.source)).where(
+            Listing.product_id == c.product_id, Listing.active.is_(True))) if m.source_id != c.listing.source_id]
+        keys = sorted({k for x in [c.listing] + members for k in (x.specs or {})})
+        differing = [k for k in keys if len({repr((x.specs or {}).get(k)) for x in [c.listing] + members}) > 1]
+        return {"members": members, "spec_keys": keys, "differing": differing}
+
     @app.get("/admin", dependencies=[Depends(admin)])
     def admin_page(request: Request, msg: Annotated[str, Query(max_length=200)] = "", s=Depends(get_s)):
         return render(request, "admin.html", sources=s.scalars(select(Source).order_by(Source.name)).all(),
                       runs=s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10)).all(),
-                      queue=s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending")).all(),
+                      queue=queue_rows(s),
                       clicks=s.scalar(select(func.count()).select_from(AffiliateClick)), running=sorted(_running),
                       msg=msg, banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()},
                       health={x.key: source_health(s, x) for x in s.scalars(select(Source))},
-                      policies={p.source.key: p for p in s.scalars(select(SourcePolicy).options(joinedload(SourcePolicy.source)))})
+                      policies={p.source.key: p for p in s.scalars(select(SourcePolicy).options(joinedload(SourcePolicy.source)))},
+                      budgets=budget_rows(), scheduler=scheduler_status(), sidebyside={c.id: side_by_side(s, c) for c in queue_rows(s)},
+                      decided=s.scalars(select(MatchCandidate).where(MatchCandidate.decided_at.is_not(None))
+                                        .order_by(MatchCandidate.decided_at.desc()).limit(10)).all())
 
     def _collect(key: str):
         try:
@@ -351,7 +396,7 @@ def create_app(db: Database | None = None) -> FastAPI:
     def admin_match(cand_id: int, decision: str, s=Depends(get_s)):
         if decision not in ("accept", "reject"):
             raise HTTPException(400)
-        resolve_candidate(s, cand_id, decision == "accept")
+        resolve_candidate(s, cand_id, decision == "accept", by="admin")
         return RedirectResponse("/admin", status_code=303)
 
     # ------------------------------------------------------------------ JSON API (v1)

@@ -20,8 +20,20 @@
   <div class="card">
     {% if chart %}{{ chart | safe }}
     {% else %}<p><b>{{ npts }} observation{{ '' if npts == 1 else 's' }} so far.</b> A chart needs at least 2. History grows each time this source is collected; nothing is back-filled or invented.</p>{% endif %}
-    <div class="scroll"><table><tr><th>Observed (UTC)</th><th>Price</th><th>Original</th><th>Stock</th></tr>
-    {% for o in obs | reverse %}<tr><td>{{ o.observed_at | dt }}</td><td>{{ o.price_minor | money(o.currency) }}</td><td>{{ o.original_price_minor | money(o.currency) if o.original_price_minor else '—' }}</td><td>{{ o.availability.replace('_', ' ') }}</td></tr>{% endfor %}</table></div>
+    <div class="scroll"><table><tr><th>Observed (UTC)</th><th>Price</th><th>Original</th><th>Stock</th><th class="hide-sm">Method</th><th class="hide-sm">HTTP</th></tr>
+    {% for o in obs | reverse %}<tr><td>{{ o.observed_at | dt }}</td><td>{{ o.price_minor | money(o.currency) }}</td><td>{{ o.original_price_minor | money(o.currency) if o.original_price_minor else '—' }}</td><td>{{ o.availability.replace('_', ' ') }}</td><td class="hide-sm muted">{{ {'jsonld': 'structured data (JSON-LD)', 'microdata': 'microdata', 'css': 'page markup', 'not_modified': 're-confirmed (page unchanged)'}.get(o.extraction_method, o.extraction_method or 'not recorded') }}</td><td class="hide-sm muted">{{ o.http_status or '—' }}</td></tr>{% endfor %}</table></div>
+  </div>
+
+  <h2>Where this data comes from</h2>
+  <div class="card">
+    <table>
+      <tr><th>Shop</th><td>{{ l.source.name }}{% if l.source.kind == 'demo' %} <span class="badge warn">Demo catalogue — not a real shop</span>{% elif l.source.kind == 'sandbox' %} <span class="badge warn">API sandbox — test data</span>{% endif %}</td></tr>
+      <tr><th>Page read</th><td style="word-break:break-all">{{ l.url }}</td></tr>
+      <tr><th>Read at</th><td>{{ l.last_observed_at | dt }} (first seen {{ l.first_seen_at | dt }})</td></tr>
+      {% if obs %}{% set last = obs[-1] %}<tr><th>Method</th><td>{{ {'jsonld': 'structured data (JSON-LD) published by the shop', 'microdata': 'microdata', 'css': 'page markup', 'not_modified': 're-confirmed, page unchanged'}.get(last.extraction_method, last.extraction_method or 'not recorded (collected before provenance was kept)') }}{% if last.http_status %} · HTTP {{ last.http_status }}{% endif %}</td></tr>{% endif %}
+      <tr><th>Stored</th><td>Facts only: title, price, stock, identifiers. No description text or images are kept for real shops.</td></tr>
+      {% if l.source.kind == 'live' %}<tr><th>Source policy</th><td>{% if policy %}<b>{{ policy.status }}</b>{% if policy.reviewed_at %}, reviewed {{ policy.reviewed_at.strftime('%Y-%m-%d') }}{% endif %}{% if policy.tos_url %} · <a href="{{ policy.tos_url }}" rel="noopener nofollow" target="_blank">terms</a>{% endif %}<div class="muted">“approved” means no prohibition on automated access was found when we read the terms and robots.txt. It is not legal permission.</div>{% else %}<span class="badge warn">no policy record</span>{% endif %}</td></tr>{% endif %}
+    </table>
   </div>
 
   <h2>Price statistics <span class="muted">(distinct collections, {{ l.currency }})</span></h2>
@@ -54,9 +66,9 @@
   <div class="card">
     {% if others %}<div class="scroll"><table><tr><th>Store</th><th>Price</th><th>Match</th></tr>
     {% for o in others %}<tr><td><a href="/listing/{{ o.id }}">{{ o.source.name }}</a></td><td>{{ o.price_minor | money(o.currency) }}{% if o.currency != l.currency %} <span class="muted">(different currency — not converted)</span>{% endif %}</td>
-    <td>{{ o.match_status }}{% if o.match_confidence %} · {{ '%.2f' % o.match_confidence }}{% endif %}</td></tr>{% endfor %}</table></div>
+    <td>{{ o.match_status | match_label(o.match_confidence) }}</td></tr>{% endfor %}</table></div>
     {% else %}<p class="muted">No confirmed matching listing in another store. We never merge products on weak evidence; uncertain candidates wait in the review queue.</p>{% endif %}
-    {% if l.match_reasons %}<p class="muted">Why matched: {{ l.match_reasons | join('; ') }}</p>{% endif %}
+    {% if l.match_reasons %}<p class="muted">Why matched: {{ l.match_reasons | join('; ') | plain_reason }}</p>{% endif %}
   </div>
 </div>
 
