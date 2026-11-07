@@ -2,6 +2,37 @@
 
 Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
 
+## 2026-11-07 — Independent review of the UI integration and fixes
+
+A fresh reviewer on the most capable model reviewed `61a3e49..d120e93`. It reported 0 Critical, 4 Important and 11 Minor findings, with a verdict of "With fixes". Two Minor findings were regraded to Important by their effect on a user: a broken ML wheel on Termux, and docs claiming redirects. All Important findings were fixed in `a679689`, each with a test that failed first.
+
+- Final review: fresh reviewer (most capable model) on 61a3e49..d120e93 — 0 Critical, 4 Important, 11 Minor; verdict "With fixes"
+- Final: fixed I1 provenance wording — runpage 'says classification did not run…' RED→GREEN, suite 96/96 (a679689)
+- Final: fixed I2 contradictory limitations — test_missing_runtime_limitations_do_not_contradict_each_other RED→GREEN, pytest 512 (a679689)
+- Final: fixed M8 (regraded Important: Termux broken wheel) — test_partly_installed_runtime_degrades_to_rules_instead_of_failing RED→GREEN (a679689)
+- Final: fixed I3 single offline state + Retry recovery — App tests 'one offline notice' and 'recovers every panel' RED→GREEN (a679689)
+- Final: fixed I4 workspace refresh unmount — 'keeps the tab mounted…' RED→GREEN (a679689)
+- Final: fixed M13 (regraded Important: docs claimed redirects) — ADR-030/spec corrected; docs-only (a679689)
+- Final: Ruling: test 'shows a connection error with a working retry' now expects a quiet panel status, not role=alert — that alert storm was finding I3 — cost if wrong: none
+- Final: Ruling: earlier optional-ML test asserted runtime.backend() is never called; corrected to 'never successfully loaded' — classify now probes the runtime by design; subprocess test proves no ML import — cost if wrong: none
+- Final: minor (deferred): malformed run id deep link shows generic 422 error instead of not-found
+- Final: minor (deferred): wallet status endpoint uses _require_chain (stricter than sibling wallet endpoints)
+- Final: minor (deferred): wallet_status data_origin vocabulary 'live' vs 'stored_observations' elsewhere
+- Final: minor (deferred): watchlist skipped-entries hint says 'run again' though the backend always analyses the first N
+- Final: minor (deferred): case Unlink failure is silent
+- Final: minor (deferred): recent wallets are recorded but not displayed anywhere yet
+- Final: minor (deferred): Copy does nothing on non-secure origins (LAN IP) — no feedback
+- Final: minor (deferred): ADR-030/031 still Proposed though implemented (owner approval needed)
+- Final: minor (deferred): label review buttons shown on already-trainable labels; counts() rescans labels per chain
+
+**Checks after the fixes**
+```
+$ uv run pytest -q   -> 512 passed
+$ npx vitest run     -> 96 passed
+$ npm run e2e        -> 51/51 checks passed
+$ node e2e/layout.mjs -> all checks passed (412x915 touch, 1360x900)
+```
+
 ## 2026-11-07 — UI integration: phone fixes, Android backend path, Milestones B–D, e2e
 
 **Starting point:** `61a3e49` (Milestone A), clean tree. Work followed the Superpowers workflow: systematic-debugging for the reported defects, then writing-plans (`docs/superpowers/plans/2026-11-06-bip-ui-integration.md`), executing-plans and test-driven-development.
