@@ -1,4 +1,30 @@
-# Project progress — updated 2026-11-07 (mission 005: acquisition intelligence)
+# Project progress — updated 2026-11-07 (completion programme)
+
+## Completion programme — verified now
+| Item | Evidence |
+|---|---|
+| Preservation | all 26 Mission 004/005 commits present at start; git bundle (sha256 `9ef4c00f…`, first 26 commits) + DB snapshot (`7f9419c3…`) delivered to the owner; the later commits are re-bundled in the final handover; real DB sha256 unchanged throughout; **54 commits ahead of origin, nothing pushed**, PR #3 untouched |
+| Tests | system Python (no sklearn): **448 passed, 4 skipped** (the optional ML modules); ML venv: **499 passed**; pinned production venv (`requirements-lock.txt`): **448 passed, 4 skipped** |
+| Coverage (three different figures) | core without the optional ML package, system Python: **93 %**; the ML package in system Python: **0 %** (its tests are skipped without sklearn); everything including ML, in the ML venv: **92 %** (5,205 statements) |
+| Static checks | Ruff clean (`ruff.toml`); Pyright **75 errors = the pre-programme baseline, 0 new** (run with `--pythonpath .venv-ml/bin/python`); shellcheck 0.11.0 clean on `deploy/*.sh`; `systemd-analyze verify/security` on the units (paths exist only after install) |
+| E2E | `e2e/run.sh` (Playwright, Chromium) desktop + Pixel 7 on a disposable cleaned copy: all checks pass, 0 horizontal overflow, 0 5xx |
+| Security | independent review: 0 critical/high. Fixed + tested: robots ReDoS, gzip-bomb/size caps, robots cap, credentials on redirect/downgrade, signed expiring admin cookie, non-ASCII cookie, id overflow, per-client /watch and /go limits, API docs off, fixed-code messages, schedule NaN/bool, numeric loopback host forms, hardlink-safe live-DB guard, refused manual collections shown to admin. **Open (stated plainly):** DNS-rebinding to private IPs is not checked (hosts are allowlisted); `.env.example` `TRUST_PROXY=1` is only safe behind the provided nginx; rate limiter keys IPv6 per address (not /64) |
+| Deployment package | `deploy/` + `docs/DEPLOYMENT.md`, exercised only in a temp prefix (install/update/rollback/restore/backup/healthcheck); independent review found 4 medium + several low defects, all fixed with tests (`tests/test_deploy_scripts.py`). **Not verified:** nginx config (no nginx binary; syntax untested), systemd runtime/hardening, useradd/permissions, Python 3.11/3.12, real VPS disk/RAM. Nothing was installed on this machine |
+| ML | scikit-learn 1.9.1 in an isolated `.venv-ml` (pins == `pip freeze`); advisory harness only; independent review fixed 2 high + 6 medium + 7 low findings; **verdict on the real data: insufficient for supervised models, anomaly models and forecasting** (0 human labels, 1 day of prices, rule-derived labels are circular: single-feature AUC ≥ 0.99). No model feeds matching or ranking |
+| Product / assistant / UI | audited review decisions; side-by-side review UI with confirmation and decision log; provenance card; admin budgets/schedule; honest "Price observed" label; market questions (new, price drops, history gaps) answered only from stored evidence; discovered-but-uncollected pages disclosed; performance: assistant 2.5-6.5x faster at 5,000 listings (docs/PERFORMANCE.md) |
+| Advisor / reviews | Advisor consulted once in this programme (before closing), plus the Mission 005 calls; independent reviews were `general-purpose` subagents in specialist roles (security, frontend/UX, ML, deployment, source research). **`/review-council` is user-only and was never run.** Two agents hit a rate limit and were resumed. |
+
+## Not met — and why (engineering vs external)
+* **Real permitted data acquisition (external):** no live run: the policy gate requires a real `WATCHTOWER_CONTACT` (not invented) and owner approval. No free source exists for laptops/phones/tablets (docs/SOURCE_DISCOVERY_ADDENDUM.md).
+* **Verified deals (external/time):** need ≥ 8 days of collection; the data has 1 day.
+* **Useful ML models (data-limited):** insufficient data; harness and honest verdict only.
+* **VPS deployment (external):** needs VPS access and approval; package tested in a temp prefix only.
+* **Human decisions:** 12 review candidates; legal read of Adafruit/SparkFun terms; approval of the production cleanup (docs/DB_CLEANUP_RUNBOOK.md).
+* **Push approval:** 54 local commits exist only in this temporary container (bundle delivered).
+
+---
+
+## Mission 005 record (2026-11-07: acquisition intelligence)
 
 ## Mission 005 — verified now
 | Claim | Evidence |

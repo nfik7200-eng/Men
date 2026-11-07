@@ -122,3 +122,26 @@ Backlog after mission 005: (a) run one live, policy-gated discovery+collection o
 cross-merchant products (target > 6) with `coverage`/`verify`; (b) bare 3-digit model numbers ("pi 500") are ignored by assistant keywords;
 (c) price-history stats/volatility on the product page need ≥ 8 days of data (O1); (d) pair-view review UI (C2); (e) a DB-level
 append-only trigger as an approved migration.
+
+
+## 6. Completion programme iteration log (2026-11-07)
+
+Orchestrator: main session + project skill `improvement-loop` (no external loop plugin installed). Parallel agents owned DISJOINT
+paths; shared modules were integrated by the orchestrator. Budget per unattended run: <= 8 iterations, <= 6 concurrent agents.
+
+| # | Loop | Weakness (evidence) | Change | Measured |
+|---|---|---|---|---|
+| 1 | F | temporary container; 26 unpushed commits | git bundle + verified WAL-safe snapshot delivered | bundle verify ok |
+| 2 | C | review decisions not auditable | decided_at/by/note + evidence snapshot | 3 tests |
+| 3 | F | production cleanup unprovable | `cleanup-preview` on a temp copy + runbook | 23 -> 12 pending, 6 labels healed, 0 regroups |
+| 4 | E | assistant could not answer market questions | new / price-drop / history-gap intents from stored evidence | 5 tests |
+| 5 | E/UI | independent Playwright review: misleading labels, no provenance, one-line review, hidden budgets | 13 defects + 3 gaps fixed | e2e 30 checks both viewports |
+| 6 | F | independent security review | ReDoS, size caps, cookie, limits, SSRF forms (14 fixes) | 40+ tests red->green |
+| 7 | M4 | independent ML review: 2 high, 6 medium, 7 low | circularity/trust-tier/leakage/anomaly fixes, honest verdict kept | 51 ML tests |
+| 8 | M10 | independent deploy review: 4 medium + lows | umask, silent tar, rollback guards, restore units, nginx, docs | 8 temp-prefix tests |
+| 9 | F | perf benchmark at 5,000 listings | one history query per answer | 5.2 s -> 2.1 s; 11 s -> 1.7 s |
+| 10 | F | Advisor close-out | rollback auto-revert regression, hardlink guard, prod-pin suite run, lock file, coverage honesty | tests added, 448 pass on pins |
+
+Declined / limits: `/review-council` (user-only); live collection (no contact); nginx syntax test (no binary); fallback of the
+nested-threshold ML caveat is documented, not fixed. Next loop: run one policy-gated live discovery + collection when a contact
+exists, then re-measure cross-merchant products and history depth; decide the 12 review candidates; apply the approved cleanup.
