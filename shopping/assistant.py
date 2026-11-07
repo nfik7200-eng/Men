@@ -5,7 +5,7 @@ know (build quality, upgradeability, benchmarks, battery...) are reported as gap
 """
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -219,6 +219,88 @@ _HINT_TOKEN = re.compile(r"[a-z0-9]+(?:\.[0-9]+)?")
 _HINT_FILLER = {"the", "a", "and", "with", "for", "of", "to", "in", "on"}
 
 
+_META_STOP = {"price", "prices", "dropped", "drop", "drops", "decreased", "decrease", "recently", "recent", "reduced", "fallen", "fell",
+              "new", "newly", "appeared", "added", "listed", "products", "product", "listings", "insufficient", "history", "have", "which",
+              "what", "has", "the", "enough", "not", "lack", "with", "any", "are", "there", "been", "lately", "latest"}
+
+
+def _market_kind(q: str) -> str | None:
+    low = q.lower()
+    if re.search(r"\b(price|prices|cost)\b.*\b(drop|dropped|decreas\w*|reduc\w*|fall|fallen|fell|cheaper)\b|\b(drop|decreas\w*|reduc\w*)\b.*\bprices?\b", low):
+        return "price_drops"
+    if re.search(r"(insufficient|not enough|lack\w*|no|enough|limited)\s+(price\s+)?history|history\s+(is|are)\s+(insufficient|short|limited)", low):
+        return "history_gaps"
+    if re.search(r"(recently|newly|just)\s+(appeared|added|listed)|what('s|\s+is|\s+are)?\s+new\b|\bnew\s+(products|listings|arrivals)", low):
+        return "new_listings"
+    return None
+
+
+def _market_answer(s: Session, question: str, kind: str, now: datetime) -> dict:
+    """Questions about the MARKET (new listings, recorded price drops, history gaps) answered only from stored evidence."""
+    from watchtower.deals import collapse, priced_history
+    from watchtower.models import Event, Observation
+    intent = parse_query(question)
+    words = [w for w in intent["keywords"] if w not in _META_STOP] + list(intent.get("model_tokens", []))
+    live = list(s.scalars(select(Listing).options(joinedload(Listing.source)).join(Source, Source.id == Listing.source_id).where(
+        Source.kind == "live", Listing.active.is_(True))))
+    if words:
+        live = [l for l in live if all(has_word(w, norm_units(f"{l.title} {l.brand or ''}")) for w in words)]
+    ctx = PeerContext(s, now)
+    caveats: list[str] = []
+    picks: list[Pick] = []
+
+    def pick(l: Listing, note: str) -> Pick:
+        p = Pick(l, 0.0)
+        p.meets.append(note)
+        p.deal = score_listing(s, l, ctx, now)
+        p.price_status = price_status(l, l.source, now)
+        return p
+
+    ids = [l.id for l in live]
+    obs = s.execute(select(Observation.listing_id, Observation.observed_at).where(Observation.listing_id.in_(ids))).all() if ids else []
+    n_obs, span = len(obs), ((max(o[1] for o in obs) - min(o[1] for o in obs)).days if obs else 0)
+    if kind == "price_drops":
+        since = now - timedelta(days=14)
+        evs = s.execute(select(Event, Listing).join(Listing, Listing.id == Event.listing_id).where(
+            Event.kind == "price_drop", Event.detected_at >= since, Listing.id.in_(ids))).all() if ids else []
+        latest = {}
+        for e, l in sorted(evs, key=lambda x: x[0].detected_at):
+            latest[l.id] = (e, l)
+        for e, l in sorted(latest.values(), key=lambda x: (x[0].pct or 0)):
+            old, new = int(e.old_value), int(e.new_value)
+            picks.append(pick(l, f"price fell from {fmt_money(old, l.currency)} to {fmt_money(new, l.currency)} ({(e.pct or 0):+.1f}%) on {e.detected_at:%Y-%m-%d}"))
+        if picks:
+            caveats.append("A recorded drop is a change between our own observations. It is not a verified price drop: verification needs "
+                           "3+ collections over 7+ days of history.")
+        else:
+            caveats.append(f"No price drop has been recorded in the last 14 days. We hold {n_obs} observation{'s' if n_obs != 1 else ''} for "
+                           f"{len(live)} matching live listing(s) spanning {span} day{'s' if span != 1 else ''}, so we cannot say whether prices have fallen.")
+    elif kind == "new_listings":
+        first = min((l.first_seen_at for l in s.scalars(select(Listing).join(Source, Source.id == Listing.source_id).where(Source.kind == "live"))), default=None)
+        fresh = [l for l in live if first and l.first_seen_at > first + timedelta(hours=1) and l.first_seen_at >= now - timedelta(days=14)]
+        for l in sorted(fresh, key=lambda l: l.first_seen_at, reverse=True)[:10]:
+            picks.append(pick(l, f"first seen {l.first_seen_at:%Y-%m-%d} at {l.source.name}"))
+        if first:
+            caveats.append(f"Listings first seen at our first collection ({first:%Y-%m-%d}) are the baseline, not new. 'New' means first seen after it.")
+        if not picks:
+            caveats.append("No listing has first appeared in the last 14 days.")
+    else:  # history_gaps
+        for l in live:
+            h = collapse(priced_history(s, l))
+            days = (h[-1].observed_at - h[0].observed_at).days if len(h) > 1 else 0
+            if len(h) < 3 or days < 7:
+                picks.append(pick(l, f"{len(h)} collection{'s' if len(h) != 1 else ''} over {days} day{'s' if days != 1 else ''}"))
+        picks.sort(key=lambda p: (p.meets[0], p.listing.title))
+        total = len(live)
+        caveats.append(f"A verified price drop needs 3+ collections over 7+ days of history. {len(picks)} of {total} matching live listings do not have that yet.")
+        picks = picks[:10]
+    result = {"question": question, "kind": kind, "interpretation": {k: v for k, v in intent.items() if k not in ("assumptions", "gaps")},
+              "picks": picks, "alternatives": [], "gaps": [], "caveats": caveats, "clarification": None,
+              "retrieved_listing_ids": [p.listing.id for p in picks], "candidate_count": len(live), "uncollected": [], "llm_summary": None}
+    result["text"] = render_text(result)
+    return result
+
+
 def _uncollected(s: Session, question: str, intent: dict, represented: set[int], limit: int = 3) -> list[dict]:
     """Real-shop pages that were DISCOVERED (their address names something like the question) but never collected, at shops
     that have no pick. Disclosure only: such a page has no price, stock or history and is never a pick or a comparison."""
@@ -250,6 +332,9 @@ def _uncollected(s: Session, question: str, intent: dict, represented: set[int],
 def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool = True,
            shipping_minor: int | None = None) -> dict:
     now = now or utcnow()
+    kind = _market_kind(question)
+    if kind:
+        return _market_answer(s, question, kind, now)
     intent = parse_query(question)
     caveats: list[str] = list(intent["assumptions"])
     stmt = select(Listing).options(joinedload(Listing.source)).where(
@@ -406,7 +491,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
 
     result = {
         "question": question, "interpretation": {k: v for k, v in intent.items() if k not in ("assumptions", "gaps")},
-        "picks": top, "alternatives": alternatives, "gaps": gaps, "caveats": caveats, "clarification": clarification,
+        "kind": "search", "picks": top, "alternatives": alternatives, "gaps": gaps, "caveats": caveats, "clarification": clarification,
         "retrieved_listing_ids": [p.listing.id for p in top + alternatives], "candidate_count": len(cands), "uncollected": uncollected,
         "llm_summary": None,
     }
@@ -426,8 +511,10 @@ def _fact(p: Pick) -> dict:
 
 def render_text(r: dict) -> str:
     lines = []
-    if not r["picks"]:
+    if not r["picks"] and r.get("kind", "search") == "search":
         lines.append("I could not find a suitable listing in the collected data.")
+    elif not r["picks"]:
+        lines.append("Nothing in the collected data answers this yet.")
     for i, p in enumerate(r["picks"], 1):
         l = p.listing
         lines.append(f"{i}. {l.title} — {fmt_money(l.price_minor, l.currency)} at {l.source.name} "

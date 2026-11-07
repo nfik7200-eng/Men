@@ -3,7 +3,7 @@
 Found on the real data (mission 004): for "raspberry pi 5 8gb" the assistant returned SparkFun's 'Raspberry Pi 5 - 8GB'
 plus two Compute Modules, and dropped Adafruit's 'Raspberry Pi 5 - 8 GB RAM' — the SAME matched product — because the
 query word '8gb' was required literally and Adafruit writes '8 GB'."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -247,3 +247,67 @@ def test_a_pending_human_review_is_not_reported_as_no_other_shop_nor_compared(db
         text = assistant.answer(s, "raspberry pi 3 a+", now=T0, use_llm=False)["text"]
         assert "No other shop" not in text and "Also sold at" not in text
         assert "awaiting human review" in text and "not counted" in text
+
+
+# --- completion programme: market-awareness questions answered from stored evidence ---------------------------------
+def _live_world(db):
+    ensure_sources(db)
+    s = db.Session()
+    a = Source(key="ada", name="Ada", base_url="https://ada.example", currency="USD", kind="live")
+    b = Source(key="spk", name="Spk", base_url="https://spk.example", currency="USD", kind="live")
+    s.add_all([a, b])
+    s.flush()
+    return s, a, b
+
+
+def test_price_drop_question_with_no_recorded_drops_says_how_much_history_exists(db):
+    s, a, b = _live_world(db)
+    ingest_listing(s, a, None, _raw("1", "Raspberry Pi 5 - 8 GB RAM", 20000), T0)
+    s.flush()
+    r = assistant.answer(s, "has the price of the raspberry pi 5 dropped recently?", now=T0 + timedelta(days=1), use_llm=False)
+    assert r["kind"] == "price_drops" and r["picks"] == []
+    assert any("No price drop has been recorded" in c and "1 observation" in c for c in r["caveats"]), r["caveats"]
+    assert "cannot say" in r["text"].lower() or "no price drop" in r["text"].lower()
+
+
+def test_price_drop_question_lists_recorded_drops_with_old_and_new_price(db):
+    s, a, b = _live_world(db)
+    ingest_listing(s, a, None, _raw("1", "Raspberry Pi 5 - 8 GB RAM", 20000), T0)
+    ingest_listing(s, a, None, _raw("1", "Raspberry Pi 5 - 8 GB RAM", 18000), T0 + timedelta(days=2))
+    ingest_listing(s, b, None, _raw("2", "Raspberry Pi 5 - 4 GB RAM", 9000), T0)
+    s.flush()
+    r = assistant.answer(s, "which prices have recently decreased", now=T0 + timedelta(days=3), use_llm=False)
+    assert r["kind"] == "price_drops" and [p.listing.external_id for p in r["picks"]] == ["1"]
+    assert "$200.00" in r["text"] and "$180.00" in r["text"] and "-10.0%" in r["text"]
+    assert "estimate" in r["text"].lower() or "not a verified" in r["text"].lower()  # 2 observations are not verification
+
+
+def test_what_is_new_question_reports_first_seen_dates_relative_to_collection_history(db):
+    s, a, b = _live_world(db)
+    ingest_listing(s, a, None, _raw("1", "Raspberry Pi 5 - 8 GB RAM", 20000), T0)
+    ingest_listing(s, b, None, _raw("2", "Raspberry Pi Zero 2 W", 1500), T0 + timedelta(days=5))
+    s.flush()
+    r = assistant.answer(s, "what products have recently appeared?", now=T0 + timedelta(days=6), use_llm=False)
+    assert r["kind"] == "new_listings" and [p.listing.external_id for p in r["picks"]][0] == "2"
+    assert "first seen" in r["text"].lower()
+
+
+def test_insufficient_history_question_lists_what_lacks_history_and_why(db):
+    s, a, b = _live_world(db)
+    ingest_listing(s, a, None, _raw("1", "Raspberry Pi 5 - 8 GB RAM", 20000), T0)
+    for d in (0, 3, 8):
+        ingest_listing(s, b, None, _raw("2", "Raspberry Pi Zero 2 W", 1500), T0 + timedelta(days=d))
+    s.flush()
+    r = assistant.answer(s, "which products have insufficient price history?", now=T0 + timedelta(days=9), use_llm=False)
+    assert r["kind"] == "history_gaps"
+    assert [p.listing.external_id for p in r["picks"]] == ["1"]  # the Zero 2 W has 3 collections over 8 days
+    assert "3+" in r["text"] and "7+" in r["text"]
+
+
+def test_market_questions_respect_the_named_model(db):
+    s, a, b = _live_world(db)
+    ingest_listing(s, a, None, _raw("1", "Raspberry Pi 5 - 8 GB RAM", 20000), T0)
+    ingest_listing(s, a, None, _raw("2", "Raspberry Pi 4 Model B - 4 GB RAM", 12000), T0)
+    s.flush()
+    r = assistant.answer(s, "has the price of the raspberry pi 5 dropped recently?", now=T0 + timedelta(days=1), use_llm=False)
+    assert r["candidate_count"] == 1  # only the Pi 5, not every Raspberry Pi listing
