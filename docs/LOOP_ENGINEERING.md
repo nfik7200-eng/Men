@@ -99,3 +99,26 @@ Failed/declined experiments: a monkeypatched "concurrent write during backup" te
 
 **What code cannot fix:** the number of merchants, product categories (laptops/phones), the length of real price
 history, and legal permission. Those need the owner: approvals, outreach, a scheduler, and time.
+
+
+## 5. Mission 005 iteration log (acquisition intelligence, 2026-11-07)
+
+| # | Loop | Weakness (evidence) | Change | Measured |
+|---|---|---|---|---|
+| 1 | B | one robots-disallowed URL stopped the whole run (`FetchBlocked` meant both disallow and 401/403/451) | `FetchDisallowed` subclass; per-URL record + 7-day re-check; server blocks still STOP | 2 tests red→green |
+| 2 | B/C | 1,241 of 1,526 URLs unfetched, fetch order = (tier, alphabetical), no reasons stored | `acquisition.py` scorer + `plan_run`, 10 new `crawl_urls` columns, `cli plan` | SparkFun first-20 slots with counterpart evidence 1 → 8 (planned) |
+| 3 | B | discovered vs acquired not measurable | `coverage.py`, `cli coverage`, `/coverage`, `verify` metric | real: Adafruit 192/1166, SparkFun 90/357 |
+| 4 | E | assistant could not say what is uncollected / unverified | `_uncollected`, also-sold-at, possible-match, history depth | 6 tests; Zero 2 W answer discloses the uncollected SparkFun page |
+| 5 | F/D | advisor review: acquired counted URLs (195 vs 192 listings); 1-letter suffix = "strong"; unverified match printed as "no other shop"; trigger-based immutability would migrate the live DB | duplicates by claimed listing; len≥3 rule; ORM append-only guard | metrics corrected before reporting |
+| 6 | B/F | scheduler absent | disabled-by-default double opt-in scheduler | 9 tests; no cron/service |
+| 7 | F | reviewer: retry_limit permanent; scheduler retried blocked sources; disallowed URLs ate budget; all-disallowed run reported ok; O(U×L) ranking; public /coverage cost | 7 fixes, each reproduced red first | suite 368 green |
+| 8 | C/UI | Playwright: "match self 0.60" next to another shop's listing of the same product (6 rows) | `prune_candidates` heals `self`→`auto` when the matcher agrees; invariant in `verify` | verify OK on rematched copy |
+
+Declined/limits: `/review-council` is user-only (not run); live collection impossible without a real contact (no fabricated
+contact); Adafruit offline ranking by counterpart impossible until names are stored by a discovery run; ruff has no project
+config so only Pyright (75, unchanged) is used as the type gate.
+
+Backlog after mission 005: (a) run one live, policy-gated discovery+collection once a contact exists, then re-measure
+cross-merchant products (target > 6) with `coverage`/`verify`; (b) bare 3-digit model numbers ("pi 500") are ignored by assistant keywords;
+(c) price-history stats/volatility on the product page need ≥ 8 days of data (O1); (d) pair-view review UI (C2); (e) a DB-level
+append-only trigger as an approved migration.

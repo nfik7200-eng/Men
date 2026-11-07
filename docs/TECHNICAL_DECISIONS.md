@@ -63,3 +63,16 @@ Decisions marked **[Opus consult]** adopted advice from the architecture consult
   requirements are minimums, not keywords. **A named model is not answered with a different product class** (maker
   electronics only, only when the user names no product type, always with a caveat listing what was left out).
 - Experiments run only on snapshot copies; the real DB was not modified in mission 004 (sha256 checked before/after).
+
+
+## Mission 005 — acquisition intelligence (2026-11-07)
+- **Prioritise, don't just raise budgets.** Never-fetched URLs are ranked by an explainable score (docs/ACQUISITION.md); decisions are stored on
+  `crawl_urls`. Re-checks keep 60 % of the budget (price history is the asset); no global cross-merchant allocator is built: runs are
+  per source with their own budget, which is already fair; `schedule run-due` orders sources by longest wait.
+- **Name hints are priority-only evidence** (never write product_id/match_status, never queue candidates) and go through the matcher's hard vetoes.
+- **FetchDisallowed (per URL) vs FetchBlocked (server refusal)**: only the latter stops a run (CLAUDE.md STOP rule).
+- **Retry limit = cooldown** (flat 7 days after 5 failures), never permanent, never unbounded.
+- **Append-only observations via an ORM guard**, not a trigger (a trigger would migrate the live DB; bulk SQL bypasses the guard: documented limit).
+- **Scheduler**: library + CLI only, disabled by default, double opt-in, policy gate unchanged, no installation.
+- **Coverage** metrics deliberately separate discovered / eligible / fetched_ok / acquired; several URLs of one listing count once.
+- New nullable `crawl_urls` columns are added by the forward-only `sync_columns` the first time the DB is opened normally: take a `backup` first.
