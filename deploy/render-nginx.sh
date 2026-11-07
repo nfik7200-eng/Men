@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Render deploy/nginx/watchtower.conf for a real domain (refuses placeholders). Prints to stdout or --out FILE.
-#   render-nginx.sh --domain app.yourorg.net [--out /etc/nginx/conf.d/watchtower.conf]
+#   render-nginx.sh --domain shop.my-org.net [--out /etc/nginx/conf.d/watchtower.conf]
 #   (WT_NGINX_TEMPLATE=watchtower-http-bootstrap.conf renders the HTTP-only certificate-bootstrap server instead)
 set -euo pipefail
 D=""; OUT=""

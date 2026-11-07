@@ -5,6 +5,7 @@
 # The database is NOT touched. If the new code altered data, restore a pre-update snapshot explicitly:
 #   systemctl stop watchtower-web; restore.sh --from <snapshot> --replace-live --force --apply
 set -euo pipefail
+# shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 TO=""
 while [ $# -gt 0 ]; do

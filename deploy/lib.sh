@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034
 # Shared helpers for the Watchtower deploy scripts. Sourced, never executed.
 # Every path is overridable through WT_* variables so the scripts can be exercised in a temp prefix.
 #

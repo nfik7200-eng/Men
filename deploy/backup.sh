@@ -5,6 +5,7 @@
 # watchtower-<UTC>.db directly inside the backup dir, ONLY if they are older than D days (default 30) AND not among the
 # newest N (default 14). Nothing else is ever deleted. Without --prune it only lists what it would delete.
 set -euo pipefail
+# shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 DRY=0; PRUNE=0; KEEP=14; AGE=30; DIR="$WT_BACKUP_DIR"
 while [ $# -gt 0 ]; do

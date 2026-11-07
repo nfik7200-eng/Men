@@ -6,6 +6,7 @@
 # health check; on failure the switch is reverted automatically. Old release dirs beyond --keep (default 3) are removed;
 # `current` and `previous` never are. The DB is NOT rolled back automatically: the pre-update snapshot path is printed.
 set -euo pipefail
+# shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 SRC=""; KEEP=3
 while [ $# -gt 0 ]; do

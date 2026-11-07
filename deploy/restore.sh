@@ -7,6 +7,7 @@
 #       additionally installs it as the live DB: requires watchtower-web.service to be STOPPED; the old DB, -wal and
 #       -shm are MOVED aside (suffix .pre-restore-<UTC>), never deleted.
 set -euo pipefail
+# shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 FROM=""; TO=""; REPLACE=0
 while [ $# -gt 0 ]; do

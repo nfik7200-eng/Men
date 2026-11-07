@@ -5,6 +5,7 @@
 #   install.sh --apply [--start] [--enable-backup-timer] [--src DIR] [--force]
 # Never enables watchtower-collect.timer. Never overwrites foreign units/dirs/ports unless --force.
 set -euo pipefail
+# shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 SRC="$(cd "$LIB_DIR/.." && pwd)"; START=0; BTIMER=0; INITENV=0
@@ -59,7 +60,9 @@ if [ "$INITENV" = 1 ]; then
   if [ -e "$WT_ENV_FILE" ]; then log "env file $WT_ENV_FILE already exists; leaving it untouched"; exit 0; fi
   run install -d -m 0750 "$WT_ETC"
   run install -m 0640 "$SRC/.env.example" "$WT_ENV_FILE"
-  [ "$DRY" = 1 ] || { getent group "$WT_USER" >/dev/null && chgrp "$WT_USER" "$WT_ETC" "$WT_ENV_FILE" || warn "group $WT_USER not yet created: run install --apply once, then chgrp $WT_USER $WT_ENV_FILE"; }
+  if [ "$DRY" = 0 ]; then
+    if getent group "$WT_USER" >/dev/null; then chgrp "$WT_USER" "$WT_ETC" "$WT_ENV_FILE"; else warn "group $WT_USER not yet created: run install --apply once, then chgrp $WT_USER $WT_ENV_FILE"; fi
+  fi
   log "now edit $WT_ENV_FILE: replace every YOUR_* placeholder. install --apply refuses until you do."
   exit 0
 fi
