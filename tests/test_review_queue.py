@@ -209,3 +209,37 @@ def test_a_listing_sharing_a_product_with_another_shop_is_never_labelled_self(db
     b.title = "Raspberry Pi Zero 2 W Kit"
     s.flush()
     assert prune_candidates(s)["self_to_auto"] == 0 and b.match_status == "self"
+
+
+# --- auditable decisions (completion programme, milestone 3) -----------------------------------------------------
+def test_every_review_decision_records_who_when_and_the_evidence_it_was_based_on(db):
+    from datetime import timedelta
+    s, a, b = _world(db)
+    (c,) = _pending(s)
+    reasons_then = list(c.reasons)
+    when = T0 + timedelta(days=1)
+    resolve_candidate(s, c.id, accept=False, by="admin", now=when, note="different revision")
+    s.flush()
+    assert c.status == "rejected" and c.decided_at == when and c.decided_by == "admin" and c.decision_note == "different revision"
+    assert c.evidence["reasons"] == reasons_then and c.evidence["score"] == c.score
+    assert {t["title"] for t in c.evidence["titles"]} == {A_TITLE, B_TITLE}  # what the reviewer actually saw
+    assert c.evidence["decision"] == "rejected"
+
+
+def test_a_mirror_closed_by_a_decision_carries_the_same_audit_trail(db):
+    s, a, b = _world(db)
+    first, mirror = _add_legacy_mirror(s, a, b)
+    resolve_candidate(s, first.id, accept=True, by="admin", note="same board")
+    s.flush()
+    assert mirror.status == "accepted" and mirror.decided_by == "admin" and mirror.decided_at is not None
+    assert "closed with" in (mirror.decision_note or "")
+
+
+def test_an_already_decided_candidate_keeps_its_original_audit_record(db):
+    from datetime import timedelta
+    s, a, b = _world(db)
+    (c,) = _pending(s)
+    resolve_candidate(s, c.id, accept=False, by="alice", now=T0)
+    resolve_candidate(s, c.id, accept=True, by="bob", now=T0 + timedelta(days=1))  # ignored: no longer pending
+    s.flush()
+    assert c.status == "rejected" and c.decided_by == "alice" and c.decided_at == T0

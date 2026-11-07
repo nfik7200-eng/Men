@@ -6,3 +6,5 @@ data/*.db-*
 .env
 .venv/
 data/backups/
+.venv-ml/
+models/

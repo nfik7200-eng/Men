@@ -1,0 +1,17 @@
+# Optional ML extras for Watchtower (advisory matching/anomaly research harness). NOT needed by the app or the core tests.
+# Resolved and verified on Linux x86_64, CPython 3.13.18, pip 26.2.2 on 2026-11-07 (generated from `pip freeze` of .venv-ml).
+# Wheels for other platforms/Python versions may resolve differently: re-run scripts/ml_env_check.py after installing.
+# Install (into an ISOLATED venv, never system site-packages):
+#   python3.13 -m venv .venv-ml && .venv-ml/bin/pip install -r requirements-core.txt -r requirements-ml.txt
+#   .venv-ml/bin/python scripts/ml_env_check.py
+# Direct deps: scikit-learn, numpy, scipy, joblib, pandas. The rest are their transitive pins. rapidfuzz was NOT added (see docs/ML.md).
+cloudpickle==3.1.2
+joblib==1.6.0
+narwhals==2.28.0
+numpy==2.5.4
+pandas==3.1.1
+python-dateutil==4.0.0
+scikit-learn==1.9.1
+scipy==1.18.1
+threadpoolctl==3.8.0
+tzdata==2026.6

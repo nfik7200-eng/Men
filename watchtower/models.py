@@ -154,6 +154,11 @@ class MatchCandidate(Base):
     reasons: Mapped[list] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(12), default="pending")  # pending|accepted|rejected
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # audit trail of the human decision (nullable: pending rows and rows decided before it existed have none)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+    decided_by: Mapped[str | None] = mapped_column(String(60))
+    decision_note: Mapped[str | None] = mapped_column(String(300))
+    evidence: Mapped[dict | None] = mapped_column(JSON)  # what the reviewer saw: score, reasons, titles/shops/prices at decision time
     listing: Mapped[Listing] = relationship()
     product: Mapped[Product] = relationship()
 

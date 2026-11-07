@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .identifiers import clean_mpn, normalise_gtin
 from .specs import canon_brand
 
-from .models import Listing, MatchCandidate, Product, Source
+from .models import Listing, MatchCandidate, Product, Source, utcnow
 
 AUTO_THRESHOLD = 0.85
 REVIEW_THRESHOLD = 0.55
@@ -389,7 +389,7 @@ def attach_or_queue(s: Session, listing: Listing) -> MatchResult | None:
     return r
 
 
-def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
+def resolve_candidate(s: Session, cand_id: int, accept: bool, by: str = "admin", now=None, note: str | None = None) -> None:
     """Human review decision. Accepting merges the listing into the candidate product (overriding the automatic guards).
     The decision also answers the mirrored question (a member of the target product proposed for this listing's
     product), so that candidate is closed the same way: a rejected pair can never be accepted from the other side."""
@@ -405,8 +405,15 @@ def resolve_candidate(s: Session, cand_id: int, accept: bool) -> None:
     target_members = [x for x in _members(s, target) if x.id != l.id]
     affected = {x.id: x for x in [l] + target_members + [m.listing for m in mirrors + asking_old]}
     c.status = "accepted" if accept else "rejected"
+    when = now or utcnow()
+    shown = [l] + [x for x in _members(s, target) if x.id != l.id]
+    c.decided_at, c.decided_by, c.decision_note = when, (by or "unknown")[:60], (note or None) and note[:300]
+    c.evidence = {"decision": c.status, "score": c.score, "reasons": list(c.reasons or []),
+                  "titles": [{"listing_id": x.id, "source": x.source.name if x.source else None, "title": x.title, "price_minor": x.price_minor,
+                              "currency": x.currency, "url": x.url} for x in shown]}
     for m in mirrors:
         m.status = c.status
+        m.decided_at, m.decided_by, m.decision_note = when, c.decided_by, f"closed with candidate #{c.id}"
     if accept:
         old = l.product_id
         l.product_id, l.match_status = target, "confirmed"
