@@ -27,7 +27,7 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     check(`${label}: no horizontal overflow on listing`, (await overflow(page)) === 0);
 
     // merchant comparison page exists for a matched product
-    const matched = await (await page.request.get(BASE + '/api/v1/listings?q=raspberry+pi+5+8gb')).json();
+    const matched = await (await page.request.get(BASE + '/api/v1/listings?q=Raspberry+Pi+5+-+8GB')).json();
     const withProduct = (matched.items || []).find(i => i.product_id && ['auto', 'confirmed'].includes(i.match_status));
     check(`${label}: the API exposes at least one matched product for the 8 GB Pi 5`, !!withProduct);
     if (withProduct) {
