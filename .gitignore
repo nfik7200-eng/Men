@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/*.db
+data/*.db-*
+.env
+.venv/
+data/backups/
+.venv-ml/
+models/

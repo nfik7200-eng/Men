@@ -1,0 +1,33 @@
+{
+  "_fixture_note": "SYNTHETIC. Hand-written to mirror the documented Browse API ItemSummary shape. NOT captured from eBay and NOT real listings. Used only in unit tests with an in-memory database.",
+  "href": "https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search?q=laptop&limit=2",
+  "total": 3,
+  "next": "https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search?q=laptop&limit=2&offset=2",
+  "limit": 2,
+  "offset": 0,
+  "itemSummaries": [
+    {
+      "itemId": "v1|000000000001|0",
+      "title": "Lenovo ThinkPad L15 15.6\" Core i5 16GB RAM 512GB SSD",
+      "price": {"value": "549.99", "currency": "GBP"},
+      "marketingPrice": {"originalPrice": {"value": "699.99", "currency": "GBP"}, "discountPercentage": "21"},
+      "condition": "New",
+      "itemWebUrl": "https://www.ebay.co.uk/itm/000000000001",
+      "itemAffiliateWebUrl": "https://www.ebay.co.uk/itm/000000000001?mkevt=1&mkcid=1&campid=5338000000&customid=",
+      "image": {"imageUrl": "https://i.ebayimg.com/images/g/synthetic/s-l225.jpg"},
+      "shippingOptions": [{"shippingCostType": "FIXED", "shippingCost": {"value": "12.50", "currency": "GBP"}}],
+      "itemLocation": {"country": "GB", "postalCode": "AB1***"},
+      "epid": "1234567890",
+      "buyingOptions": ["FIXED_PRICE"]
+    },
+    {
+      "itemId": "v1|000000000002|0",
+      "title": "Apple MacBook Air 13 M1 8GB 256GB - Refurbished",
+      "price": {"value": "0.00", "currency": "GBP"},
+      "condition": "Certified - Refurbished",
+      "itemWebUrl": "https://www.ebay.co.uk/itm/000000000002",
+      "shippingOptions": [{"shippingCostType": "CALCULATED"}],
+      "itemLocation": {"country": "GB"}
+    }
+  ]
+}

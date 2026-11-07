@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Admin sign-in{% endblock %}
+{% block body %}
+<h1>Admin sign-in</h1>
+{% if not enabled %}
+<div class="card"><p><b>Admin is disabled.</b> Set the <code>WATCHTOWER_ADMIN_TOKEN</code> environment variable to a long random value (e.g. <code>python -c "import secrets;print(secrets.token_urlsafe(32))"</code>) and restart the server.</p></div>
+{% else %}
+{% if err %}<div class="banner" role="alert">That token was not accepted.</div>{% endif %}
+<form method="post" action="/admin/login" class="card" style="display:grid;gap:10px;max-width:420px">
+  <label>Admin token<input name="token" type="password" autocomplete="current-password" required maxlength="200"></label>
+  <div><button>Sign in</button></div>
+</form>
+{% endif %}
+{% endblock %}

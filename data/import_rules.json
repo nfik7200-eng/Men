@@ -1,0 +1,9 @@
+{
+  "_schema": "per-destination (ISO 3166 alpha-2) rows: duty_pct, vat_pct, optional insurance_pct, handling_pct, de_minimis_minor (in item currency minor units), verified (bool), source (official URL), retrieved (YYYY-MM-DD), note. A row counts as verified ONLY if verified=true AND source AND retrieved are present.",
+  "DEFAULT": {
+    "duty_pct": 10,
+    "vat_pct": 15,
+    "verified": false,
+    "note": "PLACEHOLDER ASSUMPTION - not verified tax law. Add a row per destination after checking its customs authority."
+  }
+}

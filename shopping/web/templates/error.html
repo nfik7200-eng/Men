@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Error {{ code }}{% endblock %}
+{% block body %}
+<h1>{{ {404: 'Page not found', 422: 'That input was not valid', 429: 'Too many requests', 403: 'Not allowed'}.get(code, 'Something went wrong') }}</h1>
+<div class="card"><p>{{ detail }}</p><p><a class="btn" href="/">Back to home</a> <a class="btn secondary" href="/search">Browse products</a></p></div>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Research assistant{% endblock %}
+{% block body %}
+<h1>Shopping research assistant</h1>
+<p class="muted">Answers come from listings we actually collected, cited by id and observation time. Anything we don't have data for (build quality, benchmarks, upgradeability…) is reported as a gap rather than guessed. Works without any AI model.</p>
+<form class="card" style="display:grid;gap:10px">
+  <textarea name="q" aria-label="Your question" placeholder="Find me the best programming laptop under $700. Compare memory and price, include cheaper alternatives and estimate the total cost of importing it to Uganda.">{{ q }}</textarea>
+  <label>Shipping you were quoted, if any (listing currency) <input name="ship" type="number" step="0.01" min="0" value="{{ '' if ship is none else ship }}"></label>
+  <div><button>Research</button></div>
+</form>
+{% if res %}
+<h2>Answer</h2>
+{% for c in res.caveats %}<div class="banner">{{ c }}</div>{% endfor %}
+{% for p in res.picks %}{% set l = p.listing %}
+<article class="card pick" style="margin-bottom:12px">
+  <h3 style="margin:0"><a href="/listing/{{ l.id }}">{{ loop.index }}. {{ l.title }}</a></h3>
+  <div class="price">{{ l.price_minor | money(l.currency) }}</div>
+  <p class="muted">{{ l.source.name }} · listing #{{ l.id }} · observed {{ l.last_observed_at | dt }} · price {{ p.price_status }}</p>
+  <ul>{% for m in p.meets %}<li class="ok-t">✓ {{ m }}</li>{% endfor %}{% for m in p.misses %}<li class="bad-t">✗ {{ m }}</li>{% endfor %}{% for m in p.unknown %}<li class="muted">? {{ m }}</li>{% endfor %}</ul>
+  {% if p.deal %}<p>Deal assessment: <span class="badge">{{ p.deal.label }}</span> <span class="muted">confidence {{ p.deal.confidence }}</span></p>{% endif %}
+  {% if p.history %}<p class="muted">{{ p.history }}.</p>{% endif %}
+  {% if p.also %}<p>Also sold at: {% for a in p.also %}<a href="/listing/{{ a.listing_id }}">{{ a.source }} {{ a.price }}</a> <span class="muted">({{ a.sure }})</span>{{ '; ' if not loop.last }}{% endfor %}</p>
+  {% elif p.possible %}<p class="muted">Possible match, awaiting human review (not counted as the same product): {% for a in p.possible %}<a href="/listing/{{ a.listing_id }}">{{ a.source }} “{{ a.title[:50] }}”</a>{{ '; ' if not loop.last }}{% endfor %}</p>
+  {% elif p.listing.source.kind == 'live' %}<p class="muted">No other shop in our data sells this product (yet).</p>{% endif %}
+  {% if p.import_estimate and p.import_estimate.available %}{% set e = p.import_estimate %}
+  <p><b>Estimated landed cost: {{ '≥ ' if e.partial }}{{ e.total_minor | money(e.currency) }}</b> <span class="badge warn">estimate</span>
+  <span class="muted">{{ 'shipping unknown; ' if e.partial }}rates {{ 'verified' if e.rule_verified else 'ASSUMED, unverified' }} ({{ e.rule }})</span></p>{% endif %}
+</article>{% endfor %}
+{% if res.alternatives %}<h3>Cheaper alternatives</h3><div class="card"><ul>{% for p in res.alternatives %}<li><a href="/listing/{{ p.listing.id }}">{{ p.listing.title }}</a> — {{ p.listing.price_minor | money(p.listing.currency) }}</li>{% endfor %}</ul></div>{% endif %}
+{% if res.gaps %}<h3>What we can't tell you</h3><div class="card"><ul>{% for g in res.gaps %}<li>{{ g }}</li>{% endfor %}</ul></div>{% endif %}
+{% if res.llm_summary %}<h3>AI-written summary <span class="badge warn">local model, may be imperfect</span></h3><div class="card">{{ res.llm_summary }}</div>{% endif %}
+<details style="margin-top:12px"><summary class="muted">Plain-text answer (same facts) · retrieved listings: {{ res.retrieved_listing_ids }}</summary><pre class="answer">{{ res.text }}</pre></details>
+{% endif %}
+{% endblock %}

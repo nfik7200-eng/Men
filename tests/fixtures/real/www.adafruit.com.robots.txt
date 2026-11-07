@@ -1,0 +1,19 @@
+User-agent: PowerMapper
+Allow: /
+
+User-agent: *
+
+Allow: /includes/javascript/*
+Allow: /includes/templates*
+
+Disallow: /api/
+Disallow: /ajax/
+Disallow: /cache/
+Disallow: /download/
+Disallow: /i/
+Disallow: /includes/
+Disallow: /tmp/
+Disallow: /search
+Disallow: /?q=
+
+Sitemap: http://www.adafruit.com/sitemap.xml

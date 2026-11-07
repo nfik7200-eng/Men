@@ -1,0 +1,44 @@
+{% macro status_badges(l, pstatus, fresh, deal) %}
+<div class="badges">
+  {% if l.price_minor is none %}<span class="badge bad">Price unavailable</span>
+  {% elif pstatus == 'stale' %}<span class="badge warn">Stale price</span>
+  {% else %}<span class="badge ok" title="Seen at the last collection. 'Verified' is reserved for price history we can prove (3+ collections over 7+ days).">Price observed</span>{% endif %}
+  {% if l.availability == 'in_stock' %}<span class="badge ok">In stock</span>
+  {% elif l.availability == 'out_of_stock' %}<span class="badge bad">Out of stock</span>
+  {% elif l.availability == 'backorder' %}<span class="badge warn">Backorder</span>
+  {% elif l.availability == 'preorder' %}<span class="badge warn">Pre-order</span>
+  {% else %}<span class="badge">Stock not stated</span>{% endif %}
+  {% if l.source.kind == 'demo' %}<span class="badge warn">Demo catalogue — not a real shop</span>{% elif l.source.kind == 'sandbox' %}<span class="badge warn">API sandbox — test data</span>{% else %}<span class="badge ok">Real retailer</span>{% endif %}
+  {% if deal and deal.label in ('Verified price drop',) %}<span class="badge ok">{{ deal.label }}</span>
+  {% elif deal and deal.label.startswith('Below') %}<span class="badge">{{ deal.label }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro card(x) %}
+{% set l = x.l %}
+<article class="card item">
+  {% if l.image_url %}<img class="thumb" src="{{ l.image_url }}" alt="" loading="lazy">{% endif %}
+  <h3><a href="/listing/{{ l.id }}">{{ l.title }}</a></h3>
+  <div class="muted">{{ l.brand or '' }}{% if l.brand and l.category %} · {% endif %}{{ l.category or '' }} · {{ l.source.name }}</div>
+  <div class="price">{{ l.price_minor | money(l.currency) }}{% if l.original_price_minor %}<s title="The shop's own claimed original price; not verified by our price history">{{ l.original_price_minor | money(l.currency) }}</s>{% endif %}</div>
+  {{ status_badges(l, x.pstatus, x.fresh, x.deal) }}
+  {% if l.description %}<div class="muted">{{ l.description[:110] }}</div>{% endif %}
+  <div class="muted">{{ l.source.name }} · checked {{ l.last_observed_at | dt }}</div>
+  {% if l.match_status in ('auto','confirmed') and l.product_id %}<div><a href="/product/{{ l.product_id }}" class="muted">Compare merchants →</a></div>{% endif %}
+</article>
+{% endmacro %}
+
+{% macro filters(f, facets, action='/search') %}
+<form class="filters card" action="{{ action }}">
+  <label class="wide">Search<input name="q" value="{{ f.q or '' }}" placeholder="e.g. lenovo 8GB"></label>
+  <label>Category<select name="category"><option value="">All</option>{% for c, n in facets.categories %}<option value="{{ c }}" {{ 'selected' if f.category == c }}>{{ c }} ({{ n }})</option>{% endfor %}</select></label>
+  <label>Currency<select name="currency"><option value="">Any</option>{% for c in facets.currencies %}<option {{ 'selected' if f.currency == c }}>{{ c }}</option>{% endfor %}</select></label>
+  <label>Min<input name="min_price" type="number" step="0.01" min="0" value="{{ f.min_price if f.min_price is not none else '' }}"></label>
+  <label>Max<input name="max_price" type="number" step="0.01" min="0" value="{{ f.max_price if f.max_price is not none else '' }}"></label>
+  <label>Sort<select name="sort">{% for k, v in SORTS.items() %}<option value="{{ k }}" {{ 'selected' if f.sort == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Source<select name="source"><option value="">All</option>{% for k, n, kind in facets.sources %}<option value="{{ k }}" {{ 'selected' if f.source == k }}>{{ n }}</option>{% endfor %}</select></label>
+  <label>Data<select name="data"><option value="" {{ 'selected' if not f.data }}>Default</option><option value="real" {{ 'selected' if f.data == 'real' }}>Real retailers</option><option value="demo" {{ 'selected' if f.data == 'demo' }}>Demo / sandbox</option><option value="all" {{ 'selected' if f.data == 'all' }}>Everything</option></select></label>
+  <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="in_stock" value="true" style="width:auto;min-height:0" {{ 'checked' if f.in_stock }}>In stock only</label>
+  <button type="submit">Apply</button>
+</form>
+{% endmacro %}

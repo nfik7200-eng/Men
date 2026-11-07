@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Collection coverage{% endblock %}
+{% block body %}
+<h1>Collection coverage</h1>
+<p class="muted">What we have actually collected from real shops, and what we only know exists. A <b>discovered</b> page is a link we have seen, not a product we hold: it has no price, no stock and no history until it has been fetched and read. Demo and sandbox catalogues are not counted here.</p>
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0">
+  <div class="card"><div class="muted">Real shops</div><div class="price">{{ rep.live_merchants }}</div></div>
+  <div class="card"><div class="muted">Listings we hold</div><div class="price">{{ rep.live_listings }}</div></div>
+  <div class="card"><div class="muted">Products sold by 2+ shops</div><div class="price">{{ rep.cross_merchant_products }}</div></div>
+</div>
+{% for c in rep.sources %}
+<section class="card" style="margin-top:14px">
+  <h2 style="margin-top:0">{{ c.name }} <span class="badge {{ 'ok' if c.health == 'healthy' else 'warn' }}">{{ c.health }}</span></h2>
+  <div class="scroll"><table>
+    <tr><th>Discovered</th><th>Eligible</th><th>Collected</th><th>Coverage</th><th class="hide-sm">Read OK</th><th class="hide-sm">Extraction</th></tr>
+    <tr><td>{{ c.discovered }}</td><td>{{ c.eligible }}</td><td>{{ c.acquired }}</td>
+        <td>{{ '%.0f%%' % (c.eligible_coverage * 100) if c.eligible_coverage is not none else '–' }}</td>
+        <td class="hide-sm">{{ c.fetched_ok }}</td><td class="hide-sm">{{ '%.0f%%' % (c.extraction_success_rate * 100) if c.extraction_success_rate is not none else '–' }}</td></tr>
+  </table></div>
+  <p class="muted">Not collected yet: <b>{{ c.never_attempted }}</b> (waiting for budget: {{ c.deferred_budget }}; with a similar product already at another shop: {{ c.unfetched_with_counterpart if c.unfetched_with_counterpart is not none else 'not computed yet — no collection run since ranking was added' }}).
+    {% if c.failed %}Failed: {% for k, v in c.failed.items() %}{{ k.replace('_', ' ') }} {{ v }}{{ ', ' if not loop.last }}{% endfor %}. {% endif %}
+    {% if c.rejected %}Excluded: {% for k, v in c.rejected.items() %}{{ k.replace('_', ' ') }} {{ v }}{{ ', ' if not loop.last }}{% endfor %}. {% endif %}
+    {% if c.duplicates %}Duplicate addresses: {{ c.duplicates }}. {% endif %}{% if c.non_product %}Not product pages: {{ c.non_product }}. {% endif %}
+    {% if c.unknown_outcome %}Fetched before outcomes were recorded: {{ c.unknown_outcome }}. {% endif %}
+    {% if c.freshness.listings %}Freshness: median {{ '%.0f' % c.freshness.median_age_hours }} h since last check, {{ c.freshness.stale }} stale. {% endif %}
+    {% if c.avg_seconds_per_page %}About {{ '%.1f' % c.avg_seconds_per_page }} s per page including the polite delay. {% endif %}
+    Last fetch {{ c.last_fetch_at | dt if c.last_fetch_at else 'never' }}.</p>
+  {% if c.next_up %}
+  <details><summary>Next in line ({{ c.next_up | length }} of {{ c.never_attempted }}) — discovered, not collected, not a listing</summary>
+    <p class="muted">Ranking as of the last collection run; a dash means no score has been recorded for that page yet.</p>
+    <div class="scroll"><table><tr><th>Page</th><th>Score</th><th class="hide-sm">Why</th></tr>
+    {% for n in c.next_up %}<tr><td class="muted" style="word-break:break-all">{{ n.url }}</td><td>{{ n.score if n.score is not none else '–' }}</td>
+      <td class="hide-sm muted">{{ n.why | join('; ') if n.why else (n.reason or '–') }}</td></tr>{% endfor %}</table></div>
+  </details>{% endif %}
+</section>
+{% else %}<p class="muted">No real shop has been collected yet.</p>{% endfor %}
+{% endblock %}
