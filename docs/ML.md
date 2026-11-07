@@ -147,3 +147,15 @@ Flags are advisory; they do not alter deals, ranking or events.
 Re-run `sufficiency` after: (a) humans have decided >= 100 review candidates each way across >= 30 products, (b) >= 7-8 days of
 daily live crawls (anomaly baseline) and ~90 days (forecasting). Until then spend effort on collecting more sources/days and on
 human review, not on models.
+
+## Known remaining limitations (documented after the independent review)
+- **Nested threshold is still optimistic.** `recall_at_precision` now reports an `oracle_threshold` figure with a bootstrap CI and a
+  power flag, and a nested variant whose threshold is chosen on TRAINING folds. That nested threshold uses in-sample training-fold
+  scores rather than an inner cross-validation, so it is better than tuning on test labels but still optimistic. Treat it as a
+  sanity check, never as an accuracy claim.
+- **Decision-to-pair labelling is an assumption.** A reviewer's accept/reject decision labels the candidate listing against every
+  other-merchant member of the decided product ("covers that exact pair"). That assumes the reviewer saw and judged those members;
+  the side-by-side review UI shows them, but the evidence snapshot stored with each decision is the authoritative record.
+- **On the real snapshot the evaluation is not evaluable**: under union grouping all 6 positives fall in one test fold, the
+  out-of-fold set has no positives, and no ranking metric is reported. With 0 human labels and 1 day of prices the verdict stays
+  "insufficient for supervised models and forecasting; harness + rules baseline only".

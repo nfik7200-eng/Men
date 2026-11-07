@@ -97,7 +97,7 @@ def load_live_listings(s: Session) -> list[Listing]:
 def load_candidate_decisions(s: Session, live_ids: set[int]) -> list[tuple[int, int, str]]:
     """(listing_id, product_id, status) for HUMAN-decided review candidates on live listings: accepted/rejected AND decided_by
     set (a status flipped without an audit trail is not evidence of a human decision)."""
-    cols = {c["name"] for c in inspect(s.get_bind()).get_columns("match_candidates")}
+    cols = {c["name"] for c in inspect(s.connection()).get_columns("match_candidates")}
     if "decided_by" not in cols:  # older snapshot without the audit trail: no decision can be shown to be human -> none count
         return []
     rows = s.execute(select(MatchCandidate.listing_id, MatchCandidate.product_id, MatchCandidate.status)
