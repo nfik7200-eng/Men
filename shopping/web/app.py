@@ -23,7 +23,7 @@ from shopping.web.charts import price_chart
 from watchtower import config, deals, monitor
 from watchtower.health import source_health
 from shopping.web import security
-from watchtower.collector import SourceBusy, SourceDisabled, SourceNotConfigured, ensure_sources, run_source, set_enabled
+from watchtower.collector import ensure_sources, run_source, set_enabled
 from watchtower.db import Database
 from watchtower.coverage import coverage_report
 from watchtower.matching import resolve_candidate
@@ -232,7 +232,6 @@ def create_app(db: Database | None = None) -> FastAPI:
             raise HTTPException(404, "product not found")
         rows = list(s.scalars(select(Listing).options(joinedload(Listing.source)).where(
             Listing.product_id == product_id, Listing.active.is_(True)).order_by(Listing.price_minor.asc().nulls_last())).unique())
-        ctx = deals.PeerContext(s)
         items = [{"l": l, "stats": deals.price_stats(s, l), "fresh": freshness(l, l.source), "pstatus": price_status(l, l.source)} for l in rows]
         cheapest = {}  # per currency: no cross-currency ranking without a sourced FX rate
         for it in items:

@@ -103,7 +103,7 @@ def test_restock_alert(seeded):
     with seeded.session() as s:
         l = s.query(Listing).filter_by(category="book").first()
         l.availability = "out_of_stock"
-        w = monitor.add_watch(s, l.id)
+        monitor.add_watch(s, l.id)
         l.availability = "in_stock"
         s.flush()
         assert any("Back in stock" in r for r in monitor.evaluate(s)[0].reasons)

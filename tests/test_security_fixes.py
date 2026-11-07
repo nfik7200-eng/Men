@@ -61,8 +61,6 @@ def test_b1_login_still_works_end_to_end(client):
 
 def test_a5_watch_creation_is_rate_limited_per_client(client, db):
     c, _ = client
-    with db.session() as s:
-        from test_review_queue import _raw  # noqa
     # no listing needed: the request is refused by the limiter before it can create rows once the budget is spent
     codes = [c.post("/watch/1", data={"target": "10"}, follow_redirects=False).status_code for _ in range(40)]
     assert 429 in codes and codes.index(429) <= 31

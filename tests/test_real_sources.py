@@ -155,7 +155,7 @@ def _l(title, sid, **kw):
 
 
 def test_real_cross_store_pair_matches_by_brand_and_name_signature():
-    a = ADAPTERS_PARSE = Adafruit().parse_product(ADA["ada_5291"], U["a5291"], NOW)
+    a = Adafruit().parse_product(ADA["ada_5291"], U["a5291"], NOW)
     b = SparkFun().parse_product(SPK["spark_zero2w"], U["szero2w"], NOW)
     la = _l(a.title, 1, brand=a.brand, specs=a.specs, sku=a.sku)
     lb = _l(b.title, 2, brand=b.brand, specs=b.specs, sku=b.sku)

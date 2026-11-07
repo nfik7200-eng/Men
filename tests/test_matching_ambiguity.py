@@ -33,7 +33,7 @@ def test_a_product_never_holds_two_listings_from_the_same_merchant(db):
         v1, *_ = ingest_listing(s, shop1, None, _raw("v1", 250), T0)               # first variant merges (title-only, unique so far)
         v2, *_ = ingest_listing(s, shop1, None, _raw("v2", 270), T0)               # identical title again: must NOT join the same product
         s.flush()
-        pids = [x.product_id for x in (other, v1, v2)]
+        _pids = [x.product_id for x in (other, v1, v2)]
         assert v2.product_id not in (other.product_id, v1.product_id)
         assert v2.match_status == "review" and any("already has a listing from this merchant" in r for r in v2.match_reasons)
         by_source = {}

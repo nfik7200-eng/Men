@@ -335,7 +335,6 @@ def test_cli_plan_is_offline_read_only_and_refuses_the_live_database(tmp_path, c
         _ada_listing(s, "Raspberry Pi Zero 2 W", "5291")
         src, rows = _spark_rows(s, ["raspberry-pi-zero-2-w", "esp32-board-01", "raspberry-pi-zero-2-w-basic-kit"])
     db.engine.dispose()
-    before = path.read_bytes()
     monkeypatch.setattr(__import__("watchtower.config", fromlist=["config"]), "DB_URL", f"sqlite:///{tmp_path / 'live.db'}")
     url = "https://www.sparkfun.com/raspberry-pi-zero-2-w.html"
     assert cli.main(["plan", "--db", str(path), "--source", "sparkfun", "--explain", url, "--max-pages", "2"]) == 0

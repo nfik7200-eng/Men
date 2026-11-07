@@ -1,6 +1,5 @@
 import re
 
-from bs4 import BeautifulSoup
 
 from ..structured import parse_sitemap
 from .product_page import ProductPageAdapter

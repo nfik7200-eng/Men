@@ -24,7 +24,7 @@ from .fetcher import FetchBlocked, FetchDisallowed, FetchError, FetchGone, Fetch
 from .ingest import _event, ingest_listing, mark_removed, reconfirm
 from .matching import demote_ambiguous
 from .models import CollectionRun, CrawlUrl, Event, Listing, Source, utcnow
-from .policy import SourceNotApproved, ensure_policies
+from .policy import ensure_policies
 from .sources import ADAPTERS
 from .structured import normalise_url
 

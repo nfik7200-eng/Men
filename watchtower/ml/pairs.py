@@ -10,11 +10,18 @@ from __future__ import annotations
 import re
 from difflib import SequenceMatcher
 from types import SimpleNamespace
+from typing import cast
 
 from watchtower import matching as M
+from watchtower.models import Listing
 from watchtower.specs import canon_brand
 
 SPEC_KEYS = ("screen_in", "ram_gb", "storage_gb", "cpu_family")
+SCREEN_TOLERANCE_IN = 0.15  # screen sizes differing by more than this many inches conflict (same tolerance as the rule matcher)
+# candidate_pairs skips any name-signature token shared by MORE than this many listings (stop-word-like tokens such as a brand or
+# "board" would make blocking quadratic). Consequence: two listings whose ONLY shared token is such a token are never candidates;
+# they are still found when they share any rarer token. Documented in docs/ML.md.
+MAX_BLOCK_SIZE = 400
 
 # Features that merely restate the rule matcher's own vetoes. Kept for the rule view, excluded from the "independent" model
 # feature set so a model cannot trivially learn "veto => negative" and look good (see docs/ML.md, circularity).
@@ -32,6 +39,12 @@ PAIR_FEATURE_NAMES = (
     "same_source",
 )
 MODEL_FEATURE_NAMES = tuple(f for f in PAIR_FEATURE_NAMES if f not in RULE_ECHO_FEATURES and f != "same_source")
+
+
+def _L(v: SimpleNamespace) -> Listing:
+    """The rule matcher is typed on `Listing` but only reads attributes. `view()` provides the same attribute surface, so the
+    duck typing is deliberate; this single cast documents it instead of scattering ignores."""
+    return cast(Listing, v)
 
 
 def view(l) -> SimpleNamespace:
@@ -58,13 +71,13 @@ def pair_features(a, b) -> dict[str, float]:
     shared_kinds = ua.keys() & ub.keys()
     kinds_conflict = sum(1 for k in shared_kinds if not (ua[k] <= ub[k] or ub[k] <= ua[k]))
     both_spec = [k for k in SPEC_KEYS if a.specs.get(k) is not None and b.specs.get(k) is not None]
-    spec_conf = sum(1 for k in both_spec if (abs(a.specs[k] - b.specs[k]) > 0.15 if k == "screen_in" else a.specs[k] != b.specs[k]))
+    spec_conf = sum(1 for k in both_spec if (abs(a.specs[k] - b.specs[k]) > SCREEN_TOLERANCE_IN if k == "screen_in" else a.specs[k] != b.specs[k]))
     ma, mb = M.model_tokens(a.title), M.model_tokens(b.title)
     cat_known = bool(a.category and b.category and a.category not in M._GENERIC_CATEGORIES and b.category not in M._GENERIC_CATEGORIES)
     pa, pb = a.price_minor, b.price_minor
     price_ok = bool(pa and pb and pa > 0 and pb > 0 and a.currency and a.currency == b.currency)
-    ga, gb = M.gtin_of(a), M.gtin_of(b)
-    xa, xb = M.mpn_of(a), M.mpn_of(b)
+    ga, gb = M.gtin_of(_L(a)), M.gtin_of(_L(b))
+    xa, xb = M.mpn_of(_L(a)), M.mpn_of(_L(b))
     f = {
         "name_jaccard": inter / union if union else 0.0,
         "name_overlap_min": inter / min(len(sa), len(sb)) if sa and sb else 0.0,
@@ -84,7 +97,7 @@ def pair_features(a, b) -> dict[str, float]:
         "has_model_codes": float(bool(ma and mb)),
         "seq_ratio": SequenceMatcher(None, _sim_tokens(a.title), _sim_tokens(b.title)).ratio(),
         "title_conflict": float(M.title_conflict(a.title, b.title) is not None),
-        "hard_conflict": float(M.hard_conflict(a, b) is not None),
+        "hard_conflict": float(M.hard_conflict(_L(a), _L(b)) is not None),
         "gtin_shared": float(bool(ga and ga == gb)),
         "mpn_shared": float(bool(xa and xa == xb and ba and ba == bb)),
         "price_ratio": min(pa, pb) / max(pa, pb) if price_ok else 0.0,
@@ -103,7 +116,8 @@ def feature_vector(a, b, names=PAIR_FEATURE_NAMES) -> list[float]:
 def candidate_pairs(listings, cross_source_only: bool = True) -> list[tuple[int, int]]:
     """Blocked candidate pairs of listing ids (a_id < b_id), sorted. Blocking keeps the pair count near-linear:
     two listings are candidates iff they come from different sources (default), have compatible canonical brands
-    (equal, or one missing) and share at least one distinguishing name-signature token. Pure/deterministic."""
+    (equal, or one missing) and share at least one distinguishing name-signature token. Tokens shared by more than MAX_BLOCK_SIZE listings are skipped
+    (see the constant). Pure/deterministic."""
     rows = sorted((view(l) for l in listings), key=lambda r: r.id)
     sig = {r.id: M.name_signature(r.title, r.brand) for r in rows}
     brand = {r.id: canon_brand(r.brand) for r in rows}
@@ -114,7 +128,7 @@ def candidate_pairs(listings, cross_source_only: bool = True) -> list[tuple[int,
             index.setdefault(tok, []).append(r.id)
     out: set[tuple[int, int]] = set()
     for ids in index.values():
-        if len(ids) > 400:  # stop-word-like token: blocking would explode; such pairs are found via rarer tokens
+        if len(ids) > MAX_BLOCK_SIZE:  # stop-word-like token: blocking would explode; such pairs are found via rarer tokens
             continue
         for i, x in enumerate(ids):
             for y in ids[i + 1:]:
@@ -128,5 +142,5 @@ def candidate_pairs(listings, cross_source_only: bool = True) -> list[tuple[int,
 
 def rule_decision(a, b) -> tuple[str, float]:
     """The existing rule-based matcher's decision for the pair: ('auto'|'review'|'none', score). The baseline to beat."""
-    r = M.match_score(view(a), view(b))
+    r = M.match_score(_L(view(a)), _L(view(b)))
     return r.decision, r.score

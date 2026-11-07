@@ -127,7 +127,7 @@ def _listing(db, **kw):
 
 def test_provider_affiliate_url_only_trusted_on_provider_domains(db):
     from watchtower.sources import ADAPTERS
-    ok = "https://www.ebay.co.uk/itm/1?campid=5338000000&customid=7"
+    _ok = "https://www.ebay.co.uk/itm/1?campid=5338000000&customid=7"
     with db.session() as s:
         run_source(db, "webscraper_io_static", fetcher=FakeFetcher(), max_pages=1, now_fn=utcnow)
         l = s.query(Listing).first()
@@ -161,7 +161,7 @@ def test_disclosures_use_amazons_verified_sentence():
 
 
 def test_footer_disclosure_appears_only_when_affiliate_is_active(db, tmp_path, monkeypatch):
-    lid = _listing(db)
+    _lid = _listing(db)
     c = TestClient(create_app(db))
     assert "affiliate links: we may earn" not in c.get("/").text
     cfgfile = tmp_path / "aff.json"
@@ -179,7 +179,7 @@ def test_ranking_cannot_see_affiliate_data(db, tmp_path, monkeypatch):
     run_source(db, "webscraper_io_static", fetcher=FakeFetcher(), max_pages=2, now_fn=utcnow)
     with db.session() as s:
         before = [(p.listing.id) for p in assistant.answer(s, "best programming laptop under $900", use_llm=False)["picks"]]
-        deals_before = [l.id for l in s.query(Listing).order_by(Listing.id)][:5]
+        _deals_before = [l.id for l in s.query(Listing).order_by(Listing.id)][:5]
     cfgfile = tmp_path / "aff.json"
     cfgfile.write_text('{"sources": {"webscraper_io_static": {"network": "demo_net", "template": "{url}?t=1"}}}')
     monkeypatch.setattr("watchtower.config.AFFILIATE_CONFIG", str(cfgfile))
