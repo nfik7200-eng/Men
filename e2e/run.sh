@@ -9,6 +9,7 @@ case "$(readlink -f "$SNAP")" in "$(readlink -f data/watchtower.db)") echo "refu
 TMP="$(mktemp -d /tmp/wt-e2e.XXXXXX)"; trap 'kill "${PID:-0}" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 cp "$SNAP" "$TMP/e2e.db"
 export WATCHTOWER_DB_URL="sqlite:///$TMP/e2e.db" WATCHTOWER_ADMIN_TOKEN="${E2E_ADMIN_TOKEN:-e2e-admin-token-0123456789-abc}"
+python -m watchtower.cli rematch >"$TMP/rematch.log" 2>&1   # clean the DISPOSABLE copy only (the production cleanup needs the owner's approval)
 python -m uvicorn main:app --host 127.0.0.1 --port 8041 --no-proxy-headers >"$TMP/uvicorn.log" 2>&1 & PID=$!
 for _ in $(seq 1 60); do curl -sf http://127.0.0.1:8041/health >/dev/null && break; sleep 0.5; done
 mkdir -p "${E2E_OUT:-/tmp/e2e-shots}"
