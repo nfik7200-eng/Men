@@ -27,6 +27,7 @@ fi
 [ -f "$WT_PREFIX/$TARGET/main.py" ] && [ -x "$WT_PREFIX/$TARGET/.venv/bin/python" ] \
   || die "release $TARGET is incomplete (needs main.py and .venv/bin/python): a failed or half-built release cannot be rolled back to"
 need_root
+OLD_PREV="$(readlink "$WT_PREFIX/previous" 2>/dev/null || true)"   # remembered so an auto-revert can restore it
 log "current: $CUR  ->  $TARGET"
 run ln -sfn "$CUR" "$WT_PREFIX/previous.tmp"; run mv -T "$WT_PREFIX/previous.tmp" "$WT_PREFIX/previous"
 swap_symlink "$TARGET" "$WT_PREFIX/current"
@@ -34,6 +35,7 @@ run sysctl_ restart watchtower-web.service
 if [ "$DRY" = 0 ] && [ "${WT_NO_SYSTEMCTL:-0}" != 1 ]; then
   if ! wait_healthy; then   # revert the switch instead of leaving the site down
     ln -sfn "$CUR" "$WT_PREFIX/current.tmp" && mv -T "$WT_PREFIX/current.tmp" "$WT_PREFIX/current"
+    if [ -n "$OLD_PREV" ]; then ln -sfn "$OLD_PREV" "$WT_PREFIX/previous.tmp" && mv -T "$WT_PREFIX/previous.tmp" "$WT_PREFIX/previous"; fi
     sysctl_ restart watchtower-web.service || true
     die "service unhealthy after rollback: switched back to $CUR (see journalctl -u watchtower-web -n 100)" 8
   fi

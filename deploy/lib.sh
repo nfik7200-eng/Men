@@ -189,7 +189,11 @@ make_release() {
     [ -f "$rel/main.py" ] && [ -d "$rel/watchtower" ] || { umask "$oldumask"; die "release copy failed"; }
   fi
   run "$py" -m venv "$rel/.venv"
-  run "$rel/.venv/bin/pip" install --no-cache-dir --disable-pip-version-check -r "$rel/requirements-prod.txt"
+  # the full lock (what the suite was run against) when the release ships one, else the direct pins
+  local reqs="$rel/requirements-prod.txt"
+  [ "$DRY" = 1 ] || [ ! -f "$rel/requirements-lock.txt" ] || reqs="$rel/requirements-lock.txt"
+  [ "$DRY" = 0 ] || [ ! -f "$src/requirements-lock.txt" ] || reqs="$rel/requirements-lock.txt"
+  run "$rel/.venv/bin/pip" install --no-cache-dir --disable-pip-version-check -r "$reqs"
   if [ "$DRY" = 1 ]; then
     printf '  DRY-RUN: smoke test: import main against a throw-away temp DB\n'
   else

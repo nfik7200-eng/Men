@@ -1,7 +1,7 @@
 # Pinned runtime subset of requirements.txt (no pytest). Versions are the ones installed and tested in the development
 # sandbox on Python 3.13; they have NOT been exercised on Python 3.11/3.12 or on the VPS. Transitive dependencies
 # (starlette, pydantic, ...) float within what these packages allow; for a fully reproducible build run
-# `pip freeze > requirements-lock.txt` on the first good install and keep it.
+# install from `requirements-lock.txt` (a full freeze of these pins; the suite was run against it). Regenerate it on the first good install on the VPS and keep it.
 fastapi==0.162.0
 uvicorn==0.54.0
 sqlalchemy==2.1.8

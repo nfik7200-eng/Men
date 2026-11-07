@@ -195,7 +195,7 @@ triggers a catch-up burst. To stop: `systemctl disable --now watchtower-collect.
 | certbot issuance/renewal, HTTP->HTTPS, HSTS, rate limits, Origin/Host behaviour through nginx | **NOT tested** |
 | Python 3.11/3.12; Debian/Ubuntu package names; Contabo disk/RAM; real memory/DB growth | **NOT tested / unmeasured** (only Python 3.13 on Ubuntu 24.04) |
 | Rollback tolerance of older code to a newer schema | **unverified** |
-| Pins in `requirements-prod.txt` | direct deps pinned to the dev-sandbox versions; transitive deps float (pip resolved e.g. starlette 1.10.0 / pydantic 2.14.3 in the install test, newer than the dev sandbox) |
+| Dependency versions | `requirements-lock.txt` is a full freeze (starlette 1.10.0, pydantic 2.14.3, ...) of a clean install of `requirements-prod.txt`; the FULL test suite was run against exactly these versions (448 passed, 4 optional-ML tests skipped, Python 3.13, Linux x86_64). `install.sh` installs the lock when the release ships it. Still NOT exercised: Python 3.11/3.12 and the VPS. Known test-only warning: Starlette's TestClient will require `httpx2` in a future release (tests only, not the runtime) |
 
 Known limits: after a successful `install --apply` for the first time, nothing has created the DB until the web service starts once;
 `backup.sh` says so and exits. `update.sh` keeps failed release directories until the next successful update prunes them.

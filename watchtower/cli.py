@@ -149,13 +149,21 @@ def _configured_sqlite_path() -> str | None:
     return config.DB_URL[len(prefix):] if config.DB_URL.startswith(prefix) else None
 
 
+def _is_live_db(path) -> bool:
+    """True when `path` IS the configured live database: same resolved path OR same inode (a hardlink or bind alias)."""
+    from pathlib import Path
+    live = _configured_sqlite_path()
+    if not live or not Path(live).exists():
+        return bool(live) and Path(path).resolve() == Path(live).resolve()
+    return Path(path).exists() and Path(path).samefile(live)
+
+
 def _snapshot_copy(db_arg: str, cmd: str):
     """Resolve --db for the read-only snapshot commands; None (after printing why) unless it is an existing file that is
     NOT the configured live database."""
     from pathlib import Path
     path = Path(db_arg).resolve()
-    live = _configured_sqlite_path()
-    if not path.is_file() or (live and path == Path(live).resolve()):
+    if not path.is_file() or _is_live_db(path):
         print(f"{cmd}: --db must be an existing snapshot/copy, never the configured live database")
         return None
     return path
@@ -164,9 +172,8 @@ def _snapshot_copy(db_arg: str, cmd: str):
 def _cleanup_preview(args) -> int:
     from pathlib import Path
     from .cleanup import preview_cleanup
-    live = _configured_sqlite_path()
     path = Path(args.db).resolve()
-    if not path.is_file() or (live and path == Path(live).resolve()):
+    if not path.is_file() or _is_live_db(path):
         print("cleanup-preview: --db must be an existing snapshot, never the configured live database")
         return 2
     r = preview_cleanup(path)

@@ -113,3 +113,32 @@ def test_l3_snapshot_files_are_private(tmp_path):
     _wal_db(live)
     snapshot(live, tmp_path / "snap.db")
     assert (tmp_path / "snap.db").stat().st_mode & 0o077 == 0
+
+
+def _stub_systemctl(tmp):
+    bindir = tmp / "bin"
+    bindir.mkdir()
+    (bindir / "systemctl").write_text("#!/bin/sh\nexit 0\n")  # restart succeeds; health (curl) will fail: nothing listens
+    (bindir / "systemctl").chmod(0o755)
+    return bindir
+
+
+def test_rollback_auto_revert_restores_both_symlinks(tmp_path):
+    """Advisor review: after a failed health check the revert left current == previous, so the NEXT rollback died with 'already on'."""
+    prefix = _managed_prefix(tmp_path)
+    bindir = _stub_systemctl(tmp_path)
+    r = sh(f'"{DEPLOY}/rollback.sh" --apply',
+           env={"WT_PREFIX": str(prefix), "WT_NO_SYSTEMCTL": "0", "WT_HEALTH_TRIES": "1", "WT_PORT": "1", "PATH": f"{bindir}:{os.environ['PATH']}"})
+    assert r.returncode == 8, r.stdout + r.stderr
+    assert os.readlink(prefix / "current") == "releases/20260102T000000Z"   # switched back
+    assert os.readlink(prefix / "previous") == "releases/20260101T000000Z"  # and `previous` is again the release we can roll back to
+
+
+def test_b5_a_hardlink_to_the_live_database_is_refused_by_the_snapshot_guard(tmp_path, monkeypatch):
+    from watchtower import cli, config
+    live = tmp_path / "live.db"
+    _wal_db(live)
+    link = tmp_path / "alias.db"
+    os.link(live, link)  # same inode, different path: a resolved-path comparison would let it through
+    monkeypatch.setattr(config, "DB_URL", f"sqlite:///{live}")
+    assert cli._snapshot_copy(str(link), "coverage") is None

@@ -23,20 +23,20 @@ the owner (permission, contact address, VPS access, human review) and is NOT cou
 (`b5c68461…` + WAL `7c1b5baa…`) · durable copy: git bundle `9ef4c00f…` and DB snapshot `7f9419c3…` delivered to the owner.
 Dev container: 4 vCPU, 16 GB RAM, 30 GB free, Python 3.13, no nginx. **This is not the Contabo VPS**; VPS resources are unverified.
 
-## Milestones (status as of the last commit; see git log for evidence)
-| # | Milestone | Status | Evidence / next |
+## Milestones (final status of this programme run; evidence in git log and docs/PROJECT_PROGRESS.md)
+| # | Milestone | Status | Evidence / what remains |
 |---|---|---|---|
-| 0 | Preservation & intelligence | DONE | 26 commits verified; bundle + DB snapshot delivered; baseline reproduced (370 / 92 % / 75) |
-| 1 | Architecture & foundations | DONE (engineering) | docs/ARCHITECTURE.md module map; requirements-core/ml/prod pins; contracts: name hints priority-only, ML advisory-only, append-only observations |
-| 2 | Real acquisition | ENGINEERING DONE / live run EXTERNAL | planner, coverage, scheduler, budgets, policy gate; docs/SOURCE_DISCOVERY_ADDENDUM.md: no free source for laptops/phones/tablets; live run needs a real contact + approval |
-| 3 | Product intelligence | DONE (engineering) | audited review decisions (who/when/evidence), side-by-side review UI, mirrors collapsed, label healing; 12 candidates need a human |
-| 4 | ML (scikit-learn) | HARNESS DONE / models NOT JUSTIFIED | isolated `.venv-ml` (1.9.1), advisory harness; verdict on real data: insufficient (0 human labels, 1 day of prices). Independent review found 2 high + 6 medium issues: fixes in progress (agent) |
-| 5 | Price intelligence | PARTIAL / data-limited | stats, peers, verified-deal rule, claimed-original labelling, market questions in the assistant; anomaly/forecast refuse on 1 day of history (external: ≥ 8 days) |
-| 6 | AI research assistant | DONE (deterministic) | evidence-based answers, uncollected/unverified disclosures, new/price-drop/history-gap questions, LLM optional |
-| 7 | Frontend | DONE (engineering) | provenance, admin budgets/schedule, side-by-side review + confirm + decision log, a11y fixes, coverage page; Playwright desktop + Pixel 7 |
-| 8 | Security & reliability | DONE for reviewed findings | independent review: 0 critical/high; fixed ReDoS, gzip-bomb/size caps, signed expiring admin cookie, rate limits, SSRF forms, etc. (tests/test_security_fixes.py, test_fetcher_limits.py) |
-| 9 | Integration & final tests | IN PROGRESS | full suite green; final end-to-end verification pending the two running reviews |
-| 10 | Contabo deployment package | WRITTEN + STATICALLY VERIFIED / not deployed | deploy/ + docs/DEPLOYMENT.md; independent review running; nginx NOT syntax-tested; **needs VPS access (external)** |
+| 0 | Preservation & intelligence | DONE | 26 commits verified at start; bundle + DB snapshot delivered; baseline reproduced (370 / 92 % / 75) |
+| 1 | Architecture & foundations | DONE | docs/ARCHITECTURE.md module map; core/ml/prod requirement pins; contracts (name hints priority-only, ML advisory-only, append-only observations) |
+| 2 | Real acquisition | ENGINEERING DONE; live run NOT MET (external) | planner, coverage, scheduler, budgets, policy gate; no free source exists for laptops/phones (docs/SOURCE_DISCOVERY_ADDENDUM.md); live run needs a real contact + approval |
+| 3 | Product intelligence | DONE; 12 decisions need a human | audited decisions (who/when/evidence), side-by-side review, label healing, mirrors collapsed |
+| 4 | ML (scikit-learn) | HARNESS DONE; models NOT JUSTIFIED | isolated `.venv-ml` (sklearn 1.9.1); independent review fixes applied (H1/H2/M1-M6/L1-L7); verdict: insufficient data |
+| 5 | Price intelligence | ENGINEERING DONE; verified deals NOT MET (external: >= 8 days of collection) | stats, peers, claimed-original labelling, market questions |
+| 6 | AI research assistant | DONE (deterministic, LLM optional) | evidence-based answers; uncollected/unverified disclosure; new / price-drop / history-gap intents |
+| 7 | Frontend | DONE | provenance, admin budgets/schedule, review UI, a11y, coverage page; e2e/run.sh desktop + Pixel 7 |
+| 8 | Security & reliability | DONE for reviewed findings; open items listed | independent review: 0 critical/high; all medium/low fixed except noted in PROJECT_PROGRESS |
+| 9 | Integration & final tests | DONE | full suites green in system python, ML venv and pinned prod venv; Ruff clean; Pyright 75 pre-existing / 0 new; e2e pass |
+| 10 | Contabo deployment package | WRITTEN + TESTED IN A TEMP PREFIX; deployment NOT VERIFIED (external) | independent review fixes applied; shellcheck clean; nginx and systemd runtime UNTESTED; VPS resources unverified |
 
 ## Open blockers needing the owner
 Real contact address · approval for any live collection · legal read of Adafruit/SparkFun terms · VPS access/specs ·
