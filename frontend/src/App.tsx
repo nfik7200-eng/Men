@@ -9,6 +9,7 @@ import Investigations, { InvestigationDetail } from "./pages/Investigations";
 import Opportunities from "./pages/Opportunities";
 import Overview from "./pages/Overview";
 import Providers from "./pages/Providers";
+import ProviderDetail from "./pages/ProviderDetail";
 import Research from "./pages/Research";
 import RunPage from "./pages/research/RunPage";
 import Settings from "./pages/Settings";
@@ -74,6 +75,7 @@ function Shell() {
           <Route path="/investigations" element={<Investigations />} />
           <Route path="/investigations/:id" element={<InvestigationDetail />} />
           <Route path="/providers" element={<Providers />} />
+          <Route path="/providers/:id" element={<ProviderDetail />} />
           <Route path="/watchlists" element={<Watchlists />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />

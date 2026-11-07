@@ -108,7 +108,7 @@ function ReliabilityView({ r }: { r: Reliability }) {
   );
 }
 
-function ProfileDetail({ id }: { id: string }) {
+export function ProfileDetail({ id }: { id: string }) {
   const d = useApi(() => api.providerProfile(id), [id]);
   if (d.status === "loading") return <Loading />;
   if (d.status === "error") return <ErrorState error={d.error} onRetry={d.reload} />;

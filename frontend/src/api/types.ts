@@ -715,13 +715,19 @@ export type LabelInput = {
   observed_at: string;
   note: string | null;
 };
-export type LabelRow = LabelInput & { id: number; data_kind: string; created_at: string; reviews?: unknown[] };
+export type LabelRow = LabelInput & { id: number; data_kind: string; created_at: string; dimension: string; latest_review: string | null };
 export type LabelPage = {
   items: LabelRow[];
   total: number;
   limit: number;
   offset: number;
-  counts: { total: number; by_kind_and_status: { data_kind: string; status: string; count: number }[] } & Record<string, unknown>;
+  counts: {
+    total: number;
+    by_kind_and_status: Record<string, number>;
+    /** distinct real wallets per chain whose labels can train a model */
+    trainable_wallets: Record<string, number>;
+    min_labelled_wallets: number;
+  };
 };
 export type ReviewInput = { decision: "accepted" | "rejected" | "needs_evidence"; reviewer: string; note: string | null };
 export type JsonObject = Record<string, unknown>;
@@ -730,3 +736,5 @@ export type CaseResearchLink = {
   run_id: string; state: string; question: string; chain: string; address: string;
   created_at: string; note: string | null; attached_at: string;
 };
+
+export type TaxonomyLabel = { id: string; dimension: string; chains: string[]; description: string; rule_detectable: boolean; sensitive: boolean };

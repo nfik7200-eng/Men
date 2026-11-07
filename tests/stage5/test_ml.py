@@ -460,3 +460,30 @@ def test_synthetic_models_never_report_high_or_moderate_confidence(env: Env) -> 
             roles, _, _ = ctx.classifier._predict(model, fv)  # pyright: ignore[reportPrivateUsage]
             assert {r["status"] for r in roles} <= {"low_confidence"}
             assert all(r["supporting_features"] for r in roles)  # importances are shown
+
+
+def test_label_counts_report_trainable_wallets_against_the_gate(client: TestClient) -> None:
+    def lab(i: int, status: str, label: str = "defi_trader") -> J:
+        return {
+            "chain": "ethereum",
+            "address": a(i),
+            "label": label,
+            "status": status,
+            "source": "analyst",
+            "observed_at": "2026-01-01T00:00:00Z",
+        }
+
+    labels = [lab(1, "analyst_reviewed"), lab(1, "verified", "long_term_holder"), lab(2, "weak")]
+    labels.append(lab(3, "corroborated"))
+    assert client.post(f"{API}/ml/labels", json={"labels": labels}).json()["added"] == 4
+    counts = client.get(f"{API}/ml/labels").json()["counts"]
+    # wallet 1 (two trainable labels) and wallet 3 count once each; a weak label is not trainable
+    assert counts["trainable_wallets"] == {"ethereum": 2}
+    assert counts["min_labelled_wallets"] == 30
+    weak_id = next(
+        x["id"] for x in client.get(f"{API}/ml/labels").json()["items"] if x["status"] == "weak"
+    )
+    client.post(
+        f"{API}/ml/labels/{weak_id}/reviews", json={"decision": "accepted", "reviewer": "me"}
+    )
+    assert client.get(f"{API}/ml/labels").json()["counts"]["trainable_wallets"] == {"ethereum": 3}

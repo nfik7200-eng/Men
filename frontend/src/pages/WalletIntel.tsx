@@ -181,6 +181,36 @@ function VerificationPanel({ chain, address, profile, onDone }: {
   );
 }
 
+function AttachFinding({ findingId }: { findingId: string }) {
+  const cases = useApi(() => api.investigations(), []);
+  const [caseId, setCaseId] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const attach = () => {
+    const id = Number(caseId);
+    if (!id) return;
+    setError(null);
+    api.attachFinding(findingId, id).then(() => {
+      const title = cases.status === "ready" ? cases.data.find((c) => c.id === id)?.title : undefined;
+      setMsg(`Attached to ${title ?? `case ${id}`}.`);
+    }, (e: unknown) => setError(e instanceof ApiError ? e : new ApiError(0, "unknown", "Could not attach the finding.")));
+  };
+  return (
+    <div className="row">
+      <label className="field">
+        <span>Case for finding {findingId}</span>
+        <select value={caseId} onChange={(e) => setCaseId(e.target.value)} disabled={cases.status !== "ready"}>
+          <option value="">Choose a case</option>
+          {cases.status === "ready" ? cases.data.map((c) => <option key={c.id} value={c.id}>{c.title}</option>) : null}
+        </select>
+      </label>
+      <button type="button" className="btn" disabled={!caseId} onClick={attach}>Attach to case</button>
+      {msg ? <span role="status">{msg}</span> : null}
+      {error ? <ErrorState error={error} /> : null}
+    </div>
+  );
+}
+
 function AnomalyList({ items }: { items: Anomaly[] }) {
   if (!items.length) return <EmptyState title="No detector results yet">Run analysis to evaluate the detectors.</EmptyState>;
   return (
@@ -205,6 +235,7 @@ function AnomalyList({ items }: { items: Anomaly[] }) {
                 <dt>Limitations</dt><dd>{a.limitations.join(" ")}</dd>
                 {a.finding_id ? (<><dt>Finding</dt><dd className="mono">{a.finding_id}</dd></>) : null}
               </dl>
+              {a.finding_id ? <AttachFinding findingId={a.finding_id} /> : null}
             </details>
           ) : null}
         </li>

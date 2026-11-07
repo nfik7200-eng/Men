@@ -52,8 +52,9 @@ class ReviewIn(BaseModel):
 
 
 class LabelStore:
-    def __init__(self, repo: Repository) -> None:
+    def __init__(self, repo: Repository, *, min_labelled_wallets: int = 30) -> None:
         self._repo = repo
+        self._min_wallets = min_labelled_wallets  # BIP_ML__MIN_LABELLED_WALLETS (training gate)
 
     def add(self, items: list[LabelIn], *, data_kind: str = "real") -> J:
         rows: list[J] = []
@@ -161,7 +162,18 @@ class LabelStore:
         for r in items:
             key = f"{r['data_kind']}:{r['status']}"
             by[key] = by.get(key, 0) + 1
-        return {"total": total, "by_kind_and_status": by}
+        # distinct real wallets per chain whose labels can train a model (the training gate)
+        trainable: dict[str, set[str]] = {}
+        for chain in sorted({str(r["chain"]) for r in items}):
+            rows = self.training_rows(chain=chain, data_kind="real")
+            if rows:
+                trainable[chain] = {str(r["address"]) for r in rows}
+        return {
+            "total": total,
+            "by_kind_and_status": by,
+            "trainable_wallets": {c: len(w) for c, w in trainable.items()},
+            "min_labelled_wallets": self._min_wallets,
+        }
 
 
 def _row(r: Any) -> J:

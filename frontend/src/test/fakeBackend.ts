@@ -46,6 +46,7 @@ const ev = { tx_id: TX, block_number: 19999995, block_time: now, provider: "publ
 
 export type IntelOptions = {
   origin?: "offline_fixture" | "stored_observations";
+  finding?: boolean;
   leads?: boolean;
   /** Provider probe behaviour: "ok" (fake nodes answer) or "blocked" (environment DNS failure). */
   probe?: "ok" | "blocked";
@@ -156,9 +157,9 @@ export function intelResponse(path: string, method: string, opts: IntelOptions):
     return { ...env, scope, note: "Descriptive rules only.", items: [{ rule_id: "high_frequency", rule_version: "1.0.0", name: "High transaction frequency", status: "not_enough_data",
       claim_type: "statistical_observation", inputs: {}, magnitude: null, supporting_count: 0, confidence: null, verification: verif, explanation: "Only 2 timestamped transactions retrieved; at least 10 are needed." }] };
   if (path.startsWith("/intelligence/anomalies"))
-    return { ...env, total: 1, limit: 50, offset: 0, items: [{ detector_id: "tx_frequency_spike", version: "1.0.0", title: "Transaction frequency spike", status: "insufficient_data",
+    return { ...env, total: 1, limit: 50, offset: 0, items: [{ detector_id: "tx_frequency_spike", version: "1.0.0", title: "Transaction frequency spike", status: opts.finding ? "anomaly" : "insufficient_data",
       severity: null, confidence: null, window: "", minimum_data: "", baseline: "", thresholds: "", limitations: [], explanation: "2 transactions over 1 days; needs 10 over at least 8 days.",
-      window_start: null, window_end: null, observation_id: "obs-1", finding_id: null, chain: "ethereum", address: ETH_WALLET, verification: verif, evidence: { total: 0, transactions: [], transfers: [] } }] };
+      window_start: null, window_end: null, observation_id: "obs-1", finding_id: opts.finding ? "fnd-1" : null, chain: "ethereum", address: ETH_WALLET, verification: verif, evidence: { total: 0, transactions: [], transfers: [] } }] };
   if (path.startsWith("/intelligence/analyze/") && method === "POST")
     return { ...env, run_id: 1, chain: "ethereum", address: ETH_WALLET, analyzer_version: "3.0.0", input_hash: "f".repeat(64), started_at: now, finished_at: now, status: "succeeded", reused: false, result: null };
   if (path.startsWith("/intelligence/verification/ethereum/wallet/") && method === "POST")
@@ -292,6 +293,8 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
   const watchlists = new Map<number, { id: number; name: string; description: string | null; entries: Json[] }>();
   const cases: { id: number; title: string; description: string | null; status: string; subject_chain: string | null; subject_address: string | null; created_at: string; updated_at: string; findings: Json[] }[] = [];
   const caseLinks = new Map<number, Json[]>();
+  const attached: Json[] = [];
+  const labels: Json[] = [];
   const json = (status: number, body?: unknown) =>
     Promise.resolve(new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
   const err = (status: number, code: string, message: string) => json(status, { error: { code, message } });
@@ -306,7 +309,7 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     const path = url.replace(/^\/api\/v1/, "");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
-    if (path.startsWith("/ml/") || path.startsWith("/research/")) {
+    if ((path.startsWith("/ml/") && !path.startsWith("/ml/labels") && path !== "/ml/taxonomy") || path.startsWith("/research/")) {
       const r = researchResponse(path, method, research, researchState);
       return r ? json(method === "POST" && (path.startsWith("/research/runs") && !path.includes("/cancel") || path.startsWith("/ml/classify")) ? (path === "/research/runs" ? 202 : 201) : 200, r) : err(404, "not_found", "Not Found");
     }
@@ -314,6 +317,36 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
       const r = providerIntelResponse(path, method, intel, probeState);
       return r ? json(path === "/providers/probe-runs" && method === "POST" ? 201 : 200, r) : err(404, "not_found", "Not Found");
     }
+    const att = /^\/intelligence\/findings\/([^/]+)\/attach$/.exec(path);
+    if (att && method === "POST") {
+      attached.push({ finding_id: att[1], investigation_id: body.investigation_id });
+      return json(200, { data_origin: "stored_observations", analyzer_version: "3.0.0", finding_id: att[1], investigation_id: body.investigation_id });
+    }
+    if (path === "/ml/taxonomy")
+      return json(200, { version: "1.0.0", labels: [
+        { id: "defi_trader", dimension: "behavioural_role", chains: ["ethereum", "solana"], description: "Trades on DeFi protocols", rule_detectable: false, sensitive: false },
+        { id: "exchange_hot_wallet", dimension: "behavioural_role", chains: ["ethereum", "solana"], description: "Exchange hot wallet", rule_detectable: false, sensitive: true },
+      ], features: { version: "1.0.0", names: [] } });
+    if (path.startsWith("/ml/labels") && !path.includes("/reviews") && method === "GET") {
+      const trainable = labels.filter((l) => ["verified", "corroborated", "analyst_reviewed"].includes(String(l.status)) || l.latest_review === "accepted");
+      const byChain: Record<string, number> = {};
+      for (const c of new Set(trainable.map((l) => String(l.chain)))) byChain[c] = new Set(trainable.filter((l) => l.chain === c).map((l) => l.address)).size;
+      return json(200, { items: labels, total: labels.length, limit: 50, offset: 0,
+        counts: { total: labels.length, by_kind_and_status: {}, trainable_wallets: byChain, min_labelled_wallets: 30 } });
+    }
+    if (path === "/ml/labels" && method === "POST") {
+      for (const l of body.labels as Json[]) labels.push({ ...l, id: nextId++, data_kind: "real", created_at: now, latest_review: null, dimension: "behavioural_role" });
+      return json(201, { added: (body.labels as Json[]).length, duplicates_skipped: 0 });
+    }
+    const rv = /^\/ml\/labels\/(\d+)\/reviews$/.exec(path);
+    if (rv && method === "POST") {
+      const l = labels.find((x) => x.id === Number(rv[1]));
+      if (!l) return err(404, "not_found", "label not found");
+      l.latest_review = body.decision;
+      return json(201, { label_id: l.id, decision: body.decision });
+    }
+    if (/^\/providers\/[a-z0-9-]+\/capabilities\/history/.test(path))
+      return json(200, { provider_id: "publicnode-eth", total: 0, limit: 50, offset: 0, items: [] });
     if (path.startsWith("/intelligence/")) {
       const r = intelResponse(path, method, intel);
       return r ? json(method === "POST" && path.includes("/analyze/") ? 201 : 200, r) : err(404, "not_found", "Not Found");
@@ -428,7 +461,7 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     }
     return err(404, "not_found", "Not Found");
   });
-  return { fetchMock, watchlists, cases, caseLinks };
+  return { fetchMock, watchlists, cases, caseLinks, attached, labels };
 }
 
 function job(): Json {

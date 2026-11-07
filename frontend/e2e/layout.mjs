@@ -21,6 +21,7 @@ export const ROUTES = [
   "/",
   "/chains",
   "/providers",
+  "/providers/publicnode-eth",
   "/wallets",
   `/wallets/ethereum/${ETH}`,
   `/wallets/ethereum/${ETH}/activity`,

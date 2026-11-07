@@ -177,8 +177,7 @@ export function InvestigationDetail() {
           <Panel title="Findings">
             {inv.data.findings.length === 0 ? (
               <EmptyState title="No findings attached">
-                Findings are attached through the API and must cite evidence (see API docs at
-                /api/v1/docs).
+                Attach a detector finding from a wallet's Evidence tab. Findings must cite evidence.
               </EmptyState>
             ) : (
               <ul className="list">
@@ -191,8 +190,37 @@ export function InvestigationDetail() {
               </ul>
             )}
           </Panel>
+          <CaseResearch id={id} />
         </div>
       ) : null}
     </>
+  );
+}
+
+function CaseResearch({ id }: { id: number }) {
+  const links = useApi(() => api.caseResearchRuns(id), [id]);
+  return (
+    <section className="panel" aria-label="Research runs">
+      <div className="panel-head"><h2>Research runs</h2></div>
+      {links.status === "loading" ? <Loading /> : null}
+      {links.status === "error" ? <ErrorState error={links.error} onRetry={links.reload} /> : null}
+      {links.status === "ready" && links.data.items.length === 0 ? (
+        <p className="muted">No research runs linked. Open a run and choose "Add to case".</p>
+      ) : null}
+      {links.status === "ready" && links.data.items.length > 0 ? (
+        <ul className="list">
+          {links.data.items.map((l) => (
+            <li key={l.run_id}>
+              <Link to={`/research/runs/${encodeURIComponent(l.run_id)}`}>{l.question}</Link>
+              <Pill tone={l.state.startsWith("completed") ? "ok" : l.state === "failed" ? "bad" : "info"}>{humanize(l.state)}</Pill>
+              {l.note ? <span>{l.note}</span> : null}
+              <button type="button" className="btn btn-small" onClick={() => { api.unlinkResearchRun(id, l.run_id).then(links.reload, links.reload); }}>
+                Unlink
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
   );
 }

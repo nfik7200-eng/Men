@@ -48,6 +48,7 @@ import type {
   LabelPage,
   ReviewInput,
   CaseResearchLink,
+  TaxonomyLabel,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -202,7 +203,7 @@ export const api = {
   addLabels: (labels: LabelInput[]) => request<JsonObject>("/ml/labels", { method: "POST", ...json({ labels }) }),
   reviewLabel: (id: number, body: ReviewInput) =>
     request<JsonObject>(`/ml/labels/${id}/reviews`, { method: "POST", ...json(body) }),
-  taxonomy: () => request<JsonObject>("/ml/taxonomy"),
+  taxonomy: () => request<{ version: string; labels: TaxonomyLabel[] }>("/ml/taxonomy"),
   walletFeatures: (chain: string, address: string) =>
     request<JsonObject>(`/ml/features/${enc(chain)}/${enc(address)}`),
   capabilityHistory: (id: string) => request<JsonObject>(`/providers/${enc(id)}/capabilities/history`),

@@ -113,7 +113,7 @@ def create_app(
             probe_store=ProbeStore(repo, reg),
             probe_lock=threading.Lock(),
             classifier=ClassificationService(repo, cfg),
-            labels=LabelStore(repo),
+            labels=LabelStore(repo, min_labelled_wallets=cfg.ml.min_labelled_wallets),
             trainer=Trainer(repo, cfg),
             research=cast(ResearchManager, None),  # set below (needs the context)
             train_lock=threading.Lock(),

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { LabelsPanel } from "./research/Labels";
 import { ApiError, api } from "../api/client";
 import type { Classification, LabelResult, MLModel, ResearchClaim, ResearchPreview, ResearchRun } from "../api/types";
 import { DataOriginBanner, WalletPicker } from "../components/intel";
@@ -370,7 +371,7 @@ function RecentRuns() {
 
 export default function Research() {
   const [params, setParams] = useSearchParams();
-  const [tab, setTab] = useState<"wallet" | "models">("wallet");
+  const [tab, setTab] = useState<"wallet" | "models" | "labels">("wallet");
   const chain = params.get("chain") ?? "";
   const address = params.get("address") ?? "";
   return (
@@ -379,8 +380,9 @@ export default function Research() {
       <div className="row tabs" role="tablist">
         <button type="button" role="tab" aria-selected={tab === "wallet"} className={`btn ${tab === "wallet" ? "btn-primary" : ""}`} onClick={() => setTab("wallet")}>Wallet research</button>
         <button type="button" role="tab" aria-selected={tab === "models"} className={`btn ${tab === "models" ? "btn-primary" : ""}`} onClick={() => setTab("models")}>Models and AI provider</button>
+        <button type="button" role="tab" aria-selected={tab === "labels"} className={`btn ${tab === "labels" ? "btn-primary" : ""}`} onClick={() => setTab("labels")}>Labels</button>
       </div>
-      {tab === "models" ? <ModelsPanel /> : (
+      {tab === "labels" ? <LabelsPanel /> : tab === "models" ? <ModelsPanel /> : (
         <>
           <Panel>
             <WalletPicker key={`${chain}:${address}`} initialChain={chain || "ethereum"} initialAddress={address} submitLabel="Open wallet" onPick={(c, a) => setParams({ chain: c, address: a })} />
