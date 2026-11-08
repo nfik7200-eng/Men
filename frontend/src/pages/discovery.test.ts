@@ -67,6 +67,15 @@ describe('browse listings island', () => {
     expect(String(f.mock.calls.at(-1)?.[0])).toContain('data=all');
   });
 
+  it('says when results span several currencies and asks for one', async () => {
+    const body = { total: 2, page: 1, items: [listing()], currencies: ['JPY', 'USD'], sort_fallback: 'name' };
+    vi.stubGlobal('fetch', vi.fn(async (_u: RequestInfo | URL) => ok(body)));
+    mountDiscovery(root);
+    await flush(); await flush();
+    expect(root.textContent).toContain('These results include 2 currencies (JPY, USD).');
+    expect(root.textContent).toContain('Sorted by name instead of price.');
+  });
+
   it('offers no next page beyond the last one', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok(page([listing()], 1))));
     mountDiscovery(root);

@@ -49,6 +49,10 @@ export interface ListingPage {
   total: number;
   page: number;
   items: Listing[];
+  /** Currencies in the matched set. More than one means prices cannot be ordered against each other. */
+  currencies?: string[];
+  /** Set when a price sort fell back to name because of mixed currencies. */
+  sort_fallback?: string | null;
 }
 
 export interface Observation {

@@ -3,7 +3,7 @@ import type { ListingQuery } from '../api/client';
 import { h, status } from '../components/dom';
 import { formatMoney } from '../lib/format';
 import { listingQueryString, parseListingQuery } from '../lib/query';
-import type { Listing, MatchStatus } from '../api/types';
+import type { Listing, ListingPage, MatchStatus } from '../api/types';
 
 const MATCH_LABEL: Record<MatchStatus, string> = {
   self: 'Own product',
@@ -71,6 +71,7 @@ async function load(results: HTMLElement, params: Params, signal: AbortSignal, g
       h('p', { class: 'muted small' },
         `${page.total} listing${page.total === 1 ? '' : 's'}${params.q ? ` for “${params.q}”` : ''}. `,
         'Prices in different currencies are never converted or mixed.'),
+      mixedCurrencyNote(page, params) ?? '',
       page.items.length === 0
         ? status('No listings match. Try removing a filter.')
         : h('div', { class: 'grid', role: 'list' }, ...page.items.map(card)),
@@ -128,6 +129,14 @@ function fillForm(f: HTMLFormElement, p: Params): void {
   set('data', p.data);
   const stock = f.elements.namedItem('in_stock');
   if (stock instanceof HTMLInputElement) stock.checked = Boolean(p.in_stock);
+}
+
+/** Shown when the matched set spans several currencies: prices cannot be ordered or limited across them. */
+function mixedCurrencyNote(page: ListingPage, params: Params): HTMLElement | null {
+  const found = page.currencies ?? [];
+  if (found.length <= 1 || params.currency) return null;
+  const fell = page.sort_fallback ? ' Sorted by name instead of price.' : '';
+  return status(`These results include ${found.length} currencies (${found.join(', ')}).${fell} Choose one currency to compare prices.`);
 }
 
 function card(l: Listing): HTMLElement {
