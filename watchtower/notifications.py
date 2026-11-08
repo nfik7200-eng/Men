@@ -91,14 +91,19 @@ def generate(s: Session, owner: str) -> int:
     created = 0
     for st in monitor.evaluate(s, owner):
         w, l = st.watch, st.watch.listing
+        if w.baseline_currency and l.currency != w.baseline_currency:
+            continue  # the monitor pauses comparisons after a currency change: no alert without a sourced FX rate
         if w.target_price_minor and l.price_minor is not None and l.price_minor <= w.target_price_minor:
             created += _add(s, owner, l.id, "target_reached", f"{l.title}: at or below your target",
                             f"{fmt_money(l.price_minor, l.currency)} (target {fmt_money(w.target_price_minor, l.currency)}) at {l.source.key}.",
                             f"target:{l.id}:{l.price_minor}:{w.target_price_minor}")
         if w.notify_restock and w.baseline_availability == "out_of_stock" and l.availability == "in_stock":
+            # keyed on the WATCH and its baseline, not on the latest observation: a crawl that sees the same
+            # in-stock state again must not add a row. One restock alert per watch per baseline.
             seen = l.last_observed_at.isoformat() if l.last_observed_at else "unknown"
             created += _add(s, owner, l.id, "back_in_stock", f"{l.title}: back in stock",
-                            f"Observed in stock at {l.source.key} on {seen}.", f"stock:{l.id}:in_stock:{seen}")
+                            f"Observed in stock at {l.source.key} (latest check {seen}).",
+                            f"stock:{w.id}:{w.baseline_availability}->in_stock")
     return created
 
 

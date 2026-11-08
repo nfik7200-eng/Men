@@ -137,3 +137,47 @@ def test_cli_refuses_the_configured_live_database(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_URL", f"sqlite:///{live}")
     with pytest.raises(SystemExit, match="live database"):
         cli.main(["notify-migrate", "--db", str(live), "--apply"])
+
+
+def test_a_watch_paused_by_a_currency_change_raises_no_alert(db):
+    _migrated(db)
+    lid = _listing(db, price=800)                       # USD listing
+    with db.session() as s:
+        monitor.add_watch(s, lid, "erin", target_price_minor=900)
+        s.commit()
+    with db.session() as s:
+        l = s.get(Listing, lid)
+        l.currency, l.price_minor = "JPY", 500          # now yen: the monitor pauses comparisons
+        s.commit()
+    with db.session() as s:
+        assert notes.generate(s, "erin") == 0
+        assert notes.unread_count(s, "erin") == 0
+
+
+def test_a_restock_seen_again_on_later_crawls_adds_one_row(db):
+    _migrated(db)
+    lid = _listing(db, availability="out_of_stock")
+    with db.session() as s:
+        monitor.add_watch(s, lid, "frank", target_price_minor=None, notify_restock=True)
+        s.commit()
+    for seen in ("2026-11-08T10:00:00", "2026-11-08T11:00:00", "2026-11-08T12:00:00"):
+        with db.session() as s:
+            l = s.get(Listing, lid)
+            l.availability = "in_stock"
+            l.last_observed_at = __import__("datetime").datetime.fromisoformat(seen)
+            s.commit()
+        with db.session() as s:
+            notes.generate(s, "frank")
+    with db.session() as s:
+        assert notes.unread_count(s, "frank") == 1
+
+
+def test_the_cli_guard_refuses_a_hard_link_to_the_live_database(tmp_path, monkeypatch):
+    import os
+    live = tmp_path / "live.db"
+    live.write_bytes(b"")
+    alias = tmp_path / "copy-but-really-live.db"
+    os.link(live, alias)
+    monkeypatch.setattr(config, "DB_URL", f"sqlite:///{live}")
+    with pytest.raises(SystemExit, match="live database"):
+        cli.main(["notify-migrate", "--db", str(alias), "--apply"])

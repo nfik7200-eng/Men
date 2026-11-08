@@ -10,7 +10,9 @@
 1. **The application never creates this table.** `Database.init()` (run at every app start) only knows the main models. The notifications table lives in its own declarative base, `NoteBase` in `watchtower/notifications.py`.
 2. **Migrations are explicit and run on copies.** The CLI refuses the configured live database, by path.
 3. **Until the table exists**, the notification routes return HTTP 503 with "not set up on this database". Nothing else changes.
-4. **Idempotent generation.** Each alert's identity (owner + key) comes from the event's content: listing, price or stock state, and target. Re-running generation adds nothing new. A genuinely new event adds one row.
+4. **Idempotent generation.** Each alert's identity (owner + key) comes from the event: a target alert from the listing, the price and the target; a restock alert from the watch and its baseline. Re-running generation adds nothing new. A genuinely new price under the target adds one row.
+   **Known limitation:** a restock alert fires once per watch and baseline. If the item goes out of stock again and returns later, the same watch will not alert a second time. Recording each restock would need a stock-history table, which is not built yet.
+4a. **Currency-paused watches** raise no alert, following the monitor's rule: a currency change pauses comparisons until a new target is set.
 5. **Owner isolation.** Another browser's alert id returns the same answer as a missing id (404 in the API, no effect in the form).
 6. **Rollback refuses to discard history** unless `--discard-rows` is given.
 

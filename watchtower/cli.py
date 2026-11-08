@@ -161,8 +161,7 @@ def _notify(args) -> int:
     from sqlalchemy import create_engine
     from . import notifications
     target = Path(args.db).resolve()
-    live = _configured_sqlite_path()
-    if live and target == Path(live).resolve():
+    if _is_live_db(args.db):  # same path OR same inode (hard links, bind aliases)
         raise SystemExit("refusing: this is the configured live database. Copy it first "
                          "(python -m watchtower.cli backup --out COPY) and run the command on the copy.")
     if args.cmd == "notify-generate":
