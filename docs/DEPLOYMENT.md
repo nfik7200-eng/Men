@@ -199,3 +199,14 @@ triggers a catch-up burst. To stop: `systemctl disable --now watchtower-collect.
 
 Known limits: after a successful `install --apply` for the first time, nothing has created the DB until the web service starts once;
 `backup.sh` says so and exits. `update.sh` keeps failed release directories until the next successful update prunes them.
+
+## Rehearsal record: temporary prefix, this sandbox (no VPS)
+Done with `WT_NO_SYSTEMCTL=1` (rehearsal only; the real host has systemd) and every path under a temporary directory:
+- `install.sh` dry run: created nothing; the collection timer is listed as not enabled.
+- `install.sh --init-env --apply`: wrote the template; `install.sh` then refused it because of uncommented placeholders (correct).
+- The environment was completed with a generated admin token and an absolute database path inside the temporary prefix. No contact address was invented: `WATCHTOWER_CONTACT` stays commented out, and live collection stays disabled.
+- `install.sh --apply`: built the venv, ran the smoke import, wrote the units with substituted paths, left the collection timer disabled.
+- The release started from `current/.venv`: `/health` returned `ok`; `/api/v1/notifications` without a browser session returned 401; `/api/v1/admin/status` without a token returned 403.
+
+## Notifications: the only schema change, and it is never automatic
+The in-app alerts table is created by `python -m watchtower.cli notify-migrate --db COPY --apply`. Starting the app never creates it, and the CLI refuses the live database. Until an operator migrates a copy and approves applying it, the alert routes answer 503. Full procedure and rollback: `docs/NOTIFICATIONS.md`.
