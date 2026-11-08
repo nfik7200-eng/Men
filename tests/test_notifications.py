@@ -57,19 +57,47 @@ def test_target_alert_is_recorded_once_and_a_new_low_price_adds_one(db):
         assert notes.list_for(s, "alice")[0].kind == "target_reached"
 
 
-def test_back_in_stock_alert_fires_once_for_a_restock(db):
+def _obs(db, listing_id, availability, at):
+    from watchtower.models import Observation
+    with db.session() as s:
+        s.add(Observation(listing_id=listing_id, observed_at=at, price_minor=1000, currency="USD", availability=availability))
+        s.commit()
+
+
+def test_each_real_restock_alerts_once_and_repeat_crawls_add_nothing(db):
+    from datetime import timedelta
+    from watchtower.models import utcnow
     _migrated(db)
     lid = _listing(db, availability="out_of_stock")
+    t0 = utcnow()
+    _obs(db, lid, "out_of_stock", t0 - timedelta(hours=2))          # before the watch: history only
     with db.session() as s:
         monitor.add_watch(s, lid, "bob", target_price_minor=None, notify_restock=True)
         s.commit()
+    _obs(db, lid, "in_stock", t0 + timedelta(minutes=1))            # restock #1
+    _obs(db, lid, "in_stock", t0 + timedelta(minutes=2))            # still in stock: not a new restock
+    _obs(db, lid, "out_of_stock", t0 + timedelta(minutes=3))        # sold out again
+    _obs(db, lid, "in_stock", t0 + timedelta(minutes=4))            # restock #2
     with db.session() as s:
-        s.get(Listing, lid).availability = "in_stock"
+        assert notes.generate(s, "bob") == 2
+        assert notes.generate(s, "bob") == 0                        # repeat crawl: nothing new
+        assert notes.unread_count(s, "bob") == 2
+        assert {n.kind for n in notes.list_for(s, "bob")} == {"back_in_stock"}
+
+
+def test_a_restock_before_the_watch_existed_is_not_alerted(db):
+    from datetime import timedelta
+    from watchtower.models import utcnow
+    _migrated(db)
+    lid = _listing(db, availability="out_of_stock")
+    t0 = utcnow()
+    _obs(db, lid, "out_of_stock", t0 - timedelta(hours=5))
+    _obs(db, lid, "in_stock", t0 - timedelta(hours=4))              # restocked before anyone watched it
+    with db.session() as s:
+        monitor.add_watch(s, lid, "gina", target_price_minor=None, notify_restock=True)
         s.commit()
     with db.session() as s:
-        assert notes.generate(s, "bob") == 1
-        assert notes.generate(s, "bob") == 0
-        assert notes.list_for(s, "bob")[0].kind == "back_in_stock"
+        assert notes.generate(s, "gina") == 0
 
 
 def test_read_state_and_owner_isolation(db):
@@ -155,17 +183,18 @@ def test_a_watch_paused_by_a_currency_change_raises_no_alert(db):
 
 
 def test_a_restock_seen_again_on_later_crawls_adds_one_row(db):
+    from datetime import timedelta
+    from watchtower.models import utcnow
     _migrated(db)
     lid = _listing(db, availability="out_of_stock")
+    t0 = utcnow()
+    _obs(db, lid, "out_of_stock", t0 - timedelta(hours=1))
     with db.session() as s:
         monitor.add_watch(s, lid, "frank", target_price_minor=None, notify_restock=True)
         s.commit()
-    for seen in ("2026-11-08T10:00:00", "2026-11-08T11:00:00", "2026-11-08T12:00:00"):
-        with db.session() as s:
-            l = s.get(Listing, lid)
-            l.availability = "in_stock"
-            l.last_observed_at = __import__("datetime").datetime.fromisoformat(seen)
-            s.commit()
+    _obs(db, lid, "in_stock", t0 + timedelta(minutes=1))            # the restock
+    for minutes in (2, 3, 4):                                       # later crawls still see it in stock
+        _obs(db, lid, "in_stock", t0 + timedelta(minutes=minutes))
         with db.session() as s:
             notes.generate(s, "frank")
     with db.session() as s:

@@ -10,8 +10,8 @@ never creates this table. An existing database changes only when someone runs, d
 The live operational database is refused by the CLI; run migrations on a copy first (see docs/NOTIFICATIONS.md).
 Until the table exists, the web routes answer 503 and say so; nothing else is affected.
 
-Idempotence: a notification's identity (owner, dedupe_key) is derived from the EVENT's content (listing, price or
-stock state, target), never from the time it was seen. Re-running generation adds nothing new; a genuinely new event
+Idempotence: a notification's identity (owner, dedupe_key) is derived from the EVENT: a target alert from the listing,
+price and target; a restock alert from the observation that records the restock (the history is append-only). Re-running generation adds nothing new; a genuinely new event
 (a lower price under the target, a new restock) adds one row.
 """
 from datetime import datetime
@@ -22,7 +22,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.schema import CreateTable
 
 from .money import fmt_money
-from .models import utcnow
+from .models import Observation, utcnow
 
 TABLE = "notifications"
 
@@ -97,14 +97,21 @@ def generate(s: Session, owner: str) -> int:
             created += _add(s, owner, l.id, "target_reached", f"{l.title}: at or below your target",
                             f"{fmt_money(l.price_minor, l.currency)} (target {fmt_money(w.target_price_minor, l.currency)}) at {l.source.key}.",
                             f"target:{l.id}:{l.price_minor}:{w.target_price_minor}")
-        if w.notify_restock and w.baseline_availability == "out_of_stock" and l.availability == "in_stock":
-            # keyed on the WATCH and its baseline, not on the latest observation: a crawl that sees the same
-            # in-stock state again must not add a row. One restock alert per watch per baseline.
-            seen = l.last_observed_at.isoformat() if l.last_observed_at else "unknown"
-            created += _add(s, owner, l.id, "back_in_stock", f"{l.title}: back in stock",
-                            f"Observed in stock at {l.source.key} (latest check {seen}).",
-                            f"stock:{w.id}:{w.baseline_availability}->in_stock")
+        if w.notify_restock:
+            for obs in _restock_transitions(s, l.id, since=w.created_at):
+                created += _add(s, owner, l.id, "back_in_stock", f"{l.title}: back in stock",
+                                f"Observed in stock at {l.source.key} on {obs.observed_at:%Y-%m-%d %H:%M} UTC.",
+                                f"restock:{obs.id}")  # one alert per real restock: keyed on the transition observation
     return created
+
+
+def _restock_transitions(s: Session, listing_id: int, since: datetime) -> list[Observation]:
+    """Observations that mark a restock: in stock, directly after an out-of-stock observation, observed at or after `since`.
+    The collection history is append-only, so every real restock is a distinct, permanent event."""
+    obs = list(s.scalars(select(Observation).where(Observation.listing_id == listing_id)
+                         .order_by(Observation.observed_at, Observation.id)))
+    return [cur for prev, cur in zip(obs, obs[1:])
+            if prev.availability == "out_of_stock" and cur.availability == "in_stock" and cur.observed_at >= since]
 
 
 def _add(s: Session, owner: str, listing_id: int, kind: str, title: str, body: str, key: str) -> int:

@@ -2,7 +2,7 @@
 
 ## What it does
 - A watchlist item with a target price produces a **target_reached** alert when the latest collected price is at or below the target.
-- A watchlist item with restock alerts on, whose baseline was out of stock, produces a **back_in_stock** alert when the latest collection shows it in stock.
+- A watchlist item with restock alerts on produces a **back_in_stock** alert for each real restock in the collection history, observed after the watch was created.
 - Alerts appear on `/notifications` (HTML) and `GET /api/v1/notifications` (JSON), with unread counts and mark-read actions for one item or all of them.
 - Nothing is sent by email, SMS or push. Those channels are out of scope.
 
@@ -11,7 +11,7 @@
 2. **Migrations are explicit and run on copies.** The CLI refuses the configured live database, by path.
 3. **Until the table exists**, the notification routes return HTTP 503 with "not set up on this database". Nothing else changes.
 4. **Idempotent generation.** Each alert's identity (owner + key) comes from the event: a target alert from the listing, the price and the target; a restock alert from the watch and its baseline. Re-running generation adds nothing new. A genuinely new price under the target adds one row.
-   **Known limitation:** a restock alert fires once per watch and baseline. If the item goes out of stock again and returns later, the same watch will not alert a second time. Recording each restock would need a stock-history table, which is not built yet.
+   A restock alert is keyed on the observation that records the restock (an in-stock observation directly after an out-of-stock one, at or after the watch was created). Every real restock therefore alerts once, including repeated restocks on the same watch. No new table is needed: the append-only observation history already holds the transitions.
 4a. **Currency-paused watches** raise no alert, following the monitor's rule: a currency change pauses comparisons until a new target is set.
 5. **Owner isolation.** Another browser's alert id returns the same answer as a missing id (404 in the API, no effect in the form).
 6. **Rollback refuses to discard history** unless `--discard-rows` is given.
