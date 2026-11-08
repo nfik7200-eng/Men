@@ -66,7 +66,8 @@ def require_admin(request: Request) -> None:
     if len(config.ADMIN_TOKEN) < MIN_TOKEN_LEN:
         raise HTTPException(403, f"Admin is disabled: WATCHTOWER_ADMIN_TOKEN must be at least {MIN_TOKEN_LEN} characters.")
     if not is_admin(request):
-        if request.method == "GET" and "application/json" not in request.headers.get("accept", ""):
+        is_api = request.url.path.startswith("/api/")  # API callers get a JSON refusal, never a redirect to a sign-in page
+        if request.method == "GET" and not is_api and "application/json" not in request.headers.get("accept", ""):
             raise HTTPException(303, headers={"Location": "/admin/login"})
         raise HTTPException(403, "Admin authentication required.")
 

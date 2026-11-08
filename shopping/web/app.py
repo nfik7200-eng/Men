@@ -24,6 +24,7 @@ from watchtower import config, deals, monitor
 from watchtower.health import source_health
 from shopping.web import security
 from watchtower.collector import ensure_sources, run_source, set_enabled
+from watchtower.currency import to_minor
 from watchtower.db import Database
 from watchtower.coverage import coverage_report
 from watchtower.matching import resolve_candidate
@@ -286,13 +287,13 @@ def create_app(db: Database | None = None) -> FastAPI:
                  "invalid": "Invalid target price or listing"}
         return render(request, "watchlist.html", items=monitor.evaluate(s, owner_of(request)), msg=texts.get(msg, ""), banner=banner(s))
 
-    def parse_target(text: str) -> int | None:
+    def parse_target(text: str, currency: str) -> int | None:
         if not text.strip():
             return None
         v = float(text)
         if not math.isfinite(v) or not (0 < v <= 1e9):
             raise ValueError("target out of range")
-        return round(v * 100)
+        return to_minor(v, currency)  # the listing's own exponent: yen has no minor unit
 
     @app.post("/watch/{listing_id}")
     def watch(request: Request, listing_id: int, target: str = Form("", max_length=20), s=Depends(get_s)):
@@ -301,8 +302,11 @@ def create_app(db: Database | None = None) -> FastAPI:
         exists = s.scalar(select(WatchItem.id).where(WatchItem.owner == owner, WatchItem.listing_id == listing_id))
         if not ok and not exists:
             return RedirectResponse("/watchlist?msg=limit", status_code=303)
+        listing = s.get(Listing, listing_id)
+        if listing is None:
+            return RedirectResponse("/watchlist?msg=invalid", status_code=303)
         try:
-            monitor.add_watch(s, listing_id, owner, parse_target(target))
+            monitor.add_watch(s, listing_id, owner, parse_target(target, listing.currency))
         except ValueError:
             return RedirectResponse("/watchlist?msg=invalid", status_code=303)
         return RedirectResponse("/watchlist", status_code=303)
@@ -480,5 +484,114 @@ def create_app(db: Database | None = None) -> FastAPI:
                              "llm_summary": r["llm_summary"],
                              "picks": [{"listing": listing_json(p.listing, p.deal), "meets": p.meets, "misses": p.misses,
                                         "unknown": p.unknown, "import_estimate": p.import_estimate} for p in r["picks"]]})
+
+    # ------------------------------------------------------------------ JSON API: watchlist (per browser), match review and admin status (token)
+    def watch_json(st: "monitor.WatchStatus") -> dict:
+        w, l = st.watch, st.watch.listing
+        return {"listing_id": w.listing_id, "title": l.title, "url": l.url, "source": l.source.key, "currency": l.currency,
+                "price_minor": l.price_minor, "target_price_minor": w.target_price_minor,
+                "baseline_price_minor": w.baseline_price_minor, "notify_restock": w.notify_restock,
+                "triggered": st.triggered, "reasons": st.reasons}
+
+    def target_minor(target, currency: str) -> int | None:
+        """A JSON target in major units -> minor units of THIS listing's currency (never a global x100)."""
+        if target is None:
+            return None
+        if isinstance(target, bool) or not isinstance(target, (int, float)):
+            raise ValueError("target_price must be a number or null")
+        v = float(target)
+        if not math.isfinite(v) or not (0 < v <= 1e9):
+            raise ValueError("target_price out of range")
+        return to_minor(v, currency)
+
+    async def json_body(request: Request) -> dict:
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(422, "request body must be JSON")
+        if not isinstance(body, dict):
+            raise HTTPException(422, "request body must be a JSON object")
+        return body
+
+    def require_browser_owner(request: Request) -> str:
+        """Watchlists belong to a browser. The owner cookie is set on page visits, not on /api calls, so an API client
+        must have one already; without it a write would vanish, so refuse it clearly instead."""
+        if not re.fullmatch(r"[0-9a-f]{32}", request.cookies.get(security.COOKIE_OWNER, "")):
+            raise HTTPException(401, "Open a Watchtower page in this browser first: the watchlist is tied to the browser session.")
+        return owner_of(request)
+
+    @app.get("/api/v1/watchlist")
+    def api_watchlist(request: Request, s=Depends(get_s)):
+        owner = require_browser_owner(request)
+        return {"limit": plans.plan_for(owner).watch_limit,
+                "items": [watch_json(st) for st in monitor.evaluate(s, owner)]}
+
+    @app.post("/api/v1/watchlist", status_code=201)
+    async def api_watch_add(request: Request, s=Depends(get_s)):
+        owner = require_browser_owner(request)
+        body = await json_body(request)
+        listing_id = body.get("listing_id")
+        if isinstance(listing_id, bool) or not isinstance(listing_id, int):
+            raise HTTPException(422, "listing_id must be an integer")
+        listing = s.get(Listing, listing_id)
+        if listing is None:
+            raise HTTPException(404, "listing not found")
+        exists = s.scalar(select(WatchItem.id).where(WatchItem.owner == owner, WatchItem.listing_id == listing_id))
+        ok, why = plans.can_add_watch(s, owner)
+        if not ok and not exists:
+            raise HTTPException(409, why)
+        try:
+            target = target_minor(body.get("target_price"), listing.currency)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        w = monitor.add_watch(s, listing_id, owner, target)
+        s.flush()
+        return {"listing_id": w.listing_id, "target_price_minor": w.target_price_minor, "currency": listing.currency}
+
+    @app.delete("/api/v1/watchlist/{listing_id}")
+    def api_watch_remove(listing_id: int, request: Request, s=Depends(get_s)):
+        w = s.scalar(select(WatchItem).where(WatchItem.owner == require_browser_owner(request), WatchItem.listing_id == listing_id))
+        if w is None:
+            raise HTTPException(404, "not on your watchlist")
+        s.delete(w)
+        return {"removed": listing_id}
+
+    def candidate_json(s, c: MatchCandidate) -> dict:
+        view = side_by_side(s, c)
+        def side(l: Listing) -> dict:
+            return {"id": l.id, "title": l.title, "source": l.source.key, "currency": l.currency, "price_minor": l.price_minor,
+                    "availability": l.availability, "specs": l.specs or {}}
+        return {"id": c.id, "score": c.score, "reasons": c.reasons or [], "listing": side(c.listing),
+                "members": [side(m) for m in view["members"]], "spec_keys": view["spec_keys"], "differing": view["differing"]}
+
+    @app.get("/api/v1/match-candidates", dependencies=[Depends(admin)])
+    def api_match_candidates(s=Depends(get_s)):
+        """Pending human-review questions. Admin token required: merge decisions are never self-service."""
+        pending = s.scalars(select(MatchCandidate).where(MatchCandidate.status == "pending").order_by(MatchCandidate.id)).all()
+        return {"items": [candidate_json(s, c) for c in pending]}
+
+    @app.post("/api/v1/match-candidates/{cand_id}/decision", dependencies=[Depends(admin)])
+    async def api_match_decide(cand_id: int, request: Request, s=Depends(get_s)):
+        body = await json_body(request)
+        decision = body.get("decision")
+        if decision not in ("accept", "reject"):
+            raise HTTPException(422, "decision must be 'accept' or 'reject'")
+        if s.get(MatchCandidate, cand_id) is None:
+            raise HTTPException(404, "candidate not found")
+        resolve_candidate(s, cand_id, decision == "accept", by="admin", note=body.get("note") if isinstance(body.get("note"), str) else None)
+        return {"id": cand_id, "decision": decision}
+
+    @app.get("/api/v1/admin/status", dependencies=[Depends(admin)])
+    def api_admin_status(s=Depends(get_s)):
+        """Read-only operator view: sources and their health, recent collection runs, review backlog. Token required."""
+        return {
+            "sources": [{"key": x.key, "name": x.name, "kind": x.kind, "enabled": x.enabled,
+                         "last_success_at": x.last_success_at.isoformat() if x.last_success_at else None,
+                         "last_status": x.last_status} for x in s.scalars(select(Source).order_by(Source.name))],
+            "runs": [{"id": r.id, "status": r.status, "source": r.source.key if r.source else None,
+                      "started_at": r.started_at.isoformat() if r.started_at else None} for r in
+                     s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10))],
+            "pending_review": s.scalar(select(func.count()).select_from(MatchCandidate).where(MatchCandidate.status == "pending")) or 0,
+        }
 
     return app

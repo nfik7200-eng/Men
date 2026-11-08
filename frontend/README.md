@@ -28,9 +28,9 @@ Each needs backend work first. None is faked with fixtures.
 
 | Interface | Needed backend | Why it is blocked today |
 |---|---|---|
-| Watchlists (create/manage, changes) | JSON endpoints: list/add/remove watch items and their triggered reasons (`monitor.evaluate` exists server-side) | watch actions are HTML form POSTs with redirects |
-| Product matching review (approve/reject/defer) | JSON endpoints: list pending candidates with both sides' attributes; POST decision with CSRF/Origin protection | admin review is an HTML form (`/admin/match/...`) |
-| Admin settings / source configuration | JSON endpoints behind the admin token; policy and budget read model | admin is HTML and token-gated |
+| Watchlists (create/manage, changes) | **Endpoints now exist:** `GET /api/v1/watchlist`, `POST /api/v1/watchlist` (`listing_id`, `target_price` in the listing's currency), `DELETE /api/v1/watchlist/{listing_id}`. They need the browser's owner cookie (open any page first; otherwise 401). Origin-checked for writes. | UI not built |
+| Product matching review (approve/reject) | **Endpoints now exist:** `GET /api/v1/match-candidates`, `POST /api/v1/match-candidates/{id}/decision` (`accept` or `reject`). Admin token required. | UI not built |
+| Admin settings / source status | **Endpoint now exists:** `GET /api/v1/admin/status` (sources, recent runs, review backlog; read-only). Admin token required. | UI not built; settings writes are not exposed as JSON |
 | Merchant comparison as its own page | none for data (`GET /api/v1/listings?...` + product grouping); needs a product endpoint | product page is server-rendered and already works |
 
 ## Design decisions

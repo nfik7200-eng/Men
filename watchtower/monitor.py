@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import Event, Listing, WatchItem
+from .money import fmt_money
 
 
 @dataclass
@@ -42,7 +43,7 @@ def evaluate(s: Session, owner: str = "local") -> list[WatchStatus]:
             continue
         if w.target_price_minor and l.price_minor is not None and l.price_minor <= w.target_price_minor:
             st.triggered = True
-            st.reasons.append(f"Target reached: {l.price_minor/100:.2f} ≤ {w.target_price_minor/100:.2f} {l.currency}")
+            st.reasons.append(f"Target reached: {fmt_money(l.price_minor, l.currency)} ≤ {fmt_money(w.target_price_minor, l.currency)}")
         if w.notify_restock and w.baseline_availability == "out_of_stock" and l.availability == "in_stock":
             st.triggered = True
             st.reasons.append("Back in stock")
