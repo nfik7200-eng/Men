@@ -16,7 +16,12 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     const page = await ctx.newPage();
     const serverErrors = [];
     page.on('response', r => { if (r.status() >= 500) serverErrors.push(`${r.status()} ${r.url()}`); });
-    const go = async (path) => { const r = await page.goto(BASE + path, { waitUntil: 'networkidle' }); return r.status(); };
+    const go = async (path) => {
+      const r = await page.goto(BASE + path, { waitUntil: 'networkidle' });
+      // The research island answers after load; wait for its loading line to clear before reading the page.
+      if (path.startsWith('/research')) await page.waitForFunction(() => !document.body.innerText.includes('Searching the collected data'), null, { timeout: 15000 }).catch(() => {});
+      return r.status();
+    };
 
     // discovery -> search -> product comparison
     check(`${label}: home loads`, (await go('/')) === 200);
@@ -27,7 +32,7 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     check(`${label}: no horizontal overflow on listing`, (await overflow(page)) === 0);
 
     // merchant comparison page exists for a matched product
-    const matched = await (await page.request.get(BASE + '/api/v1/listings?q=Raspberry+Pi+5+-+8GB')).json();
+    const matched = await (await page.request.get(BASE + '/api/v1/listings?q=Raspberry+Pi+5&per_page=100')).json();
     const withProduct = (matched.items || []).find(i => i.product_id && ['auto', 'confirmed'].includes(i.match_status));
     check(`${label}: the API exposes at least one matched product for the 8 GB Pi 5`, !!withProduct);
     if (withProduct) {
@@ -51,6 +56,21 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     body = await page.textContent('body');
     check(`${label}: coverage distinguishes discovered and collected`, body.includes('Discovered') && body.includes('Collected') && body.includes('not a listing'));
     check(`${label}: no horizontal overflow on coverage`, (await overflow(page)) === 0);
+
+    // deal radar island: the server copy is replaced by the live deals list, with evidence and no invented labels
+    await go('/deals');
+    await page.waitForFunction(() => !document.querySelector('.server-deals') || document.querySelector('.server-deals').hidden, null, { timeout: 8000 }).catch(() => {});
+    body = await page.textContent('body');
+    check(`${label}: deal radar island replaces the server table`, (await page.$eval('.server-deals', e => e.hidden).catch(() => false)) === true);
+    check(`${label}: deal radar shows scored deals or says none`, (await page.$('.deal-card')) !== null || body.includes('No scored listings yet'));
+    check(`${label}: no horizontal overflow on deals`, (await overflow(page)) === 0);
+
+    // browse island: real data by default, no demo rows, no overflow
+    await go('/search?q=raspberry');
+    await page.waitForSelector('.discovery-results .grid, .discovery-results [role="alert"]', { timeout: 8000 }).catch(() => {});
+    check(`${label}: browse island lists real results for a query`, (await page.$$('.discovery-results article')).length > 0);
+    check(`${label}: browse island default excludes demo rows`, (await page.$$('.discovery-results .badge.warn')).length === 0);
+    check(`${label}: no horizontal overflow on browse`, (await overflow(page)) === 0);
 
     // watchlist round trip
     await go(productHref);

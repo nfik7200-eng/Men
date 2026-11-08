@@ -2,6 +2,8 @@
 {% block title %}Browse{% endblock %}
 {% block body %}
 <h1>Browse products</h1>
+{% if islands %}<div class="island-slot" data-island="discovery" hidden><p class="state">Loading listings…</p></div>{% endif %}
+<div class="server-search">
 {{ filters(f, facets) }}
 <p class="muted" style="margin-top:14px">{{ total }} listing{{ '' if total == 1 else 's' }}{% if f.q %} for “{{ f.q }}”{% endif %}. Prices in different currencies are never converted or mixed.</p>
 {% if items %}<div class="grid">{% for x in items %}{{ card(x) }}{% endfor %}</div>
@@ -13,4 +15,5 @@
   <span class="muted">Page {{ page }} of {{ pages }}</span>
   {% if page < pages %}<a class="btn secondary" href="/search?{{ qs }}&page={{ page + 1 }}">Next →</a>{% endif %}
 </div>{% endif %}
+</div>
 {% endblock %}

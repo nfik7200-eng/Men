@@ -60,6 +60,7 @@ export interface ListingQuery {
   sort?: 'price_asc' | 'price_desc' | 'name' | 'freshness' | string;
   page?: number;
   per_page?: number;
+  data?: 'real' | 'demo' | 'all';
 }
 
 export const api = {

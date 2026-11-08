@@ -186,3 +186,13 @@ def test_weak_admin_token_disables_admin(seeded, monkeypatch):
     assert c.post("/admin/login", data={"token": "short"}, follow_redirects=False).status_code == 303
     assert c.get("/admin", headers={"accept": "application/json"}).status_code == 403  # even with the "right" weak token
     assert c.get("/admin", headers={"accept": "application/json", "X-Admin-Token": "short"}).status_code == 403
+
+
+def test_listings_api_data_class_keeps_demo_rows_out_of_real_view(client):
+    """Demo/sandbox rows are excluded by data=real; the default (no parameter) is unchanged for existing callers."""
+    everything = client.get("/api/v1/listings").json()["total"]
+    demo = client.get("/api/v1/listings?data=demo").json()["total"]
+    real = client.get("/api/v1/listings?data=real").json()["total"]
+    assert everything > 0 and demo == everything   # the seeded catalogue is demo data
+    assert real == 0                              # so a real-data view must be empty, not padded with demo rows
+    assert client.get("/api/v1/listings?data=bogus").status_code == 200  # unknown value falls back to 'all' semantics

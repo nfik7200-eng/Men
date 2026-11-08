@@ -94,3 +94,17 @@ button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;filter:g
 .server-coverage[hidden]{display:none}
 /* Island containers stay hidden (and their "Loading…" text unseen) until a script mounts them. */
 .island-slot[hidden]{display:none}
+
+/* Deal radar island */
+.deal-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:12px}
+.deal-card{display:flex;flex-direction:column;gap:6px}
+.deal-title{font-size:1.05rem;margin:0}
+.deal-warnings,.deal-components{margin:0;padding-left:18px}
+.server-deals[hidden]{display:none}
+
+/* Browse island */
+.server-search[hidden]{display:none}
+.island-search{grid-template-columns:2fr 1fr 1fr auto auto;align-items:center}
+.island-search label{display:flex;align-items:center;gap:4px}
+.discovery-results{margin-top:14px}
+@media (max-width:700px){.island-search{grid-template-columns:1fr}}

@@ -193,7 +193,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         return render(request, "search.html", items=with_status(s, rows), total=total, page=page, per_page=24,
                       f={"q": q, "category": category, "source": source, "currency": currency, "min_price": min_price,
                          "max_price": max_price, "in_stock": in_stock, "sort": sort, "data": data},
-                      facets=facets(s), banner=banner(s))
+                      facets=facets(s), banner=banner(s), islands=True)
 
     @app.get("/listing/{listing_id}")
     def listing_page(request: Request, listing_id: int, dest: Annotated[str, Query(max_length=2)] = "", ship: Money = None,
@@ -246,7 +246,7 @@ def create_app(db: Database | None = None) -> FastAPI:
     def deals_page(request: Request, category: Text = "", data: Text = "", s=Depends(get_s)):
         kinds, data = kinds_for(s, data)
         return render(request, "deals.html", top=deals.top_deals(s, 30, category or None, kinds=kinds), category=category,
-                      facets=facets(s), banner=banner(s), data=data)
+                      facets=facets(s), banner=banner(s), data=data, islands=True)
 
     _cov_cache: dict = {"at": 0.0, "rep": None}
 
@@ -433,9 +433,12 @@ def create_app(db: Database | None = None) -> FastAPI:
     @app.get("/api/v1/listings")
     def api_listings(q: Text = "", category: Text = "", source: Text = "", currency: Text = "", min_price: Money = None,
                      max_price: Money = None, in_stock: bool = False, sort: Text = "price_asc",
-                     page: int = Query(1, ge=1, le=1000), per_page: int = Query(24, ge=1, le=100), s=Depends(get_s)):
+                     page: int = Query(1, ge=1, le=1000), per_page: int = Query(24, ge=1, le=100),
+                     data: Text = "", s=Depends(get_s)):
+        """`data` = real | demo | all. Omitted keeps the historical behaviour (every source); the browse island always sends it."""
+        kinds = {"real": ("live",), "demo": ("demo", "sandbox")}.get(data) if data else None
         rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
-                                      in_stock, sort, page, per_page)
+                                      in_stock, sort, page, per_page, kinds=kinds)
         return {"total": total, "page": page, "items": [listing_json(l) for l in rows]}
 
     @app.get("/api/v1/listings/{listing_id}")

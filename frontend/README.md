@@ -17,14 +17,17 @@ The server pages stay complete and usable without JavaScript.
 | `listing-chart` | `/listing/<id>` | `GET /api/v1/listings/<id>/history` | draws only real priced observations; states flat prices; no line for one collection |
 | `research` | `/research` | `GET /api/v1/research?q=` | answers from the backend; each pick links its exact listing; unconfirmed matches labelled |
 | `coverage` | `/coverage` | `GET /api/v1/coverage` | discovered ≠ collected; unknown rates shown as unknown, never 0% |
+| `deals` | `/deals` | `GET /api/v1/deals` | server score, label and evidence shown as sent; a missing price is "Price not stated"; unscored is "Not scored" |
+| `discovery` | `/search` | `GET /api/v1/listings` with `data=real\|demo\|all` | real retailers by default; demo rows labelled and shown only when asked; URL holds the search state; prices never converted |
+
+The JSON listings endpoint takes `data`. Omitting it keeps the old behaviour (every source), so existing API callers
+are unchanged. The island always sends it, so a real-data view never shows demo or sandbox rows.
 
 ## Not built yet (placeholders that say "not built yet")
 Each needs backend work first. None is faked with fixtures.
 
 | Interface | Needed backend | Why it is blocked today |
 |---|---|---|
-| Product discovery (filters, sort, pagination) | none: `GET /api/v1/listings` already supports them | could be built next; placeholder remains on `/search` |
-| Deals intelligence | none for the list (`GET /api/v1/deals`); evidence per deal is already in the payload | could be built next |
 | Watchlists (create/manage, changes) | JSON endpoints: list/add/remove watch items and their triggered reasons (`monitor.evaluate` exists server-side) | watch actions are HTML form POSTs with redirects |
 | Product matching review (approve/reject/defer) | JSON endpoints: list pending candidates with both sides' attributes; POST decision with CSRF/Origin protection | admin review is an HTML form (`/admin/match/...`) |
 | Admin settings / source configuration | JSON endpoints behind the admin token; policy and budget read model | admin is HTML and token-gated |
