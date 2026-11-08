@@ -225,3 +225,17 @@ def test_alerts_page_renders_unread_alerts_with_mark_read_controls(db):
     assert "Sensor board: at or below your target" in page.text
     assert "1</b> unread" in page.text or ">1</b>" in page.text
     assert "Mark read" in page.text and "Mark all read" in page.text
+
+
+def test_no_alert_for_a_listing_no_longer_found_at_the_source(db):
+    _migrated(db)
+    lid = _listing(db, price=800)
+    with db.session() as s:
+        monitor.add_watch(s, lid, "hank", target_price_minor=900)
+        s.commit()
+    with db.session() as s:
+        s.get(Listing, lid).active = False          # removed after a complete crawl
+        s.commit()
+    with db.session() as s:
+        assert notes.generate(s, "hank") == 0       # the last price seen is not a current price
+        assert notes.unread_count(s, "hank") == 0

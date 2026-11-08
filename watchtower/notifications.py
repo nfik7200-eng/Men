@@ -91,6 +91,8 @@ def generate(s: Session, owner: str) -> int:
     created = 0
     for st in monitor.evaluate(s, owner):
         w, l = st.watch, st.watch.listing
+        if not l.active:
+            continue  # no longer found at the source: the last price seen is not a current price, so no alert
         if w.baseline_currency and l.currency != w.baseline_currency:
             continue  # the monitor pauses comparisons after a currency change: no alert without a sourced FX rate
         if w.target_price_minor and l.price_minor is not None and l.price_minor <= w.target_price_minor:
