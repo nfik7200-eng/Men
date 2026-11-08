@@ -36,7 +36,8 @@ def test_cross_origin_writes_are_refused_on_every_new_state_route(web, token):
     with db.session() as s:
         monitor.add_watch(s, lid, client.cookies.get("wt_owner"), target_price_minor=900)
         s.commit()
-    nid = client.get("/api/v1/notifications").json()["items"][0]["id"] if client.get("/api/v1/notifications").json()["items"] else None
+    client.get("/notifications")  # writes the alert row so the per-id check always runs
+    nid = client.get("/api/v1/notifications").json()["items"][0]["id"]
     checks = [
         ("post", "/api/v1/watchlist", {"json": {"listing_id": lid}}),
         ("delete", f"/api/v1/watchlist/{lid}", {}),
@@ -44,18 +45,21 @@ def test_cross_origin_writes_are_refused_on_every_new_state_route(web, token):
         ("post", "/notifications/read-all", {"data": {}}),
         ("post", "/api/v1/match-candidates/1/decision", {"json": {"decision": "reject"}, "headers": {"X-Admin-Token": TOKEN}}),
     ]
-    if nid is not None:
-        checks.append(("post", f"/api/v1/notifications/{nid}/read", {}))
+    checks.append(("post", f"/api/v1/notifications/{nid}/read", {}))
     for method, path, kw in checks:
-        headers = {**kw.pop("headers", {}), **EVIL}
-        r = getattr(client, method)(path, headers=headers, **kw)
-        assert r.status_code == 403, (method, path, r.status_code)
+        extra = dict(kw.get("headers", {}))            # e.g. the admin token; the Origin is the only difference
+        attack = getattr(client, method)(path, headers={**extra, **EVIL}, **{k: v for k, v in kw.items() if k != "headers"})
+        assert attack.status_code == 403, (method, path, attack.status_code)
+        # control: the same request from the same site is not refused by the Origin check
+        control = getattr(client, method)(path, headers={**extra, **SAME}, **{k: v for k, v in kw.items() if k != "headers"})
+        assert control.status_code != 403, (method, path, control.status_code)
 
 
 def test_an_admin_cookie_cannot_be_used_cross_origin(web, token):
     db, client, _ = web
     login = client.post("/admin/login", data={"token": TOKEN}, headers=SAME, follow_redirects=False)
-    assert login.status_code in (303, 302, 200)
+    assert "err=" not in login.headers.get("location", "")          # a failed login redirects to ?err=1
+    assert "wt_admin=" in login.headers.get("set-cookie", "")        # and a successful one sets the admin session
     r = client.post("/api/v1/match-candidates/1/decision", json={"decision": "reject"}, headers=EVIL)
     assert r.status_code == 403  # the cookie alone must not authorise a cross-site write
 

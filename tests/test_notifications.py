@@ -39,7 +39,7 @@ def test_migrate_apply_creates_once_and_is_idempotent(db):
     assert inspect(db.engine).has_table(notes.TABLE)
 
 
-def test_target_alert_is_recorded_once_and_a_new_low_price_adds_one(db):
+def test_target_alert_is_recorded_once_and_a_further_lower_price_adds_one(db):
     _migrated(db)
     lid = _listing(db, price=1000)
     with db.session() as s:
@@ -98,6 +98,43 @@ def test_a_restock_before_the_watch_existed_is_not_alerted(db):
         s.commit()
     with db.session() as s:
         assert notes.generate(s, "gina") == 0
+
+
+def test_web_mark_read_is_persisted_not_just_acknowledged(db):
+    _migrated(db)
+    lid = _listing(db, price=800)
+    client = TestClient(create_app(db), base_url="http://testserver")
+    assert client.get("/").status_code == 200
+    with db.session() as s:
+        monitor.add_watch(s, lid, client.cookies.get("wt_owner"), target_price_minor=900)
+        s.commit()
+    client.get("/notifications")
+    nid = client.get("/api/v1/notifications").json()["items"][0]["id"]
+    assert client.post(f"/notifications/{nid}/read", headers=SAME_ORIGIN, follow_redirects=False).status_code == 303
+    assert client.get("/api/v1/notifications").json()["unread"] == 0
+
+
+SAME_ORIGIN = {"Origin": "http://testserver"}
+
+
+def test_cli_migrate_apply_and_generate_and_rollback_run_end_to_end(db, tmp_path):
+    import sqlite3
+    path = tmp_path / "copy.db"
+    from watchtower.db import Database
+    Database(f"sqlite:///{path}").init()                 # a copy with the main tables only
+    assert cli.main(["notify-migrate", "--db", str(path), "--apply"]) == 0
+    assert sqlite3.connect(path).execute("select count(*) from sqlite_master where name='notifications'").fetchone()[0] == 1
+    assert cli.main(["notify-generate", "--db", str(path), "--owner", "nobody"]) == 0
+    assert cli.main(["notify-rollback", "--db", str(path), "--apply"]) == 0
+    assert sqlite3.connect(path).execute("select count(*) from sqlite_master where name='notifications'").fetchone()[0] == 0
+
+
+def test_cli_generate_refuses_a_copy_without_the_table(tmp_path):
+    from watchtower.db import Database
+    path = tmp_path / "bare.db"
+    Database(f"sqlite:///{path}").init()
+    with pytest.raises(SystemExit, match="notify-migrate"):
+        cli.main(["notify-generate", "--db", str(path), "--owner", "nobody"])
 
 
 def test_read_state_and_owner_isolation(db):
@@ -223,7 +260,7 @@ def test_alerts_page_renders_unread_alerts_with_mark_read_controls(db):
     page = client.get("/notifications")
     assert page.status_code == 200
     assert "Sensor board: at or below your target" in page.text
-    assert "1</b> unread" in page.text or ">1</b>" in page.text
+    assert "<p><b>1</b> unread</p>" in page.text
     assert "Mark read" in page.text and "Mark all read" in page.text
 
 
