@@ -324,6 +324,7 @@ def create_app(db: Database | None = None) -> FastAPI:
             return RedirectResponse("/watchlist?msg=invalid", status_code=303)
         try:
             monitor.add_watch(s, listing_id, owner, parse_target(target, listing.currency))
+            s.commit()  # commit inside the handler: a failed write must not be reported as success
         except ValueError:
             return RedirectResponse("/watchlist?msg=invalid", status_code=303)
         return RedirectResponse("/watchlist", status_code=303)
@@ -333,6 +334,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         w = s.scalar(select(WatchItem).where(WatchItem.owner == owner_of(request), WatchItem.listing_id == listing_id))
         if w:
             s.delete(w)
+            s.commit()  # commit inside the handler: a failed write must not be reported as success
         return RedirectResponse("/watchlist", status_code=303)
 
     # ------------------------------------------------------------------ admin
@@ -435,6 +437,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         if decision not in ("accept", "reject"):
             raise HTTPException(400)
         resolve_candidate(s, cand_id, decision == "accept", by="admin")
+        s.commit()  # commit inside the handler: a failed write must not be reported as success
         return RedirectResponse("/admin", status_code=303)
 
     # ------------------------------------------------------------------ JSON API (v1)
@@ -567,6 +570,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         except ValueError as e:
             raise HTTPException(422, str(e))
         w = monitor.add_watch(s, listing_id, owner, target)
+        s.commit()  # commit inside the handler: a failed write must not be reported as success
         s.flush()
         return {"listing_id": w.listing_id, "target_price_minor": w.target_price_minor, "currency": listing.currency}
 
@@ -576,6 +580,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         if w is None:
             raise HTTPException(404, "not on your watchlist")
         s.delete(w)
+        s.commit()  # commit inside the handler: a failed write must not be reported as success
         return {"removed": listing_id}
 
     def candidate_json(s, c: MatchCandidate) -> dict:
@@ -640,12 +645,14 @@ def create_app(db: Database | None = None) -> FastAPI:
     def notification_read_form(note_id: int, request: Request, s=Depends(get_s)):
         if notes.available(s):
             notes.mark_read(s, owner_of(request), note_id)  # someone else's id answers the same as a missing one
+            s.commit()  # commit inside the handler: a failed write must not be reported as success
         return RedirectResponse("/notifications", status_code=303)
 
     @app.post("/notifications/read-all")
     def notification_read_all_form(request: Request, s=Depends(get_s)):
         if notes.available(s):
             notes.mark_all_read(s, owner_of(request))
+            s.commit()  # commit inside the handler: a failed write must not be reported as success
         return RedirectResponse("/notifications", status_code=303)
 
     @app.get("/api/v1/notifications")
@@ -661,14 +668,18 @@ def create_app(db: Database | None = None) -> FastAPI:
         owner = require_browser_owner(request)
         if not notes.available(s):
             raise notes_missing()
-        return {"marked": notes.mark_all_read(s, owner)}
+        marked = notes.mark_all_read(s, owner)
+        s.commit()
+        return {"marked": marked}
 
     @app.post("/api/v1/notifications/{note_id}/read")
     def api_notification_read(note_id: int, request: Request, s=Depends(get_s)):
         owner = require_browser_owner(request)
         if not notes.available(s):
             raise notes_missing()
-        if not notes.mark_read(s, owner, note_id):
+        found = notes.mark_read(s, owner, note_id)
+        s.commit()
+        if not found:
             raise HTTPException(404, "notification not found")
         return {"id": note_id, "read": True}
 

@@ -239,3 +239,27 @@ def test_no_alert_for_a_listing_no_longer_found_at_the_source(db):
     with db.session() as s:
         assert notes.generate(s, "hank") == 0       # the last price seen is not a current price
         assert notes.unread_count(s, "hank") == 0
+
+
+def test_a_failed_commit_is_not_reported_as_success(db):
+    from sqlalchemy import event
+    _migrated(db)
+    lid = _listing(db, price=800)
+    client = TestClient(create_app(db), base_url="http://testserver", raise_server_exceptions=False)
+    assert client.get("/").status_code == 200
+    with db.session() as s:
+        monitor.add_watch(s, lid, client.cookies.get("wt_owner"), target_price_minor=900)
+        s.commit()
+    client.get("/notifications")                            # writes the alert row
+    nid = client.get("/api/v1/notifications").json()["items"][0]["id"]
+
+    def boom(session):
+        raise RuntimeError("injected commit failure")
+    event.listen(db.Session, "before_commit", boom)
+    try:
+        r = client.post(f"/api/v1/notifications/{nid}/read", headers={"Origin": "http://testserver"})
+    finally:
+        event.remove(db.Session, "before_commit", boom)
+    assert r.status_code >= 500, "a write that did not commit must not be reported as success"
+    with db.session() as s:
+        assert notes.unread_count(s, client.cookies.get("wt_owner")) == 1
