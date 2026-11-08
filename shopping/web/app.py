@@ -209,7 +209,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         stats = deals.price_stats(s, l)
         est = None
         if dest or ship is not None or ins is not None or hand is not None or to:
-            ship_minor, ship_ev = (round(ship * 100), "user-provided") if ship is not None else (l.shipping_minor, "quoted")
+            ship_minor, ship_ev = (to_minor(ship, l.currency), "user-provided") if ship is not None else (l.shipping_minor, "quoted")
             quote = fxmod.get_rate(s, l.currency, to) if len(to) == 3 else None
             est = importcost.estimate(l.price_minor, l.currency, dest or None, ship_minor,
                                       insurance_minor=round(ins * 100) if ins is not None else None,
@@ -267,7 +267,7 @@ def create_app(db: Database | None = None) -> FastAPI:
 
     @app.get("/research")
     def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):
-        res = assistant.answer(s, q, shipping_minor=round(ship * 100) if ship is not None else None) if q.strip() else None
+        res = assistant.answer(s, q, shipping_major=ship) if q.strip() else None
         return render(request, "research.html", q=q, res=res, ship=ship, banner=banner(s), islands=True)
 
     @app.get("/go/{listing_id}")
@@ -478,7 +478,7 @@ def create_app(db: Database | None = None) -> FastAPI:
 
     @app.get("/api/v1/research")
     def api_research(q: str = Query(..., min_length=3, max_length=500), ship: Money = None, s=Depends(get_s)):
-        r = assistant.answer(s, q, shipping_minor=round(ship * 100) if ship is not None else None)
+        r = assistant.answer(s, q, shipping_major=ship)
         return JSONResponse({"text": r["text"], "interpretation": r["interpretation"], "caveats": r["caveats"],
                              "gaps": r["gaps"], "retrieved_listing_ids": r["retrieved_listing_ids"],
                              "llm_summary": r["llm_summary"],

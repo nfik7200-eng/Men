@@ -70,3 +70,6 @@ OPERATIONS         cli.py: collect status health policy rematch reparse recheck 
 
 Dependency rules: `watchtower` never imports `shopping`; `watchtower/ml` is imported by nothing in the engine; model output is advisory only.
 Shared-module changes (models, matching, collector, app) go through one integrator; parallel agents own disjoint paths (docs/MASTER_PLAN.md).
+
+## Frontend islands (current)
+Server-rendered pages mark an island with `data-island`. Mounted islands: listing-chart, research, coverage, deals, discovery (browse). Each keeps a server fallback that is visible without JavaScript and hidden only once the island runs. Islands read only the JSON API and never construct money or labels the server did not send.

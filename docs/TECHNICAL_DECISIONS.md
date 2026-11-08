@@ -76,3 +76,12 @@ Decisions marked **[Opus consult]** adopted advice from the architecture consult
 - **Scheduler**: library + CLI only, disabled by default, double opt-in, policy gate unchanged, no installation.
 - **Coverage** metrics deliberately separate discovered / eligible / fetched_ok / acquired; several URLs of one listing count once.
 - New nullable `crawl_urls` columns are added by the forward-only `sync_columns` the first time the DB is opened normally: take a `backup` first.
+
+## Money: exponents come from the currency, never a constant
+Money is integer minor units. The scale is ISO 4217's exponent for the currency (0 for JPY/KRW, 3 for KWD/BHD, else 2), held in `watchtower/currency.py`. The frontend list mirrors it and both sides are pinned by tests. Any conversion of a user-typed amount (price bounds, watch targets, shipping) or any display of minor units uses that exponent. Previously a global ×100 misstated zero- and three-decimal currencies. No FX conversion is applied anywhere.
+
+## Owner-cookie rule for the JSON watchlist
+The owner cookie is set on page visits, not on `/api/` responses. A watchlist write without it is refused with 401 instead of being accepted under an identity the caller cannot reuse.
+
+## Admin guard on the JSON API
+`/api/` callers receive a JSON 403 when unauthenticated, never a redirect to the sign-in page. The HTML admin behaviour is unchanged.

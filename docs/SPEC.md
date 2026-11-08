@@ -52,3 +52,10 @@ Both are flagged `kind=sandbox` in the DB and in the UI. They prove the pipeline
 **Out:** accounts/auth, email/push alerts delivery, billing, ML, Playwright, business UI, Postgres/Alembic, cross-currency conversion.
 
 ## 6. Acceptance criteria → see `docs/PROJECT_PROGRESS.md` for the evidence checklist.
+
+## JSON API additions (this round)
+- `GET /api/v1/watchlist`, `POST /api/v1/watchlist` (`listing_id`, `target_price` in the listing's currency, or null), `DELETE /api/v1/watchlist/{listing_id}`. Requires the browser owner cookie; 401 otherwise.
+- `GET /api/v1/match-candidates`, `POST /api/v1/match-candidates/{id}/decision` (`accept` | `reject`). Admin token required.
+- `GET /api/v1/admin/status`. Admin token required; read-only.
+- `GET /api/v1/listings` accepts `data=real|demo|all`. Omitted keeps every source.
+- `GET /api/v1/research` `ship` is in major units of each pick's own currency.

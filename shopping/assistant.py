@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from watchtower.currency import to_minor
 from watchtower.deals import DealScore, HistoryContext, PeerContext, score_listing
 from watchtower.models import CrawlUrl, Listing, MatchCandidate, Source, utcnow
 from watchtower.money import fmt_money
@@ -338,7 +339,8 @@ def _uncollected(s: Session, question: str, intent: dict, represented: set[int],
 
 
 def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool = True,
-           shipping_minor: int | None = None) -> dict:
+           shipping_major: float | None = None) -> dict:
+    """shipping_major: a shipping cost the person typed, in MAJOR units of each pick's own currency (converted per pick)."""
     now = now or utcnow()
     kind = _market_kind(question)
     if kind:
@@ -458,8 +460,9 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
         alternatives = [p for p in pool[3:] if p.listing.price_minor <= best.listing.price_minor * 0.9 and p.fit >= best.fit - 2][:2]
         if intent["want_import"]:
             for p in top[:1] + alternatives[:1]:
+                ship_minor = to_minor(shipping_major, p.listing.currency) if shipping_major is not None else None
                 p.import_estimate = importcost.estimate(p.listing.price_minor, p.listing.currency, intent["destination"],
-                                                        shipping_minor)
+                                                        ship_minor)
             if not intent["destination"]:
                 caveats.append("No destination country recognised; used DEFAULT assumed import rates.")
     if cands and all(p.listing.source.kind != "live" for p in picks):

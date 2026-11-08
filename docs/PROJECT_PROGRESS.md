@@ -116,3 +116,11 @@ verified deals possible); (4) legal read / outreach for a third merchant. Detail
 
 ## Next highest-value milestone
 Run daily collection for 8+ days (cron/scheduled task with a real contact address) so the first genuinely *verified* price drops can appear, and in parallel obtain a legal read of the Adafruit/SparkFun terms and ask Cool Components/Pimoroni for explicit permission to add a third and fourth merchant (and a second currency).
+
+## Round: frontend islands, currency correctness, JSON API (local, unpushed)
+Commits (local branch `claude/sweet-franklin-dsta71`, not pushed): `2d3eb7a` deal radar and browse islands; `1d56926` currency exponents; `29de621` watchlist, match-review and admin JSON API.
+* **Built:** `/deals` (server scores and evidence, no invented labels), `/search` browse island (real data by default, demo rows labelled, URL-driven), `GET/POST/DELETE /api/v1/watchlist` (per browser, 401 without a session), `GET /api/v1/match-candidates` and `POST …/decision` (admin token), `GET /api/v1/admin/status` (admin token, read-only).
+* **Currency fixes:** price bounds, parsed prices, display text, watch targets and research shipping now use each currency's ISO 4217 exponent. Previously every amount was scaled by 100. Frontend and engine lists are pinned by tests.
+* **Verified:** pytest 469 passed / 4 skipped; ruff clean; pyright 78 (was 81, none new); vitest 58; bundle fresh; Playwright journeys 44/44 on a scratch copy of the snapshot.
+* **Not done:** UIs for watchlist, match review and admin status; live acquisition (no real `WATCHTOWER_CONTACT`); Contabo VPS inspection and deployment test (no access); specialist-agent orchestration (not requested); push of the six commits.
+* **Decision:** an API client without the browser owner cookie cannot write a watchlist (401). Silently accepting writes that vanish was judged worse.
