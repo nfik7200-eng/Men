@@ -108,3 +108,8 @@ button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;filter:g
 .island-search label{display:flex;align-items:center;gap:4px}
 .discovery-results{margin-top:14px}
 @media (max-width:700px){.island-search{grid-template-columns:1fr}}
+
+/* UX audit fixes: checkbox label sits beside its box; links meet the 24 px minimum target size (WCAG 2.2 2.5.8). */
+.island-search label{justify-self:stretch;width:auto;justify-content:flex-start;white-space:normal}
+table a,.card h2 a,.card h3 a,.deal-title a,.cta-link{display:inline-block;min-height:24px;line-height:24px}
+.island-search input[type=checkbox]{width:24px;height:24px;min-height:24px;padding:0;flex:none;margin:0}

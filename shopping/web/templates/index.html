@@ -28,7 +28,7 @@
 
 <h2>{{ 'Lowest vs comparable listings' if live else 'Demo deals (test data)' }} <span class="muted">(estimates)</span></h2>
 {% if top %}<div class="grid">{% for l, d in top %}{{ card({'l': l, 'deal': d, 'pstatus': 'observed', 'fresh': 'fresh'}) }}{% endfor %}</div>
-<p><a href="/deals">See how each score is built →</a></p>
+<p><a class="cta-link" href="/deals">See how each score is built →</a></p>
 {% else %}<p class="muted">No scored listings yet{% if live %} — real listings need comparable peers before an estimate appears{% endif %}.</p>{% endif %}
 
 <h2>Recent changes detected</h2>

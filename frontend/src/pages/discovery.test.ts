@@ -76,6 +76,24 @@ describe('browse listings island', () => {
     expect(root.textContent).toContain('Sorted by name instead of price.');
   });
 
+  it('drops a price limit that has no currency, says so, and does not send it', async () => {
+    window.history.replaceState(null, '', '/search?max_price=15');
+    const f = vi.fn(async (_u: RequestInfo | URL) => ok(page([listing()])));
+    vi.stubGlobal('fetch', f);
+    mountDiscovery(root);
+    await flush(); await flush();
+    expect(String(f.mock.calls[0]?.[0])).not.toContain('max_price');
+    expect(root.textContent).toContain('The price limit was not applied.');
+  });
+
+  it('offers the currencies in the results as choices for scoping a price limit', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_u: RequestInfo | URL) => ok({ total: 2, page: 1, items: [listing()], currencies: ['JPY', 'USD'] })));
+    mountDiscovery(root);
+    await flush(); await flush();
+    const options = [...root.querySelectorAll<HTMLOptionElement>('select[name="currency"] option')].map((o) => o.value);
+    expect(options).toEqual(['', 'JPY', 'USD']);
+  });
+
   it('offers no next page beyond the last one', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok(page([listing()], 1))));
     mountDiscovery(root);

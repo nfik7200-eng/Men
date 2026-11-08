@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ prod.title }}{% endblock %}
 {% block body %}
-<p class="muted"><a href="/search">← Browse</a></p>
+<p class="muted"><a class="cta-link" href="/search">← Browse</a></p>
 <h1>{{ prod.title }}</h1>
 <p class="muted">{{ items | length }} merchant listing{{ '' if items | length == 1 else 's' }} matched to this product.
 {% if 'live' not in kinds %}<span class="badge warn">Test data only — not real retailers</span>{% endif %}</p>

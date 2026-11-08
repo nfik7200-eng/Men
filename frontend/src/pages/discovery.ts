@@ -33,7 +33,7 @@ export function mountDiscovery(root: HTMLElement): void {
     controller?.abort();
     controller = new AbortController();
     results.replaceChildren(status('Searching…'));
-    void load(results, params, controller.signal, (p) => onSearch({ ...params, page: p }));
+    void load(results, params, controller.signal, (p) => onSearch({ ...params, page: p }), (found) => offerCurrencies(root, found, params.currency ?? ''));
   };
   // Back and forward move through search history; re-run the view for the URL that is now current.
   window.addEventListener('popstate', () => {
@@ -45,12 +45,18 @@ export function mountDiscovery(root: HTMLElement): void {
   show(currentParams());
 }
 
-type Params = ListingQuery & { data: 'real' | 'demo' | 'all' };
+type Params = ListingQuery & { data: 'real' | 'demo' | 'all'; notice?: string };
 
 function currentParams(): Params {
   const q = parseListingQuery(location.search);
   const raw = new URLSearchParams(location.search).get('data') ?? 'real';
   const data = raw === 'demo' || raw === 'all' ? raw : 'real';
+  // A price limit compares amounts, so it needs one chosen currency. Without it the limit is dropped and the page says so,
+  // the same rule the server applies (the API would refuse it with 422).
+  if (!q.currency && (q.min_price !== undefined || q.max_price !== undefined)) {
+    const { min_price: _min, max_price: _max, ...rest } = q;
+    return { ...rest, data, notice: 'Choose a currency to use a price limit. The price limit was not applied.' };
+  }
   return { ...q, data };
 }
 
@@ -61,13 +67,21 @@ function queryString(p: Params): string {
   return s ? `?${s}` : '';
 }
 
-async function load(results: HTMLElement, params: Params, signal: AbortSignal, goToPage: (p: number) => void): Promise<void> {
+async function load(
+  results: HTMLElement,
+  params: Params,
+  signal: AbortSignal,
+  goToPage: (p: number) => void,
+  offerCurrencies: (found: string[]) => void,
+): Promise<void> {
   try {
     const page = await api.listings(params, signal);
     if (signal.aborted) return;
+    offerCurrencies(page.currencies ?? []);
     const current = params.page ?? 1;
     const pages = Math.max(1, Math.ceil(page.total / PER_PAGE));
     results.replaceChildren(
+      params.notice ? status(params.notice) : '',
       h('p', { class: 'muted small' },
         `${page.total} listing${page.total === 1 ? '' : 's'}${params.q ? ` for “${params.q}”` : ''}. `,
         'Prices in different currencies are never converted or mixed.'),
@@ -99,6 +113,7 @@ function searchForm(p: Params, onSearch: (next: Params) => void): HTMLFormElemen
       h('option', { value: 'real' }, 'Real retailers'),
       h('option', { value: 'demo' }, 'Demo / sandbox'),
       h('option', { value: 'all' }, 'Everything')),
+    h('select', { name: 'currency', 'aria-label': 'Currency' }, h('option', { value: '' }, 'Any currency')),
     h('label', { class: 'small' }, h('input', { type: 'checkbox', name: 'in_stock' }), ' In stock only'),
     h('button', { type: 'submit' }, 'Apply'),
   );
@@ -109,6 +124,8 @@ function searchForm(p: Params, onSearch: (next: Params) => void): HTMLFormElemen
     const data = String(d.get('data'));
     onSearch({
       ...p,
+      notice: undefined,
+      currency: String(d.get('currency') ?? ''),
       q: String(d.get('q') ?? '').trim(),
       sort: String(d.get('sort')),
       data: data === 'demo' || data === 'all' ? data : 'real',
@@ -119,6 +136,14 @@ function searchForm(p: Params, onSearch: (next: Params) => void): HTMLFormElemen
   return f;
 }
 
+/** Lists the currencies in the matched set as choices, so a person can scope a price limit to one of them. */
+function offerCurrencies(root: HTMLElement, found: string[], selected: string): void {
+  const sel = root.querySelector<HTMLSelectElement>('select[name="currency"]');
+  if (!sel) return;
+  sel.replaceChildren(h('option', { value: '' }, 'Any currency'), ...found.map((c) => h('option', { value: c, selected: c === selected }, c)));
+  if (selected && !found.includes(selected)) sel.append(h('option', { value: selected, selected: true }, selected));
+}
+
 function fillForm(f: HTMLFormElement, p: Params): void {
   const set = (name: string, value: string) => {
     const el = f.elements.namedItem(name);
@@ -127,6 +152,7 @@ function fillForm(f: HTMLFormElement, p: Params): void {
   set('q', p.q ?? '');
   set('sort', p.sort ?? 'price_asc');
   set('data', p.data);
+  set('currency', p.currency ?? '');
   const stock = f.elements.namedItem('in_stock');
   if (stock instanceof HTMLInputElement) stock.checked = Boolean(p.in_stock);
 }
