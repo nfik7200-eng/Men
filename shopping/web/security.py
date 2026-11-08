@@ -72,6 +72,11 @@ def require_admin(request: Request) -> None:
         raise HTTPException(403, "Admin authentication required.")
 
 
+def valid_owner(value: str | None) -> bool:
+    """An owner id is 32 lowercase hex characters, issued by the server. Anything else is treated as no owner."""
+    return bool(value) and re.fullmatch(r"[0-9a-f]{32}", value) is not None
+
+
 def same_origin(request: Request) -> bool:
     """Browsers always send Origin on cross-site POSTs; reject any mismatch (CSRF). Non-browser clients send none."""
     host = request.headers.get("host", "")
@@ -138,7 +143,7 @@ def install(app: FastAPI) -> None:
             if not limiter.allow(client_ip(request), name, limit, window):
                 return PlainTextResponse("Too many requests. Slow down.", status_code=429, headers={"Retry-After": "60"})
         owner = request.cookies.get(COOKIE_OWNER, "")
-        fresh = not re.fullmatch(r"[0-9a-f]{32}", owner)
+        fresh = not valid_owner(owner)
         if fresh:
             owner = secrets.token_hex(16)
         request.state.owner = owner

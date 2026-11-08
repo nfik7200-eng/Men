@@ -110,10 +110,14 @@ def create_app(db: Database | None = None) -> FastAPI:
         """'demo' = no real-retailer listings exist yet, so everything shown is test data."""
         return None if has_live(s) else "demo"
 
+    def kinds_of(data: str):
+        """The source kinds a data class includes; None = every source."""
+        return {"real": ("live",), "demo": ("demo", "sandbox")}.get(data)
+
     def kinds_for(s, data: str):
         """'real' (live sources only) is the default once any real listings exist; demo/sandbox are opt-in views."""
         d = data or ("real" if has_live(s) else "all")
-        return {"real": ("live",), "demo": ("demo", "sandbox")}.get(d), d
+        return kinds_of(d), d
 
     def with_status(s, rows):
         ctx = deals.PeerContext(s)
@@ -453,7 +457,7 @@ def create_app(db: Database | None = None) -> FastAPI:
                      page: int = Query(1, ge=1, le=1000), per_page: int = Query(24, ge=1, le=100),
                      data: Text = "", s=Depends(get_s)):
         """`data` = real | demo | all. Omitted keeps the historical behaviour (every source); the browse island always sends it."""
-        kinds = {"real": ("live",), "demo": ("demo", "sandbox")}.get(data) if data else None
+        kinds = kinds_of(data) if data else None
         info: dict = {}
         try:
             rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
@@ -534,7 +538,7 @@ def create_app(db: Database | None = None) -> FastAPI:
     def require_browser_owner(request: Request) -> str:
         """Watchlists belong to a browser. The owner cookie is set on page visits, not on /api calls, so an API client
         must have one already; without it a write would vanish, so refuse it clearly instead."""
-        if not re.fullmatch(r"[0-9a-f]{32}", request.cookies.get(security.COOKIE_OWNER, "")):
+        if not security.valid_owner(request.cookies.get(security.COOKIE_OWNER, "")):
             raise HTTPException(401, "Open a Watchtower page in this browser first: the watchlist is tied to the browser session.")
         return owner_of(request)
 
