@@ -85,3 +85,12 @@ The owner cookie is set on page visits, not on `/api/` responses. A watchlist wr
 
 ## Admin guard on the JSON API
 `/api/` callers receive a JSON 403 when unauthenticated, never a redirect to the sign-in page. The HTML admin behaviour is unchanged.
+
+## Notifications: isolated schema, history-derived restocks
+- The alerts table has its own declarative base. `Database.init()` runs at every app start and must never change an existing database, so the table is created only by an explicit, dry-run-first CLI command run on a copy.
+- Restock alerts come from the append-only observation history (an in-stock observation directly after an out-of-stock one, observed after the watch was created). This needs no table of its own and gives each real restock a stable identity.
+- Target alerts are keyed on the listing, the price and the target, so a repeated price adds nothing and a new low adds one row.
+- A watch paused by a currency change raises no alert, matching the monitor.
+
+## Owner identity and the watchlist API
+Watchlists are keyed to a browser cookie, not an account. The API refuses writes without that cookie (401) and never accepts an owner id from the request body.

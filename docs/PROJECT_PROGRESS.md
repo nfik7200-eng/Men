@@ -124,3 +124,12 @@ Commits (local branch `claude/sweet-franklin-dsta71`, not pushed): `2d3eb7a` dea
 * **Verified:** pytest 469 passed / 4 skipped; ruff clean; pyright 78 (was 81, none new); vitest 58; bundle fresh; Playwright journeys 44/44 on a scratch copy of the snapshot.
 * **Not done:** UIs for watchlist, match review and admin status; live acquisition (no real `WATCHTOWER_CONTACT`); Contabo VPS inspection and deployment test (no access); specialist-agent orchestration (not requested); push of the six commits.
 * **Decision:** an API client without the browser owner cookie cannot write a watchlist (401). Silently accepting writes that vanish was judged worse.
+
+## Round: notifications, UX audit, restock history, security and architecture audits (local, unpushed)
+Commits on `claude/sweet-franklin-dsta71` after `2ce6adf`: `90adc00` notifications; `52e0c31` acquisition compliance; `3228168` deployment record; `a3235fd` review fixes; `fe9c291` alerts test; `5203bee` browse island and UX fixes; `5467a42` restock history; `6ea0dfe` security review; `58448f3` architecture audit.
+* **Built:** in-app alerts (target reached, back in stock from the observation history), read state, owner-scoped, explicit migration and rollback (`docs/NOTIFICATIONS.md`).
+* **UX audit** (`docs/UX_AUDIT.md`): 16 pages at two widths, 32 views. Fixed the browse price-limit error, added a currency choice, fixed a checkbox layout and small targets. The audit now flags nothing except expected 404 console errors.
+* **Security review** (`docs/SECURITY_REVIEW.md`): cross-origin refusals, owner isolation, forged cookies and admin CSRF checked by regression tests. No new exploitable defect.
+* **Architecture audit** (`docs/ARCHITECTURE_AUDIT.md`): two small duplications removed; the `create_app` closure is the main debt, recommended for later splitting.
+* **Verified on latest code:** pytest 506 passed, 4 skipped; ruff clean; pyright 78 (unchanged); vitest 61; typecheck clean; bundle fresh; ML venv 51 passed; browser journeys 50/50 on a fresh snapshot copy.
+* **Not done:** VPS testing (no access); live collection (disabled, no contact, policy review pending); live database migration (needs approval); Review Council (guard refuses; not bypassed). A single independent reviewer covered the notification work, and found three defects, all fixed.
