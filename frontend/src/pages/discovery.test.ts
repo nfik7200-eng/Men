@@ -94,6 +94,34 @@ describe('browse listings island', () => {
     expect(options).toEqual(['', 'JPY', 'USD']);
   });
 
+  it('keeps a price limit when a currency is chosen, and sends the chosen currency on submit', async () => {
+    window.history.replaceState(null, '', '/search?max_price=15&currency=USD');
+    const f = vi.fn(async (_u: RequestInfo | URL) => ok({ total: 2, page: 1, items: [listing()], currencies: ['JPY', 'USD'] }));
+    vi.stubGlobal('fetch', f);
+    mountDiscovery(root);
+    await flush(); await flush();
+    expect(String(f.mock.calls[0]?.[0])).toContain('max_price=15');   // scoped to USD: the limit is kept
+    expect(root.textContent).not.toContain('The price limit was not applied.');
+    const sel = root.querySelector<HTMLSelectElement>('select[name="currency"]');
+    if (sel) sel.value = 'JPY';
+    root.querySelector<HTMLFormElement>('form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+    await flush(); await flush();
+    expect(String(f.mock.calls.at(-1)?.[0])).toContain('currency=JPY');
+    expect(String(f.mock.calls.at(-1)?.[0])).not.toContain('max_price');  // a limit for USD is not carried into JPY
+  });
+
+  it('keeps one page-history listener across repeated mounts', async () => {
+    const f = vi.fn(async (_u: RequestInfo | URL) => ok(page([listing()])));
+    vi.stubGlobal('fetch', f);
+    mountDiscovery(root);
+    mountDiscovery(root);
+    await flush(); await flush();
+    f.mockClear();
+    window.dispatchEvent(new PopStateEvent('popstate'));   // one back/forward event ...
+    await flush(); await flush();
+    expect(f).toHaveBeenCalledTimes(1);                    // ... runs one search, not one per mount
+  });
+
   it('offers no next page beyond the last one', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok(page([listing()], 1))));
     mountDiscovery(root);

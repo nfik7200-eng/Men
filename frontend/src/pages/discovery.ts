@@ -36,14 +36,19 @@ export function mountDiscovery(root: HTMLElement): void {
     void load(results, params, controller.signal, (p) => onSearch({ ...params, page: p }), (found) => offerCurrencies(root, found, params.currency ?? ''));
   };
   // Back and forward move through search history; re-run the view for the URL that is now current.
-  window.addEventListener('popstate', () => {
+  // One listener at a time: a re-mount replaces the previous one instead of stacking another.
+  if (onPopState) window.removeEventListener('popstate', onPopState);
+  onPopState = () => {
     const params = currentParams();
     const form = root.querySelector<HTMLFormElement>('form');
     if (form) fillForm(form, params);
     show(params);
-  });
+  };
+  window.addEventListener('popstate', onPopState);
   show(currentParams());
 }
+
+let onPopState: (() => void) | null = null;
 
 type Params = ListingQuery & { data: 'real' | 'demo' | 'all'; notice?: string };
 
@@ -122,10 +127,17 @@ function searchForm(p: Params, onSearch: (next: Params) => void): HTMLFormElemen
     e.preventDefault();
     const d = new FormData(f);
     const data = String(d.get('data'));
+    const currency = String(d.get('currency') ?? '');
+    // A price limit was set for one currency. Choosing a different one must not carry that number over to the other
+    // currency: it is dropped, and the page says so.
+    const limitSet = p.min_price !== undefined || p.max_price !== undefined;
+    const dropped = limitSet && currency !== (p.currency ?? '');
     onSearch({
       ...p,
-      notice: undefined,
-      currency: String(d.get('currency') ?? ''),
+      notice: dropped ? 'That price limit was set for another currency and was not applied.' : undefined,
+      min_price: dropped ? undefined : p.min_price,
+      max_price: dropped ? undefined : p.max_price,
+      currency,
       q: String(d.get('q') ?? '').trim(),
       sort: String(d.get('sort')),
       data: data === 'demo' || data === 'all' ? data : 'real',
