@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDate, formatMoney, formatPercent, percentChange, timeAgo } from './format';
+import { formatDate, formatMoney, formatPercent, minorUnitDigits, percentChange, timeAgo } from './format';
 
 describe('formatMoney', () => {
   it('shows minor units as a currency amount', () => {
@@ -71,5 +71,16 @@ describe('currency minor-unit exponents', () => {
   });
   it('uses the stated code, not a guess, when the currency is empty', () => {
     expect(formatMoney(1500, '')).toBe('15.00 (currency not stated)');
+  });
+});
+
+describe('minor-unit exponents match the engine (watchtower/currency.py)', () => {
+  it('treats KES and TZS as two-decimal currencies', () => {
+    expect(minorUnitDigits('KES')).toBe(2);
+    expect(minorUnitDigits('TZS')).toBe(2);
+  });
+  it('treats yen as zero-decimal and dinar as three-decimal', () => {
+    expect(minorUnitDigits('JPY')).toBe(0);
+    expect(minorUnitDigits('KWD')).toBe(3);
   });
 });

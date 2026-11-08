@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from . import config
 from .models import Listing, Observation, Source, utcnow
+from .money import fmt_money
 
 
 def data_class(kind: str | None) -> str:
@@ -202,15 +203,15 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
         comps.append(Component("history_drop", 0, 40, "none", f"price unchanged over {span_days:.0f} days — no drop"))
     elif not price < prior_min:
         comps.append(Component("history_drop", 0, 40, "none",
-                               f"not lower than the lowest earlier price ({prior_min/100:.2f}); returning to a usual price is not a drop"))
+                               f"not lower than the lowest earlier price ({fmt_money(prior_min, listing.currency)}); returning to a usual price is not a drop"))
     elif ref_days < config.MIN_REFERENCE_DAYS:
         comps.append(Component("history_drop", 0, 40, "none",
                                f"earlier reference price only held {ref_days:.1f} days (need {config.MIN_REFERENCE_DAYS}+)"))
     else:
         pts = max(0.0, min(1.0, (1 - price / ref_price) / 0.25)) * 40
         comps.append(Component("history_drop", round(pts, 1), 40, "verified",
-                               f"now {price/100:.2f}, below every earlier price (lowest {prior_min/100:.2f}); usual price "
-                               f"{ref_price/100:.2f} held {ref_days:.0f} days"))
+                               f"now {fmt_money(price, listing.currency)}, below every earlier price (lowest {fmt_money(prior_min, listing.currency)}); usual price "
+                               f"{fmt_money(ref_price, listing.currency)} held {ref_days:.0f} days"))
 
     # 2. peers
     n_peers, med, basis, need = ctx.peers(listing)
@@ -218,7 +219,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
         pts = max(0.0, min(1.0, (1 - price / med) / 0.4)) * (40 if need > 1 else 25)  # a single other merchant: weaker evidence, capped
         rel = (price / med - 1) * 100
         comps.append(Component("peer_value", round(pts, 1), 40, "estimated",
-                               f"{abs(rel):.0f}% {'below' if rel < 0 else 'above'} the median ({med/100:.2f}) of {basis}"))
+                               f"{abs(rel):.0f}% {'below' if rel < 0 else 'above'} the median ({fmt_money(med, listing.currency)}) of {basis}"))
     else:
         comps.append(Component("peer_value", 0, 40, "none", f"{basis}" if n_peers == 0 else f"only {n_peers} comparable listing(s); need {need}+"))
 
@@ -228,10 +229,10 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
         claimed = (orig - price) / orig
         if has_history and ref_price and abs(orig - ref_price) <= 0.05 * orig and ref_days >= 7:
             comps.append(Component("markdown", round(min(1, claimed / 0.4) * 20, 1), 20, "verified",
-                                   f"claimed {claimed*100:.0f}% off; the usual price {ref_price/100:.2f} was observed for {ref_days:.0f} days"))
+                                   f"claimed {claimed*100:.0f}% off; the usual price {fmt_money(ref_price, listing.currency)} was observed for {ref_days:.0f} days"))
         elif has_history:
             comps.append(Component("markdown", 0, 20, "none",
-                                   f"claims {claimed*100:.0f}% off ({orig/100:.2f}) but the price that actually held was {ref_price/100:.2f}"))
+                                   f"claims {claimed*100:.0f}% off ({fmt_money(orig, listing.currency)}) but the price that actually held was {fmt_money(ref_price, listing.currency)}"))
             ds.warnings.append("Suspicious original price: not the price this item usually sold at in our history.")
         else:
             comps.append(Component("markdown", round(min(5, claimed * 20), 1), 20, "unverified",

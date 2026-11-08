@@ -1,5 +1,6 @@
 import re
 from decimal import Decimal, InvalidOperation
+from .currency import minor_digits
 
 SYMBOLS = {"$": "USD", "£": "GBP", "€": "EUR"}
 _SYM = {"USD": "$", "GBP": "£", "EUR": "€"}
@@ -16,7 +17,7 @@ def parse_money(text: str | None, default_currency: str | None = None) -> tuple[
     if not cur:
         return None
     try:
-        minor = int((Decimal(m.group(2).replace(",", "")) * 100).to_integral_value())
+        minor = int((Decimal(m.group(2).replace(",", "")) * (Decimal(10) ** minor_digits(cur))).to_integral_value())
     except InvalidOperation:
         return None
     return (minor, cur) if minor > 0 else None
@@ -26,4 +27,5 @@ def fmt_money(minor: int | None, currency: str | None) -> str:
     if minor is None:
         return "Price unavailable"
     sym = _SYM.get(currency or "", (currency or "") + " ")
-    return f"{sym}{minor / 100:,.2f}"
+    digits = minor_digits(currency or "")
+    return f"{sym}{minor / 10 ** digits:,.{digits}f}"

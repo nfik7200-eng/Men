@@ -1,6 +1,7 @@
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from watchtower.currency import THREE_DECIMAL, ZERO_DECIMAL, to_minor
 from watchtower.models import Listing, Source
 
 SORTS = {
@@ -8,6 +9,18 @@ SORTS = {
     "rating": "Rating", "newest": "Recently added", "name": "Name",
 }
 
+
+
+def _price_bound(major: float, currency: str | None):
+    """A user's price bound in minor units. With a currency chosen it uses that currency's exponent. Without one, each
+    row is compared in its OWN currency (a yen bound must not be scaled like a dollar bound)."""
+    if currency:
+        return to_minor(major, currency)
+    return case(
+        (Listing.currency.in_(sorted(ZERO_DECIMAL)), to_minor(major, "JPY")),
+        (Listing.currency.in_(sorted(THREE_DECIMAL)), to_minor(major, "KWD")),
+        else_=to_minor(major, "USD"),
+    )
 
 def search_listings(s: Session, q: str | None = None, category: str | None = None, source: str | None = None,
                     currency: str | None = None, min_price: float | None = None, max_price: float | None = None,
@@ -29,9 +42,9 @@ def search_listings(s: Session, q: str | None = None, category: str | None = Non
     if currency:
         stmt = stmt.where(Listing.currency == currency)
     if min_price is not None:
-        stmt = stmt.where(Listing.price_minor >= round(min_price * 100))
+        stmt = stmt.where(Listing.price_minor >= _price_bound(min_price, currency))
     if max_price is not None:
-        stmt = stmt.where(Listing.price_minor <= round(max_price * 100))
+        stmt = stmt.where(Listing.price_minor <= _price_bound(max_price, currency))
     if in_stock:
         stmt = stmt.where(Listing.availability == "in_stock")
     total = s.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
