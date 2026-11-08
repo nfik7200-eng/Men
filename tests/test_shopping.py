@@ -40,7 +40,7 @@ def test_home_is_honest_about_demo_data_and_no_history(client):
 
 
 def test_search_filters(client):
-    j = client.get("/api/v1/listings?category=laptop&max_price=500&per_page=100").json()
+    j = client.get("/api/v1/listings?category=laptop&max_price=500&currency=USD&per_page=100").json()
     assert j["total"] > 0 and all(i["category"] == "laptop" and i["price_minor"] <= 50000 for i in j["items"])
     assert client.get("/api/v1/listings?q=zzzznotathing").json()["total"] == 0
     books = client.get("/api/v1/listings?category=book").json()["items"]

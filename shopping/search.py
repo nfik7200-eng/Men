@@ -1,7 +1,7 @@
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
-from watchtower.currency import THREE_DECIMAL, ZERO_DECIMAL, to_minor
+from watchtower.currency import to_minor
 from watchtower.models import Listing, Source
 
 SORTS = {
@@ -11,21 +11,23 @@ SORTS = {
 
 
 
-def _price_bound(major: float, currency: str | None):
-    """A user's price bound in minor units. With a currency chosen it uses that currency's exponent. Without one, each
-    row is compared in its OWN currency (a yen bound must not be scaled like a dollar bound)."""
-    if currency:
-        return to_minor(major, currency)
-    return case(
-        (Listing.currency.in_(sorted(ZERO_DECIMAL)), to_minor(major, "JPY")),
-        (Listing.currency.in_(sorted(THREE_DECIMAL)), to_minor(major, "KWD")),
-        else_=to_minor(major, "USD"),
-    )
+class CurrencyRequired(ValueError):
+    """A price limit or price sort compares amounts; without one currency that comparison is meaningless."""
+
+
+def _price_bound(major: float, currency: str | None) -> int:
+    """A user's price limit in minor units of ONE chosen currency. No currency = no price limit (refused, never guessed)."""
+    if not currency:
+        raise CurrencyRequired("Choose a currency to use a price limit.")
+    return to_minor(major, currency)
+
 
 def search_listings(s: Session, q: str | None = None, category: str | None = None, source: str | None = None,
                     currency: str | None = None, min_price: float | None = None, max_price: float | None = None,
                     in_stock: bool = False, sort: str = "price_asc", page: int = 1, per_page: int = 24,
-                    kinds: tuple[str, ...] | None = None):
+                    kinds: tuple[str, ...] | None = None, info: dict | None = None):
+    """info (optional) is filled with what the caller must show: the currencies in the matched set, and whether a price
+    sort fell back to name because those currencies cannot be compared."""
     stmt = select(Listing).options(joinedload(Listing.source)).join(Source, Source.id == Listing.source_id).where(Listing.active.is_(True))
     if kinds is not None:
         stmt = stmt.where(Source.kind.in_(kinds))
@@ -48,6 +50,14 @@ def search_listings(s: Session, q: str | None = None, category: str | None = Non
     if in_stock:
         stmt = stmt.where(Listing.availability == "in_stock")
     total = s.scalar(select(func.count()).select_from(stmt.order_by(None).subquery()))
+    sub = stmt.order_by(None).subquery()
+    currencies = sorted(c for c in s.scalars(select(sub.c.currency).distinct()) if c)
+    if info is not None:
+        info["currencies"] = currencies
+    if sort in ("price_asc", "price_desc") and not currency and len(currencies) > 1:
+        sort = "name"  # prices in different currencies are never ordered against each other
+        if info is not None:
+            info["sort_fallback"] = "name"
     order = {
         "price_asc": Listing.price_minor.asc().nulls_last(), "price_desc": Listing.price_minor.desc().nulls_last(),
         "rating": Listing.rating.desc().nulls_last(), "newest": Listing.first_seen_at.desc(),

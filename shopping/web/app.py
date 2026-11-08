@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 
 from shopping import affiliate, assistant, fx as fxmod, importcost, plans
-from shopping.search import SORTS, facets, same_product, search_listings
+from shopping.search import SORTS, CurrencyRequired, facets, same_product, search_listings
 from shopping.web.charts import price_chart
 from watchtower import config, deals, monitor
 from watchtower.health import source_health
@@ -189,9 +189,21 @@ def create_app(db: Database | None = None) -> FastAPI:
                min_price: Money = None, max_price: Money = None, in_stock: bool = False,
                sort: Text = "price_asc", data: Text = "", page: int = Query(1, ge=1, le=1000), s=Depends(get_s)):
         kinds, data = kinds_for(s, data)
-        rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
-                                      in_stock, sort, page, kinds=kinds)
-        return render(request, "search.html", items=with_status(s, rows), total=total, page=page, per_page=24,
+        info: dict = {}
+        notice = ""
+        try:
+            rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
+                                          in_stock, sort, page, kinds=kinds, info=info)
+        except CurrencyRequired as e:  # say so on the page; never apply a price limit in a currency the person did not choose
+            min_price = max_price = None
+            rows, total = search_listings(s, q, category or None, source or None, currency or None, None, None,
+                                          in_stock, sort, page, kinds=kinds, info=info)
+            notice = f"{e} The price limit was not applied."
+        cur_list = info.get("currencies", [])
+        if len(cur_list) > 1 and not currency:
+            notice = (notice + " " if notice else "") + (f"These results include {len(cur_list)} currencies ({', '.join(cur_list)}). "
+                      "Prices are not compared across currencies: choose one to sort or filter by price.")
+        return render(request, "search.html", items=with_status(s, rows), total=total, page=page, per_page=24, notice=notice,
                       f={"q": q, "category": category, "source": source, "currency": currency, "min_price": min_price,
                          "max_price": max_price, "in_stock": in_stock, "sort": sort, "data": data},
                       facets=facets(s), banner=banner(s), islands=True)
@@ -441,9 +453,14 @@ def create_app(db: Database | None = None) -> FastAPI:
                      data: Text = "", s=Depends(get_s)):
         """`data` = real | demo | all. Omitted keeps the historical behaviour (every source); the browse island always sends it."""
         kinds = {"real": ("live",), "demo": ("demo", "sandbox")}.get(data) if data else None
-        rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
-                                      in_stock, sort, page, per_page, kinds=kinds)
-        return {"total": total, "page": page, "items": [listing_json(l) for l in rows]}
+        info: dict = {}
+        try:
+            rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
+                                          in_stock, sort, page, per_page, kinds=kinds, info=info)
+        except CurrencyRequired as e:
+            raise HTTPException(422, str(e))
+        return {"total": total, "page": page, "items": [listing_json(l) for l in rows],
+                "currencies": info.get("currencies", []), "sort_fallback": info.get("sort_fallback")}
 
     @app.get("/api/v1/listings/{listing_id}")
     def api_listing(listing_id: int, s=Depends(get_s)):

@@ -2,6 +2,7 @@
 {% block title %}Browse{% endblock %}
 {% block body %}
 <h1>Browse products</h1>
+{% if notice %}<div class="banner" role="status">{{ notice }}</div>{% endif %}
 {% if islands %}<div class="island-slot" data-island="discovery" hidden><p class="state">Loading listings…</p></div>{% endif %}
 <div class="server-search">
 {{ filters(f, facets) }}

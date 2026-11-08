@@ -137,3 +137,35 @@ def test_a_decided_candidate_cannot_be_decided_again(client, token, seeded):
     assert first.status_code == 200
     second = client.post(f"/api/v1/match-candidates/{cid}/decision", json={"decision": "accept"}, headers=h)
     assert second.status_code == 409
+
+
+def test_api_refuses_a_price_limit_without_a_currency(client):
+    r = client.get("/api/v1/listings?max_price=15")
+    assert r.status_code == 422 and "currency" in r.json()["error"].lower()
+    assert client.get("/api/v1/listings?max_price=15&currency=USD").status_code == 200
+
+
+def test_api_reports_the_currencies_it_found(client):
+    body = client.get("/api/v1/listings?per_page=100").json()
+    assert "currencies" in body and isinstance(body["currencies"], list)
+
+
+def test_search_page_says_when_a_price_limit_was_not_applied(client):
+    r = client.get("/search?max_price=15")
+    assert r.status_code == 200
+    assert "price limit was not applied" in r.text
+
+
+def test_cross_origin_delete_of_a_watch_item_is_refused(client, seeded):
+    lid = any_listing_id(seeded)
+    assert client.post("/api/v1/watchlist", json={"listing_id": lid}).status_code == 201
+    r = client.delete(f"/api/v1/watchlist/{lid}", headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+    assert [i["listing_id"] for i in client.get("/api/v1/watchlist").json()["items"]] == [lid]  # still there
+
+
+def test_unsupported_unsafe_methods_have_no_route(client, seeded):
+    lid = any_listing_id(seeded)
+    for method in ("put", "patch"):
+        r = getattr(client, method)(f"/api/v1/watchlist/{lid}", json={}, headers={"Origin": "http://testserver"})
+        assert r.status_code in (404, 405), (method, r.status_code)
