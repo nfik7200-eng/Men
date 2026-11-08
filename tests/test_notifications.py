@@ -181,3 +181,18 @@ def test_the_cli_guard_refuses_a_hard_link_to_the_live_database(tmp_path, monkey
     monkeypatch.setattr(config, "DB_URL", f"sqlite:///{live}")
     with pytest.raises(SystemExit, match="live database"):
         cli.main(["notify-migrate", "--db", str(alias), "--apply"])
+
+
+def test_alerts_page_renders_unread_alerts_with_mark_read_controls(db):
+    _migrated(db)
+    lid = _listing(db, price=800)
+    client = TestClient(create_app(db), base_url="http://testserver")
+    assert client.get("/").status_code == 200
+    with db.session() as s:
+        monitor.add_watch(s, lid, client.cookies.get("wt_owner"), target_price_minor=900)
+        s.commit()
+    page = client.get("/notifications")
+    assert page.status_code == 200
+    assert "Sensor board: at or below your target" in page.text
+    assert "1</b> unread" in page.text or ">1</b>" in page.text
+    assert "Mark read" in page.text and "Mark all read" in page.text
