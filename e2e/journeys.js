@@ -72,6 +72,13 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     check(`${label}: browse island default excludes demo rows`, (await page.$$('.discovery-results .badge.warn')).length === 0);
     check(`${label}: no horizontal overflow on browse`, (await overflow(page)) === 0);
 
+    // alerts page: renders on the snapshot (table not migrated -> says so) and never errors; navigation links to it
+    await go('/notifications');
+    body = await page.textContent('body');
+    check(`${label}: alerts page renders and explains its state`, body.includes('Alerts') && (body.includes('not set up on this database') || body.includes('No alerts yet') || body.includes('unread')));
+    check(`${label}: alerts is in the main navigation`, (await page.$('nav[aria-label="Main"] a[href="/notifications"]')) !== null);
+    check(`${label}: no horizontal overflow on alerts`, (await overflow(page)) === 0);
+
     // watchlist round trip
     await go(productHref);
     const lid = productHref.split('/').pop();

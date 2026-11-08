@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Alerts{% endblock %}
+{% block body %}
+<h1>Alerts</h1>
+<p class="muted">Alerts are created when an item on your watchlist reaches its target price or comes back in stock, as seen in the latest collection. They stay here until you mark them read. Nothing is sent by email, SMS or push.</p>
+{% if not ready %}
+<div class="banner" role="alert">Alerts are not set up on this database yet. Nothing has been changed.</div>
+{% else %}
+<p><b>{{ unread }}</b> unread</p>
+{% if items %}
+<form method="post" action="/notifications/read-all"><button class="secondary">Mark all read</button></form>
+<ol class="alerts" style="list-style:none;padding:0">
+{% for n in items %}
+<li class="card" style="margin:10px 0;{{ '' if n.read_at else 'border-left:4px solid var(--accent, #2563eb)' }}">
+  <div class="small muted">{{ n.created_at | dt }} · {{ 'Read' if n.read_at else 'Unread' }}</div>
+  <h3 style="margin:4px 0"><a href="/listing/{{ n.listing_id }}">{{ n.title }}</a></h3>
+  <p style="margin:0">{{ n.body }}</p>
+  {% if not n.read_at %}<form method="post" action="/notifications/{{ n.id }}/read" style="margin-top:6px"><button class="secondary">Mark read</button></form>{% endif %}
+</li>
+{% endfor %}
+</ol>
+{% else %}
+<div class="card">No alerts yet. Watch an item with a target price, or with restock alerts on, and they will appear here.</div>
+{% endif %}
+{% endif %}
+{% endblock %}

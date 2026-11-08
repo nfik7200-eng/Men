@@ -1,4 +1,4 @@
-"""python -m watchtower.cli init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | coverage | schedule | cleanup-preview | source | fx"""
+"""python -m watchtower.cli notify-migrate|notify-rollback|notify-generate | init | collect [--source K] [--max-pages N] | status | health | policy | rematch | reparse | backup | verify | plan | coverage | schedule | cleanup-preview | source | fx"""
 import argparse
 import logging
 
@@ -54,8 +54,21 @@ def main(argv=None):
     e = sub.add_parser("source")
     e.add_argument("action", choices=["enable", "disable"])
     e.add_argument("key", choices=list(ADAPTERS))
+    for name, text in (("notify-migrate", "create the notifications table (dry run unless --apply)"),
+                       ("notify-rollback", "drop the notifications table (dry run unless --apply)"),
+                       ("notify-generate", "record watchlist alerts for one owner (idempotent)")):
+        n = sub.add_parser(name, help=text + "; NEVER the live database: run on a copy")
+        n.add_argument("--db", required=True, help="a COPY of the database")
+        if name == "notify-generate":
+            n.add_argument("--owner", required=True)
+        else:
+            n.add_argument("--apply", action="store_true")
+        if name == "notify-rollback":
+            n.add_argument("--discard-rows", action="store_true", help="also delete existing notification rows")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    if args.cmd.startswith("notify-"):
+        return _notify(args)
     if args.cmd == "backup":  # before Database(): opening the app DB normally runs init/ensure_* writes
         return _backup(args.out)
     if args.cmd == "cleanup-preview":
@@ -140,6 +153,30 @@ def main(argv=None):
                 print(f"{src.key}: {n} listings, {state}, {'configured' if ready else 'NOT CONFIGURED (' + ', '.join(missing) + ')'}, "
                       f"last_success={src.last_success_at}, last_status={src.last_status}")
             print("observations:", s.query(Observation).count())
+
+
+def _notify(args) -> int:
+    """Notification schema and generation. Refuses the configured live database: migrations run on copies only."""
+    from pathlib import Path
+    from sqlalchemy import create_engine
+    from . import notifications
+    target = Path(args.db).resolve()
+    live = _configured_sqlite_path()
+    if live and target == Path(live).resolve():
+        raise SystemExit("refusing: this is the configured live database. Copy it first "
+                         "(python -m watchtower.cli backup --out COPY) and run the command on the copy.")
+    if args.cmd == "notify-generate":
+        with Database(f"sqlite:///{target}").session() as s:  # no init(): a copy already has the listing tables
+            if not notifications.available(s):
+                raise SystemExit("notifications table missing: run notify-migrate --apply on this copy first")
+            print(f"{notifications.generate(s, args.owner)} new notification(s) for owner {args.owner}")
+        return 0
+    engine = create_engine(f"sqlite:///{target}")
+    if args.cmd == "notify-migrate":
+        print(notifications.migrate(engine, args.apply))
+    else:
+        print(notifications.rollback(engine, args.apply, args.discard_rows))
+    return 0
 
 
 def _configured_sqlite_path() -> str | None:
