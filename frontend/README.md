@@ -28,9 +28,9 @@ Each needs backend work first. None is faked with fixtures.
 
 | Interface | Needed backend | Why it is blocked today |
 |---|---|---|
-| Watchlists (create/manage, changes) | **Endpoints now exist:** `GET /api/v1/watchlist`, `POST /api/v1/watchlist` (`listing_id`, `target_price` in the listing's currency), `DELETE /api/v1/watchlist/{listing_id}`. They need the browser's owner cookie (open any page first; otherwise 401). Origin-checked for writes. | UI not built |
-| Product matching review (approve/reject) | **Endpoints now exist:** `GET /api/v1/match-candidates`, `POST /api/v1/match-candidates/{id}/decision` (`accept` or `reject`). Admin token required. | UI not built |
-| Admin settings / source status | **Endpoint now exists:** `GET /api/v1/admin/status` (sources, recent runs, review backlog; read-only). Admin token required. | UI not built; settings writes are not exposed as JSON |
+| Watchlists (create/manage, changes) | Server page `/watchlist` exists (HTML forms). **JSON endpoints also exist:** `GET /api/v1/watchlist`, `POST /api/v1/watchlist` (`listing_id`, `target_price` in the listing's currency), `DELETE /api/v1/watchlist/{listing_id}`. They need the browser's owner cookie (open any page first; otherwise 401). Origin-checked for writes. | Island not built (server page works) |
+| Product matching review (approve/reject) | Server queue on `/admin` exists (HTML forms). **JSON endpoints also exist:** `GET /api/v1/match-candidates`, `POST /api/v1/match-candidates/{id}/decision` (`accept` or `reject`). Admin token required. | Island not built (server page works) |
+| Admin settings / source status | Server page `/admin` exists. **JSON endpoint also exists:** `GET /api/v1/admin/status` (sources, recent runs, review backlog; read-only). Admin token required. | Island not built; settings writes are not exposed as JSON |
 | Merchant comparison as its own page | none for data (`GET /api/v1/listings?...` + product grouping); needs a product endpoint | product page is server-rendered and already works |
 
 ## Design decisions

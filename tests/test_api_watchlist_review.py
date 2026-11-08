@@ -111,3 +111,29 @@ def test_admin_status_requires_the_token_and_lists_sources(client, token):
     assert r.status_code == 403 and r.headers.get("content-type", "").startswith("application/json")  # JSON refusal, no redirect
     body = client.get("/api/v1/admin/status", headers={"X-Admin-Token": TOKEN}).json()
     assert body["sources"] and "pending_review" in body and isinstance(body["runs"], list)
+
+
+def test_watch_creation_over_the_api_is_rate_limited_like_the_html_route(client, seeded):
+    """POST /api/v1/watchlist shares the strict per-client watch bucket (30 per hour), not the general 120 per minute."""
+    lid = any_listing_id(seeded)
+    codes = [client.post("/api/v1/watchlist", json={"listing_id": lid}).status_code for _ in range(31)]
+    assert codes[:30] == [201] * 30
+    assert codes[30] == 429
+
+
+def test_a_decided_candidate_cannot_be_decided_again(client, token, seeded):
+    from watchtower.models import Listing, MatchCandidate, Product
+    with seeded.session() as s:
+        lst = s.query(Listing).order_by(Listing.id).first()
+        p = Product(title="Other product")
+        s.add(p)
+        s.flush()
+        c = MatchCandidate(listing_id=lst.id, product_id=p.id, score=0.5, reasons=[], status="pending")
+        s.add(c)
+        s.commit()
+        cid = c.id
+    h = {"X-Admin-Token": TOKEN}
+    first = client.post(f"/api/v1/match-candidates/{cid}/decision", json={"decision": "reject"}, headers=h)
+    assert first.status_code == 200
+    second = client.post(f"/api/v1/match-candidates/{cid}/decision", json={"decision": "accept"}, headers=h)
+    assert second.status_code == 409

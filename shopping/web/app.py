@@ -576,8 +576,11 @@ def create_app(db: Database | None = None) -> FastAPI:
         decision = body.get("decision")
         if decision not in ("accept", "reject"):
             raise HTTPException(422, "decision must be 'accept' or 'reject'")
-        if s.get(MatchCandidate, cand_id) is None:
+        cand = s.get(MatchCandidate, cand_id)
+        if cand is None:
             raise HTTPException(404, "candidate not found")
+        if cand.status != "pending":  # resolve_candidate silently does nothing for a decided candidate: say so, do not claim success
+            raise HTTPException(409, f"candidate already decided ({cand.status})")
         resolve_candidate(s, cand_id, decision == "accept", by="admin", note=body.get("note") if isinstance(body.get("note"), str) else None)
         return {"id": cand_id, "decision": decision}
 

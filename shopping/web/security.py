@@ -117,7 +117,8 @@ def _bucket(path: str, method: str) -> tuple[str, int, float]:
         return "login", min(10, base) if base else 0, 60.0
     if path.startswith(("/research", "/api/v1/research")):
         return "research", min(20, base) if base else 0, 60.0
-    if path.startswith("/watch/") and method == "POST":  # every cookie-less POST mints a new owner: bound row creation per client
+    # Watch-row creation (HTML form and JSON API) shares one strict per-client bucket: every new owner is a new row set.
+    if method == "POST" and (path.startswith("/watch/") or path == "/api/v1/watchlist"):
         return "watch", min(30, base) if base else 0, 3600.0
     if path.startswith("/go/"):  # each outbound click writes a row (and any page can embed <img src=/go/N>)
         return "go", min(60, base) if base else 0, 60.0

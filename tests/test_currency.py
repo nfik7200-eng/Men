@@ -48,3 +48,12 @@ def test_price_bounds_compare_each_row_in_its_own_currency(db):
         assert [r.currency for r in rows] == ["JPY"]
         rows, _ = search_listings(s, "Widget", currency="JPY", max_price=500)
         assert rows == []
+
+
+def test_a_third_decimal_is_kept_for_three_decimal_currencies():
+    assert parse_money("KWD 12.345") == (12345, "KWD")   # used to be 12340: the third digit was dropped
+
+
+def test_more_precision_than_the_currency_has_is_refused_not_rounded():
+    assert parse_money("USD 12.345") is None             # two-decimal currency: refuse rather than invent a digit
+    assert parse_money("JPY 1000.5") is None             # zero-decimal currency: a fraction is not a price
