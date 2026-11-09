@@ -86,3 +86,28 @@ def test_there_is_no_scheduler_write_route(client):
 def test_the_session_cookie_also_authorises_the_settings_api(client):
     assert client.post("/admin/login", data={"token": TOKEN}, follow_redirects=False).status_code == 303
     assert client.get("/api/v1/admin/settings").status_code == 200  # cookie path /api/v1/admin, set at sign-in
+
+
+def test_an_oversized_body_is_refused_with_413_when_it_declares_its_length(client):
+    big = b'{"enabled": false, "pad": "' + b"x" * (17 * 1024) + b'"}'
+    r = client.post("/api/v1/admin/sources/webscraper_io_static/enabled", content=big,
+                    headers={**H, "Content-Type": "application/json"})
+    assert r.status_code == 413
+
+
+def test_an_oversized_chunked_body_is_refused_while_it_is_read(client, db):
+    def chunks():
+        yield b'{"enabled": false, "pad": "'
+        for _ in range(3):
+            yield b"x" * (8 * 1024)  # no Content-Length: the limit must be enforced on the stream itself
+        yield b'"}'
+    r = client.post("/api/v1/admin/sources/webscraper_io_static/enabled", content=chunks(),
+                    headers={**H, "Content-Type": "application/json"})
+    assert r.status_code == 413
+    with db.session() as s:
+        assert s.query(Source).filter_by(key="webscraper_io_static").one().enabled is True  # nothing was applied
+
+
+def test_a_normal_json_body_still_works_after_the_limit(client):
+    r = client.post("/api/v1/admin/sources/webscraper_io_static/enabled", json={"enabled": True}, headers=H)
+    assert r.status_code == 200

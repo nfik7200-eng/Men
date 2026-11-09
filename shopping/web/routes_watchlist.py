@@ -1,5 +1,6 @@
 """Watchlist routes: the HTML page and forms, and the per-browser JSON API. Moved out of the create_app route closure in
 shopping/web/app.py; behaviour is unchanged. Watchlists belong to a browser (owner cookie), never to an account."""
+import json
 import math
 from typing import Annotated
 
@@ -14,11 +15,26 @@ from watchtower.currency import to_minor
 from watchtower.models import Listing, WatchItem
 
 
+MAX_JSON_BODY = 16 * 1024  # bytes: every JSON write in this app is a few fields; anything larger is refused
+
+
 async def json_body(request: Request) -> dict:
-    """A JSON object from the request body; anything else is a 422 with a plain reason."""
+    """A JSON object from the request body. A body over MAX_JSON_BODY is refused with 413 while it is being read: the
+    declared Content-Length is checked first, and the streamed bytes are counted too (a chunked body has no length).
+    Anything else that is not a JSON object is a 422 with a plain reason."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_JSON_BODY:
+        raise HTTPException(413, "request body too large")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_JSON_BODY:
+            raise HTTPException(413, "request body too large")
+        chunks.append(chunk)
     try:
-        body = await request.json()
-    except ValueError:
+        body = json.loads(b"".join(chunks))
+    except ValueError:  # JSONDecodeError and UnicodeDecodeError are both ValueError
         raise HTTPException(422, "request body must be JSON")
     if not isinstance(body, dict):
         raise HTTPException(422, "request body must be a JSON object")
