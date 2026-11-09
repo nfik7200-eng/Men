@@ -46,7 +46,6 @@ def plain_reason(text: str) -> str:
     return re.sub(r"\[([^\]]*)\]", lambda m: "(" + ", ".join(re.findall(r"'([^']*)'", m.group(1))) + ")", text or "")
 
 
-COVERAGE_TTL_S = 30  # seconds the public coverage report is reused
 
 
 
