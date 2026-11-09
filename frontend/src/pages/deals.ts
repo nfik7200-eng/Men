@@ -36,14 +36,14 @@ function render(root: HTMLElement, items: Listing[]): void {
     root.replaceChildren(intro, status('No scored listings yet. Deals appear once real shops have been collected.'));
     return;
   }
-  root.replaceChildren(intro, h('div', { class: 'deal-list', role: 'list' }, ...items.map(dealCard)));
+  root.replaceChildren(intro, h('div', { class: 'deal-list' }, ...items.map(dealCard)));
 }
 
 function dealCard(l: Listing): HTMLElement {
   const d: Deal | undefined = l.deal;
   const price = l.price_minor === null ? 'Price not stated' : formatMoney(l.price_minor, l.currency);
   const scoreText = d && d.score !== null ? `${d.score} points` : 'Not scored';
-  return h('article', { class: 'card deal-card', role: 'listitem' },
+  return h('article', { class: 'card deal-card' },
     h('h2', { class: 'deal-title' }, h('a', { href: `/listing/${l.id}` }, l.title)),
     h('div', { class: 'muted small' }, l.source, ' · ', l.availability.replace(/_/g, ' ')),
     h('div', { class: 'deal-price price' }, price),

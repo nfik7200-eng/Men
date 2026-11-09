@@ -13,7 +13,7 @@
 {% for c in rep.sources %}
 <section class="card" style="margin-top:14px">
   <h2 style="margin-top:0">{{ c.name }} <span class="badge {{ 'ok' if c.health == 'healthy' else 'warn' }}">{{ c.health }}</span></h2>
-  <div class="scroll"><table>
+  <div class="scroll" tabindex="0"><table>
     <tr><th>Discovered</th><th>Eligible</th><th>Collected</th><th>Coverage</th><th class="hide-sm">Read OK</th><th class="hide-sm">Extraction</th></tr>
     <tr><td>{{ c.discovered }}</td><td>{{ c.eligible }}</td><td>{{ c.acquired }}</td>
         <td>{{ '%.0f%%' % (c.eligible_coverage * 100) if c.eligible_coverage is not none else '–' }}</td>
@@ -30,7 +30,7 @@
   {% if c.next_up %}
   <details><summary>Next in line ({{ c.next_up | length }} of {{ c.never_attempted }}) — discovered, not collected, not a listing</summary>
     <p class="muted">Ranking as of the last collection run; a dash means no score has been recorded for that page yet.</p>
-    <div class="scroll"><table><tr><th>Page</th><th>Score</th><th class="hide-sm">Why</th></tr>
+    <div class="scroll" tabindex="0"><table><tr><th>Page</th><th>Score</th><th class="hide-sm">Why</th></tr>
     {% for n in c.next_up %}<tr><td class="muted" style="word-break:break-all">{{ n.url }}</td><td>{{ n.score if n.score is not none else '–' }}</td>
       <td class="hide-sm muted">{{ n.why | join('; ') if n.why else (n.reason or '–') }}</td></tr>{% endfor %}</table></div>
   </details>{% endif %}

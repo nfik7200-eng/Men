@@ -7,7 +7,7 @@
 {% else %}
 <p class="muted">{{ rows | length }} listing{{ '' if rows | length == 1 else 's' }}. Each price is shown in its own currency.</p>
 {% if currencies | length > 1 %}<div class="banner" role="status">These listings use {{ currencies | join(', ') }}. Their prices are not compared with each other, and no conversion is applied.</div>{% endif %}
-<div class="scroll card"><table>
+<div class="scroll card" tabindex="0"><table>
 <tr><th scope="col">Listing</th>{% for l in rows %}<th scope="col"><a href="/listing/{{ l.id }}">{{ l.title }}</a><div class="muted small">{{ l.source.name }}</div></th>{% endfor %}</tr>
 <tr><th scope="row">Price</th>{% for l in rows %}<td>{{ l.price_minor | money(l.currency) }}</td>{% endfor %}</tr>
 <tr><th scope="row">Availability</th>{% for l in rows %}<td>{{ l.availability.replace('_', ' ') }}</td>{% endfor %}</tr>

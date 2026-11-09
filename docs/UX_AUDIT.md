@@ -27,3 +27,33 @@ This is an automated approximation: it does not model text over images or gradie
 - Keyboard focus order beyond the skip link (checked earlier by the e2e journeys only).
 - Screen-reader output (no screen reader in this environment).
 - Loading states are checked only where the page renders them (island placeholders); empty and error states are covered by tests.
+
+## Automated accessibility check (axe-core, measured)
+
+Tool: axe-core 4.10.2 (default rule set: WCAG 2.x A/AA and best-practice rules), run by `e2e/axe-check.js` in
+Chromium against a migrated disposable copy of the snapshot, at desktop (1280×900) and phone (Pixel 7) widths.
+Pages: home, search, listing, product, deals, coverage, research, watchlist, alerts, admin sign-in and admin
+(signed in). 22 page/width combinations.
+
+Before this pass: 1 serious finding (`scrollable-region-focusable`: the phone-width table scroll containers could not be
+reached by keyboard) and 3 minor findings (`empty-table-header` on the home and admin tables;
+`aria-allowed-role`: `role="listitem"` on `<article>` in the browse and deal lists).
+
+After this pass: 0 violations on all 22 combinations. Fixes: the scroll containers are focusable (`tabindex="0"`);
+the empty table headers are labelled ("Compare", "Actions"); the browse and deal grids no longer claim list roles
+their children do not have.
+
+Limits, stated plainly: axe finds about a third to a half of accessibility problems. It does not test screen-reader
+announcements, focus order across the islands, reading order, colour-only meaning under user preferences, or
+behaviour with zoom at 200%. Those remain manual checks and are not measured here.
+
+Reproduce (axe-core is not a project dependency; install it outside the repo):
+
+```bash
+npm i axe-core@4.10.2 --prefix /path/to/scratch
+AXE_PATH=/path/to/scratch/node_modules/axe-core/axe.min.js E2E_BASE=http://127.0.0.1:8042 \
+  E2E_ADMIN_TOKEN=... node e2e/axe-check.js
+```
+
+The check injects axe into a test context with `bypassCSP`. The application's Content-Security-Policy is unchanged; the
+policy correctly blocks inline script in the page itself.

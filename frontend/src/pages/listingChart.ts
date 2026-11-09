@@ -90,7 +90,7 @@ function fact(label: string, value: string): Node {
 }
 
 function table(headers: string[], rows: string[][]): HTMLElement {
-  return h('div', { class: 'scroll' },
+  return h('div', { class: 'scroll', tabindex: '0' },
     h('table', {},
       h('thead', {}, h('tr', {}, ...headers.map((t) => h('th', { scope: 'col' }, t)))),
       h('tbody', {}, ...rows.map((r) => h('tr', {}, ...r.map((c) => h('td', {}, c))))),

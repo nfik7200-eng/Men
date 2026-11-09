@@ -93,7 +93,7 @@ async function load(
       mixedCurrencyNote(page, params) ?? '',
       page.items.length === 0
         ? status('No listings match. Try removing a filter.')
-        : h('div', { class: 'grid', role: 'list' }, ...page.items.map(card)),
+        : h('div', { class: 'grid' }, ...page.items.map(card)),
       h('nav', { class: 'pager', 'aria-label': 'Pages' },
         h('button', { type: 'button', class: 'secondary', disabled: current <= 1, onclick: () => goToPage(current - 1) }, '← Previous'),
         h('span', { class: 'muted' }, ` Page ${current} of ${pages} `),
@@ -204,7 +204,7 @@ function mixedCurrencyNote(page: ListingPage, params: Params): HTMLElement | nul
 function card(l: Listing): HTMLElement {
   const price = l.price_minor === null ? 'Price not stated' : formatMoney(l.price_minor, l.currency);
   const demo = l.source_kind !== 'live';
-  return h('article', { class: 'card', role: 'listitem' },
+  return h('article', { class: 'card' },
     h('h2', { class: 'deal-title' }, h('a', { href: `/listing/${l.id}` }, l.title)),
     h('div', { class: 'price' }, price),
     h('div', { class: 'muted small' }, l.source, ' · ', l.availability.replace(/_/g, ' ')),

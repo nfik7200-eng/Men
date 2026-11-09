@@ -7,7 +7,7 @@
 {% if 'live' not in kinds %}<span class="badge warn">Test data only — not real retailers</span>{% endif %}</p>
 {% if multi_currency %}<div class="banner" role="note">Merchants price in different currencies. We do <b>not</b> convert or rank across currencies without a sourced exchange rate, so the “cheapest” mark is per currency.</div>{% endif %}
 {% if items and not cheapest %}<div class="banner" role="note">No merchant listed this product as in stock at its last check, so no “lowest price” is marked. Prices below are what each merchant last showed.</div>{% endif %}
-<div class="scroll card"><table>
+<div class="scroll card" tabindex="0"><table>
 <tr><th>Merchant</th><th>Price</th><th>Stock</th><th>Last checked</th><th class="hide-sm">History (collections)</th><th class="hide-sm">Match</th></tr>
 {% for it in items %}{% set l = it.l %}
 <tr>

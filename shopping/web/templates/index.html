@@ -16,11 +16,11 @@
 <p class="muted">{{ stats.listings - stats.real_listings }} further listings come from demo catalogues or API sandboxes and are excluded from deals and default search once real data exists. {% if stats.multi_obs == 0 %}Every listing has a single observation, so no price movement can be shown yet.{% else %}{{ stats.multi_obs }} listings already have 2+ observations; a “verified” deal still needs {{ MIN_HISTORY_OBS }}+ collections over {{ MIN_HISTORY_SPAN_DAYS }}+ days.{% endif %}</p>
 
 {% if products %}<h2>Same product, different stores</h2>
-<div class="card scroll"><table><tr><th>Product</th><th></th></tr>
+<div class="card scroll" tabindex="0"><table><tr><th>Product</th><th>Compare</th></tr>
 {% for p in products %}<tr><td>{{ p.title }}</td><td><a href="/product/{{ p.id }}">Compare merchants →</a></td></tr>{% endfor %}</table></div>{% endif %}
 
 <h2>Sources</h2>
-<div class="scroll"><table><tr><th>Source</th><th>Data</th><th>Last success</th><th>Status</th></tr>
+<div class="scroll" tabindex="0"><table><tr><th>Source</th><th>Data</th><th>Last success</th><th>Status</th></tr>
 {% for s in sources %}<tr><td>{{ s.name }}</td>
 <td>{% if s.kind == 'live' %}<span class="badge ok">Real retailer</span>{% elif s.kind == 'demo' %}<span class="badge warn">Demo catalogue</span>{% else %}<span class="badge warn">API sandbox</span>{% endif %}</td>
 <td>{{ s.last_success_at | dt }}</td>
@@ -32,7 +32,7 @@
 {% else %}<p class="muted">No scored listings yet{% if live %} — real listings need comparable peers before an estimate appears{% endif %}.</p>{% endif %}
 
 <h2>Recent changes detected</h2>
-{% if changes %}<div class="scroll"><table><tr><th>When</th><th>Listing</th><th>Change</th></tr>
+{% if changes %}<div class="scroll" tabindex="0"><table><tr><th>When</th><th>Listing</th><th>Change</th></tr>
 {% for e in changes %}<tr><td>{{ e.detected_at | dt }}</td><td><a href="/listing/{{ e.listing_id }}">{{ e.listing.title }}</a></td>
 <td>{{ e.kind.replace('_',' ') }}{% if e.pct is not none %} ({{ '%+.1f' % e.pct }}%){% endif %}</td></tr>{% endfor %}</table></div>
 {% else %}<p class="muted">No price changes, restocks or removals have been observed yet.</p>{% endif %}
