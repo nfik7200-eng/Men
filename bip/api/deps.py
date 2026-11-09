@@ -10,18 +10,26 @@ from fastapi import Depends, Request
 
 from bip.config.settings import Settings
 from bip.db.repository import Repository
+from bip.discovery.service import DiscoveryService
+from bip.entities.cases import CaseService
+from bip.entities.relationships import RelationshipService
+from bip.ingest.collector import ChainCollector
 from bip.ingest.wallet import WalletIngestor
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
 from bip.ml.labels import LabelStore
 from bip.ml.service import ClassificationService
 from bip.ml.training import Trainer
+from bip.ops.backup import BackupService
+from bip.ops.metrics import ApiMetrics
+from bip.ops.scheduler import Scheduler
 from bip.providers.intelligence import ProbeStore
 from bip.providers.prober import Prober
 from bip.providers.registry import Registry
 from bip.providers.state import ProviderStateStore
 from bip.research.engine import ResearchManager
 from bip.router.router import ProviderRouter
+from bip.security.auth import AuthService
 from bip.storage.disk_guard import DiskGuard
 
 WRITE_RESERVE_BYTES = 64 * 1024
@@ -54,6 +62,16 @@ class AppContext:
     trainer: Trainer
     research: ResearchManager
     train_lock: threading.Lock
+    discovery: DiscoveryService
+    discovery_lock: threading.Lock
+    auth: AuthService
+    metrics: ApiMetrics
+    backups: BackupService
+    started_monotonic: float
+    relationships: RelationshipService
+    collector: ChainCollector
+    cases: CaseService
+    scheduler: Scheduler | None
 
 
 def get_context(request: Request) -> AppContext:

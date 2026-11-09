@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from bip.chains.base import ChainAdapter
-from bip.chains.common import ParseError, SourceInfo, integer, obj, text, unix_time
+from bip.chains.common import ParseError, SourceInfo, arr, integer, obj, text, unix_time
 from bip.chains.solana.parse import Commitment, SignatureInfo, parse_signatures
 from bip.rpc.jsonrpc import RpcError
 
@@ -38,7 +38,7 @@ class SolanaAdapter(ChainAdapter):
                         "commitment": commitment,
                         "transactionDetails": "none",
                         "rewards": False,
-                        "maxSupportedTransactionVersion": 0,
+                        "maxSupportedTransactionVersion": 1,
                     },
                 ],
             )
@@ -87,11 +87,33 @@ class SolanaAdapter(ChainAdapter):
         result, _ = self.call("getSignaturesForAddress", [address, opts])
         return parse_signatures(result)
 
+    def token_accounts_by_owner(
+        self, owner: str, program_id: str, commitment: Commitment
+    ) -> list[str]:
+        """Addresses of the token accounts owned by ``owner`` under one token program.
+
+        Only the addresses are returned; balances come from transaction metadata. ``program_id``
+        selects SPL Token or Token-2022 (they are separate programs and must be queried separately).
+        """
+        result, _ = self.call(
+            "getTokenAccountsByOwner",
+            [owner, {"programId": program_id}, {"commitment": commitment, "encoding": "base64"}],
+        )
+        value = arr(
+            obj(result, "getTokenAccountsByOwner").get("value"),
+            "getTokenAccountsByOwner.value",
+            max_len=1000,
+        )
+        return [
+            text(obj(item, "getTokenAccountsByOwner.value[]").get("pubkey"), "pubkey", max_len=44)
+            for item in value
+        ]
+
     def transaction(self, signature: str, commitment: Commitment) -> tuple[object, SourceInfo]:
         return self.call(
             "getTransaction",
             [
                 signature,
-                {"encoding": "json", "commitment": commitment, "maxSupportedTransactionVersion": 0},
+                {"encoding": "json", "commitment": commitment, "maxSupportedTransactionVersion": 1},
             ],
         )

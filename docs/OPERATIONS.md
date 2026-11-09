@@ -1,0 +1,116 @@
+# Operations
+
+How BIP runs, what bounds its resource use, how to back it up and how to see that it is healthy.
+Everything below was checked against offline tests. **Nothing was measured on the production
+VPS** (it was not accessed), so sizes and timings for that machine are unknown until measured there.
+
+## Processes
+
+One Python process (`python -m bip.api`) with a thread pool for request handlers. There is no
+Redis, no queue broker and no second database. A single background thread runs the scheduler when
+`BIP_WORKERS__ENABLED=true`. The scheduler is **off by default**.
+
+## SQLite: WAL and locking assessment
+
+* The database runs in WAL mode with `busy_timeout` 5 s (`BIP_DATABASE__BUSY_TIMEOUT_MS`) and
+  foreign keys on. Readers do not block the writer and the writer does not block readers.
+* SQLite allows **one writer at a time**. BIP's writers are short transactions from request
+  handlers, one ingestion run at a time (a process-wide lock), scheduler jobs one after another
+  (a scheduler lock), and the AI research manager's worker. The design keeps every transaction
+  small (a detector's batch, one transaction row set); none holds a write lock across a network
+  call.
+* The WAL file grows between checkpoints. The `maintenance` job runs
+  `PRAGMA wal_checkpoint(TRUNCATE)`; `/system/health` reports `wal_bytes` and warns above 256 MB.
+* What this assessment does **not** show: behaviour under production load. The tests prove
+  correctness of locking order and that jobs never overlap, not throughput.
+* Reasons to leave SQLite, to be judged from `/system/health` and logs on the real host:
+  sustained `database is locked` errors; write latency that makes request handlers queue; a
+  database large enough that backups no longer finish comfortably; or a need for more than one
+  process writing. None is established. Adding PostgreSQL before one of these is shown would add
+  operating cost for no measured gain.
+
+## What bounds resource use
+
+| Resource | Bound | Where |
+|---|---|---|
+| RPC calls per ingestion run | `BIP_INGEST__MAX_RPC_CALLS_PER_RUN` (150), deadline 90 s | `bip/router` budget |
+| Concurrent ingestion | one run at a time (409 otherwise) | `ingest_lock` |
+| Token accounts per run | `solana_token_accounts_limit` (5), 10 signatures each | wallet ingestion |
+| Placeholder / partial retries | 10 per run, at most 5 attempts per record | ingestion |
+| Detector rows read | `BIP_DISCOVERY__MAX_ROWS_SCANNED` (20 000), reported when hit | discovery |
+| New signals per detector per run | `max_signals_per_detector` (50), dropped count reported | discovery |
+| Signal life | open signals expire after `ttl_days` (7); closed ones pruned after 90 days | maintenance |
+| API request body | 64 KiB default | middleware |
+| API request rate | 600 per minute per client address; login 10 per minute | protection middleware |
+| Rate-limiter memory | at most 10 000 tracked client addresses | `RateLimiter` |
+| API metrics memory | at most 200 distinct routes, ids collapsed | `ApiMetrics` |
+| Audit log | `audit_retention_days` (365) | maintenance |
+| Job history | `job_history_days` (90) | maintenance |
+| Backups | newest `backup_keep` (7); refused without room for the copy plus 64 MB | `BackupService` |
+| Disk | the existing disk guard refuses writes below the free-space floor | `DiskGuard` |
+
+## Backups and restore
+
+A backup is a consistent SQLite snapshot taken with the online backup API while BIP keeps running,
+checked with `PRAGMA integrity_check`, written owner-only (0600) to `<data root>/operational/backups/`.
+
+* Make one now: `POST /api/v1/system/backups` (admin) or enable the `backup` job
+  (`BIP_WORKERS__BACKUP_ENABLED=true`, `BIP_WORKERS__BACKUP_INTERVAL_HOURS`, `BIP_WORKERS__BACKUP_KEEP`).
+* Check one: `POST /api/v1/system/backups/<name>/verify`.
+* **Restore is manual by design.** Stop BIP, keep the current database file aside, copy the chosen
+  backup over `<data root>/operational/bip.sqlite3`, delete any `bip.sqlite3-wal` and `-shm` next to
+  it, start BIP (migrations then run if the backup is older). BIP refuses a database newer than its
+  code.
+* Backups live on the same disk as the database. They protect against corruption and mistakes, not
+  against losing the disk. Copy them elsewhere (an owner decision; nothing is uploaded by BIP).
+
+## Scheduler and jobs
+
+Enable with `BIP_WORKERS__ENABLED=true`. Jobs run one at a time on one thread; each run is recorded
+in `job_runs`, so state survives a restart, and a run left `running` by a crash is closed as an
+error. A failing job backs off exponentially (cap `max_backoff_hours`). A job that finds its lock held
+reports `skipped:` and does not count as a failure.
+
+| Job | Default | Contacts providers | What it does |
+|---|---|---|---|
+| `discovery` | every 60 min | no | run all detectors over stored data |
+| `relationships` | every 60 min | no | rebuild evidence-backed relationships |
+| `maintenance` | every 24 h | no | retention for audit, signals, runs, errors, sessions; WAL checkpoint |
+| `backup` | off | no | verified backup, keep the newest few |
+| `watchlist_refresh` | **off** | **yes** | re-ingest the least recently refreshed watchlist wallets |
+| `chain_scan` | **off** | **yes** | read the next finalized Ethereum blocks for contract creations and large native transfers |
+
+`watchlist_refresh` and `chain_scan` are the jobs that spend provider quota. It needs
+`BIP_WORKERS__WATCHLIST_REFRESH_ENABLED=true`, takes at most `watchlist_refresh_wallets_per_tick` (2)
+wallets, and goes through the normal bounded ingestion path (call budget, disk guard, single-run
+lock). `chain_scan` needs `BIP_WORKERS__COLLECTOR_ENABLED=true` and reads at most
+`collector.blocks_per_run` (20) finalized blocks, `collector.max_receipts_per_run` (60) receipts and
+`collector.max_pools_per_run` (15, each costing block, transaction and receipt calls) per run, sharing the same ingestion lock. Do not enable either without approving the provider usage
+it implies.
+
+Run a job now: `POST /api/v1/system/jobs/<name>/run` (admin). Status: `GET /api/v1/system/jobs`.
+
+## Health
+
+`GET /api/v1/health` is public and minimal. `GET /api/v1/system/health` (viewer) returns database
+and WAL size, schema version, disk status, process memory and threads, API counters and latency
+buckets, recent ingestion runs and error codes, discovery state, provider summary, scheduler jobs and
+backups. It never returns file paths or secrets. `status` is `ok`, `degraded` (any warning) or
+`critical` (database unavailable or writes refused). Warning codes: `database_unavailable`,
+`wal_large`, `database_large`, `storage_refusing_writes`, `disk_low`, `storage_unmeasurable`,
+`ingestion_failures`, `no_healthy_provider` (only when providers *were* checked and none passed),
+`job_failing`, `backup_stale`.
+
+`GET /api/v1/system/usage?days=N` totals BIP's own RPC requests per day, chain and provider from the
+ingestion run log. It is not the provider's meter, so it shows no credits or prices.
+
+## Exposure
+
+The API refuses to start on a non-loopback address unless `BIP_AUTH__MODE=required` (or
+`BIP_AUTH__ALLOW_INSECURE_BIND=true`, which must never be used on a reachable host). Recommended for
+phone access: keep BIP bound to `127.0.0.1`, reach it over a private network (Tailscale or
+WireGuard) through a TLS-terminating reverse proxy you control, set `BIP_AUTH__MODE=required`, keep
+`BIP_AUTH__COOKIE_SECURE=true`, and set `BIP_AUTH__TRUST_PROXY_HEADERS=true` only behind that proxy.
+Create the first administrator with `python -m bip.tools.users create <name> --role admin`.
+The bundled frontend has no sign-in screen yet: it works with `mode=disabled` on loopback, and needs
+a login page and CSRF header support before it can be used with `mode=required`.

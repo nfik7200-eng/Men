@@ -34,6 +34,7 @@ from bip.contracts.findings import (
 )
 from bip.contracts.provenance import Provenance, VerificationStatus
 from bip.db import schema
+from bip.db.canonical import canonical_transaction
 from bip.db.errors import RecordNotFoundError
 from bip.db.repository import Repository, canonical_address
 from bip.db.types import utcnow
@@ -73,7 +74,9 @@ def first_seen_targets(repo: Repository, ds: WalletDataset) -> dict[str, datetim
                 else t.c.to_address == target
             )
             out[target] = conn.execute(
-                select(func.min(t.c.block_time)).where(t.c.chain == ds.chain, cond)
+                select(func.min(t.c.block_time)).where(
+                    t.c.chain == ds.chain, cond, canonical_transaction()
+                )
             ).scalar_one()
     return out
 

@@ -163,14 +163,14 @@ endpoint_url = "https://api.mainnet.solana.com"
 allowed_hosts = ["api.mainnet.solana.com", "api.mainnet-beta.solana.com"]
 enabled = true
 methods = ["getHealth", "getGenesisHash", "getSlot", "getBlock", "getBalance",
-           "getSignaturesForAddress", "getTransaction", "getVersion", "getBlockHeight",
+           "getSignaturesForAddress", "getTransaction", "getTokenAccountsByOwner", "getVersion", "getBlockHeight",
            "getLatestBlockhash"]
 client_rps = 3.0
 rate_limit = "100 requests per 10 s per IP; 40 requests per 10 s per IP for a single RPC (official Solana docs, via search; documented as not guaranteed current)."
 docs_url = "https://solana.com/docs/references/clusters"
 terms_url = "https://solana.com/tos"
 sources = ["https://solana.com/docs/core/clusters", "https://docs.anza.xyz/clusters/available"]
-notes = "Official docs call it rate-limited and not intended for production. Current docs name api.mainnet.solana.com; older docs use api.mainnet-beta.solana.com. Historical depth served is unknown."
+notes = "Official docs call it rate-limited and not intended for production. Current docs name api.mainnet.solana.com; older docs use api.mainnet-beta.solana.com. Historical depth served is unknown. getTokenAccountsByOwner is listed in the official RPC reference (solana.com/docs/rpc/http, read 2026-11-08); not probed live."
 
 [[provider]]
 id = "publicnode-sol"

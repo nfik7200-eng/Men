@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import func, insert, select, update
 
 from bip.db import schema
+from bip.db.canonical import canonical_transaction, orphaned_tx_ids
 from bip.db.repository import Repository
 from bip.db.types import utcnow
 from bip.intel.common import J, iso, label, verification_summary
@@ -58,7 +59,12 @@ def _events(repo: Repository, chain: str) -> list[tuple[str, str, str, datetime,
         for r in conn.execute(
             select(
                 tr.c.id, tr.c.token, tr.c.from_address, tr.c.to_address, tr.c.block_time, tr.c.tx_id
-            ).where(tr.c.chain == chain, tr.c.token.is_not(None), tr.c.block_time.is_not(None))
+            ).where(
+                tr.c.chain == chain,
+                tr.c.token.is_not(None),
+                tr.c.block_time.is_not(None),
+                tr.c.tx_id.not_in(orphaned_tx_ids(chain)),
+            )
         ).all():
             for p in (r.from_address, r.to_address):
                 if p:
@@ -71,7 +77,12 @@ def _events(repo: Repository, chain: str) -> list[tuple[str, str, str, datetime,
                 t.c.program_ids_json,
                 t.c.block_time,
                 t.c.tx_id,
-            ).where(t.c.chain == chain, t.c.block_time.is_not(None), t.c.from_address.is_not(None))
+            ).where(
+                t.c.chain == chain,
+                t.c.block_time.is_not(None),
+                t.c.from_address.is_not(None),
+                canonical_transaction(),
+            )
         ).all():
             if chain == "solana":
                 for p in json.loads(r.program_ids_json or "[]"):

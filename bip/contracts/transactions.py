@@ -55,7 +55,7 @@ class SolanaTransaction(ContractModel):
     status: TxStatus | None = None
     error: Annotated[str, Field(max_length=4096)] | None = None
     version: Literal["legacy"] | NonNegInt | None = None
-    """Transaction message version as reported by RPC: ``"legacy"`` or an integer (``0``)."""
+    """Transaction message version as reported by RPC: ``"legacy"``, ``0`` (v0) or ``1`` (v1)."""
     provenance: Provenance
 
     @model_validator(mode="after")

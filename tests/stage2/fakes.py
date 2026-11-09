@@ -17,6 +17,8 @@ from bip.providers.registry import ResolvedEndpoint
 from bip.rpc.transport import TransportError, TransportResponse
 from tests.base58 import b58encode as _b58encode
 
+PAIR_CREATED = "0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9"
+POOL_CREATED = "0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118"
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 SOL_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
 SYSTEM = "11111111111111111111111111111111"
@@ -58,6 +60,14 @@ class FakeEthNode:
     break_receipt_for: str | None = None
     reorg_tx: str | None = None
     unsupported: set[str] = field(default_factory=set[str])
+    block_txs: dict[int, list[dict[str, object]]] = field(
+        default_factory=dict[int, list[dict[str, object]]]
+    )
+    """Full transaction bodies per block, served for ``eth_getBlockByNumber(n, true)``."""
+    created: dict[str, str] = field(default_factory=dict[str, str])
+    """Contract address a creation transaction's receipt reports."""
+    no_finalized_tag: bool = False
+    """The provider rejects the ``finalized`` block tag."""
     history_floor: int = 20_000_000 - 200_000
     """Blocks below this number are 'not served' (null), like a pruned node."""
 
@@ -84,6 +94,59 @@ class FakeEthNode:
             # head block: other -> token contract (not involving the wallet)
             self._log(h32(h), h, 0, 0, [TRANSFER, topic(self.other), topic(self.token)], 7),
         ]
+
+    def add_block_tx(
+        self, n: int, txh: str, frm: str, to: str | None, value: int, contract: str | None = None
+    ) -> None:
+        """Put a transaction in block ``n`` (listed in full-block reads, with a receipt)."""
+        idx = len(self.block_txs.setdefault(n, []))
+        tx: dict[str, object] = {
+            "hash": txh,
+            "blockNumber": hex(n),
+            "blockHash": self._block(n)["hash"],
+            "transactionIndex": hex(idx),
+            "from": frm,
+            "to": to,
+            "value": hex(value),
+            "nonce": "0x4",
+            "gasPrice": hex(30 * 10**9),
+        }
+        self.block_txs[n].append(tx)
+        self.txs[txh] = tx
+        if contract is not None:
+            self.created[txh] = contract
+
+    def add_pool(
+        self,
+        n: int,
+        txh: str,
+        factory: str,
+        token0: str,
+        token1: str,
+        pool: str,
+        *,
+        v3_fee: int | None = None,
+    ) -> None:
+        """A transaction in block ``n`` whose receipt logs a pool-creation event."""
+        self.add_block_tx(n, txh, addr(0xDEAD), factory, 0)
+        word = lambda a: "0" * 24 + a[2:]  # noqa: E731
+        if v3_fee is None:
+            sig, topics, data = PAIR_CREATED, [], word(pool) + f"{7:064x}"
+        else:
+            sig, topics, data = POOL_CREATED, [f"0x{v3_fee:064x}"], f"{60:064x}" + word(pool)
+        self.logs.append(
+            {
+                "address": factory,
+                "blockNumber": hex(n),
+                "blockHash": self._block(n)["hash"],
+                "transactionHash": txh,
+                "transactionIndex": hex(0),
+                "logIndex": hex(len(self.logs) + 100),
+                "topics": [sig, "0x" + word(token0), "0x" + word(token1), *topics],
+                "data": "0x" + data,
+                "removed": False,
+            }
+        )
 
     def _block(self, n: int) -> dict[str, object]:
         return {
@@ -134,6 +197,8 @@ class FakeEthNode:
             return hex(self.head)
         if method == "eth_getBlockByNumber":
             tag = params[0]
+            if tag == "finalized" and self.no_finalized_tag:
+                raise _RpcFaultError(-32602, "invalid argument 0: block tag not supported")
             n = (
                 self.head
                 if tag == "latest"
@@ -141,9 +206,12 @@ class FakeEthNode:
                 if tag == "finalized"
                 else int(str(tag), 16)
             )
-            if n not in self.blocks and self.history_floor <= n <= self.head:
-                return self._block(n)  # synthesized historical header
-            return self.blocks.get(n)
+            block = self.blocks.get(n)
+            if block is None and self.history_floor <= n <= self.head:
+                block = self._block(n)  # synthesized historical header
+            if block is not None and len(params) > 1 and params[1] is True and n in self.block_txs:
+                return {**block, "transactions": self.block_txs[n]}
+            return block
         if method == "eth_getCode":
             return "0x"
         if method == "eth_getBalance":
@@ -163,7 +231,8 @@ class FakeEthNode:
                 t = lg["topics"]
                 assert isinstance(t, list)
                 if a <= n <= b and all(
-                    w is None or (i < len(t) and t[i] == w) for i, w in enumerate(want)
+                    w is None or (i < len(t) and (t[i] in w if isinstance(w, list) else t[i] == w))
+                    for i, w in enumerate(want)
                 ):
                     out.append(lg)
             return out
@@ -182,7 +251,7 @@ class FakeEthNode:
                 "blockHash": tx["blockHash"],
                 "status": "0x1",
                 "gasUsed": hex(51_000),
-                "contractAddress": None,
+                "contractAddress": self.created.get(txh),
                 "logs": [lg for lg in self.logs if lg["transactionHash"] == txh],
             }
         raise _RpcFaultError(-32601, "method not found")
@@ -388,6 +457,8 @@ class FakeSolNode:
             if s == self.sig_c:
                 raise _RpcFaultError(-32011, "Transaction history is not available from this node")
             return None
+        if method == "getTokenAccountsByOwner":
+            return {"context": {"slot": self.head_slot}, "value": []}
         raise _RpcFaultError(-32601, "Method not found")
 
 

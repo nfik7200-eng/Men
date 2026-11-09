@@ -12,6 +12,7 @@ from sqlalchemy import func, or_, select
 
 from bip.contracts.provenance import Provenance
 from bip.db import schema
+from bip.db.canonical import canonical_transaction, orphaned_tx_ids
 from bip.db.repository import Repository, canonical_address
 
 # Display names for stored verification states (Stage 3 terminology).
@@ -155,6 +156,7 @@ def account_owners(repo: Repository, chain: str, accounts: set[str]) -> dict[str
                     bc.c.account.in_(items[start : start + 500]),
                     bc.c.owner.is_not(None),
                     bc.c.account != bc.c.owner,
+                    bc.c.tx_id.not_in(orphaned_tx_ids(chain)),
                 )
                 .distinct()
             ).all()
@@ -171,13 +173,17 @@ def load_wallet(repo: Repository, chain: str, address: str, max_records: int) ->
         schema.balance_changes,
         schema.wallet_activity,
     )
+    orphans = orphaned_tx_ids(ref.chain)
     with repo.transaction() as conn:
         owned = frozenset(
             r[0]
             for r in conn.execute(
                 select(bc.c.account)
                 .where(
-                    bc.c.chain == ref.chain, bc.c.owner == ref.address, bc.c.account != ref.address
+                    bc.c.chain == ref.chain,
+                    bc.c.owner == ref.address,
+                    bc.c.account != ref.address,
+                    bc.c.tx_id.not_in(orphans),
                 )
                 .distinct()
             ).all()
@@ -190,12 +196,16 @@ def load_wallet(repo: Repository, chain: str, address: str, max_records: int) ->
         bal = select(bc.c.tx_id).where(
             bc.c.chain == ref.chain, or_(bc.c.account == ref.address, bc.c.owner == ref.address)
         )
-        tx_cond = (t.c.chain == ref.chain) & or_(
-            t.c.from_address == ref.address,
-            t.c.to_address == ref.address,
-            t.c.tx_id.in_(linked),
-            t.c.tx_id.in_(involved),
-            t.c.tx_id.in_(bal),
+        tx_cond = (
+            (t.c.chain == ref.chain)
+            & canonical_transaction()
+            & or_(
+                t.c.from_address == ref.address,
+                t.c.to_address == ref.address,
+                t.c.tx_id.in_(linked),
+                t.c.tx_id.in_(involved),
+                t.c.tx_id.in_(bal),
+            )
         )
         tx_rows = (
             conn.execute(
@@ -213,6 +223,7 @@ def load_wallet(repo: Repository, chain: str, address: str, max_records: int) ->
                 .where(
                     tr.c.chain == ref.chain,
                     or_(tr.c.from_address.in_(mine), tr.c.to_address.in_(mine)),
+                    tr.c.tx_id.not_in(orphans),
                 )
                 .order_by(tr.c.block_number.desc(), tr.c.slot.desc(), tr.c.id.desc())
                 .limit(max_records + 1)
@@ -226,6 +237,7 @@ def load_wallet(repo: Repository, chain: str, address: str, max_records: int) ->
                 .where(
                     bc.c.chain == ref.chain,
                     or_(bc.c.account == ref.address, bc.c.owner == ref.address),
+                    bc.c.tx_id.not_in(orphans),
                 )
                 .order_by(bc.c.slot.desc(), bc.c.id.desc())
                 .limit(max_records + 1)

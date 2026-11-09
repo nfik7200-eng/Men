@@ -559,3 +559,137 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not done (by design)**
 - No installs, downloads, accounts, API calls to providers, or VPS changes.
+
+## 2026-11-08 — Stage 1: ingestion correctness
+
+**Scope (from the owner's brief)**: Solana transaction-version compatibility, Solana token-account coverage, recovery of incomplete records, Ethereum adaptive log splitting, finality upgrades and reorg checks, and accurate tests. Stopped at the Stage 1 checkpoint.
+
+**Verified before changing code**
+- Official Solana docs: v1 transactions are live on mainnet (`txv1` active at epoch 1035, 2026-09-15). A request with `maxSupportedTransactionVersion` 0 fails with -32015 on v1 transactions. Source: https://solana.com/upgrades/larger-transaction-sizes
+- `bip/chains/solana/adapter.py`, `prober.py` requested 0. `parse.py` accepted only legacy and 0. Wallet ingest stored a placeholder on -32015 (classified `not_available`).
+- `store_transaction` returned early for existing rows, so placeholders could never be replaced.
+- `transfer_logs` raised `ParseError` above 10,000 logs, and the splitter did not catch it, so the whole log stage aborted.
+- The router refused `getTokenAccountsByOwner` because no provider declared it.
+
+**Changes**
+- Solana: version 1 requested in `adapter.py` (transactions and blocks) and in `prober.py`. `parse.py` accepts 0 and 1, rejects anything else, and keeps the v0 lookup-table check. Docstrings updated.
+- Solana token accounts: `SolanaAdapter.token_accounts_by_owner` (`getTokenAccountsByOwner`, one call per token program: SPL Token and Token-2022). `WalletIngestor._scan_token_accounts` walks up to `solana_token_accounts_limit` (default 5) accounts with their own cursors. Discovery and per-account failures are reported in coverage, and `not_covered` says what is unknown.
+- Solana recovery: `_repair_solana_placeholders` re-fetches placeholder rows for the wallet and its scanned token accounts (bounded by `solana_placeholder_repair_limit`, default 10). `Repository.store_transaction` replaces a `parse_status='failed'` row only with a complete or partial parse. Stored parsed rows are never overwritten.
+- Solana walk: the cursor-based signature walk was moved unchanged into `_walk_signatures` and reused for wallets and token accounts.
+- Registry: `getTokenAccountsByOwner` added to the global Solana allow-list, and to the public endpoint only. The official RPC reference lists it. Other providers are not assumed to support it (CLAUDE.md §2 item 3). Not probed live.
+- Ethereum: `transfer_logs` reports an oversized result as `range_too_large`, so `transfer_logs_adaptive` splits the window. An unsplittable single block still fails the run, loudly.
+- Ethereum finality: `_upgrade_ethereum_finality` checks up to 5 distinct stored blocks per run against the canonical hash (the finalized block directly, lower blocks with one `eth_getBlockByNumber` each). Matching blocks are upgraded in `transactions` (column and `provenance_json`) and `blocks`. Mismatches are recorded as `reorg_detected` and left unchanged. Invalidation stays with `intel/verify.py`.
+- Settings: `solana_token_accounts_limit` (0–50, default 5), `solana_placeholder_repair_limit` (0–100, default 10). No schema migration; `SCHEMA_VERSION` is unchanged (6).
+- Docs: `DATA_ACQUISITION_STRATEGY.md` and `DEVELOPMENT.md` no longer say to request version 0.
+
+**Tests**
+- New: `tests/stage2/test_stage1_ingestion.py` (11 tests): v1 parse, unknown version rejection, v1 request for transactions and blocks, v1 end-to-end ingestion, placeholder repair, token-account discovery and coverage, discovery failure not reported as complete, oversized log split, unsplittable block failure, finality upgrade when canonical, and reorg mismatch reported and not upgraded.
+- Changed: `tests/stage2/test_parsers.py`: the invalid-version case now uses version 2 (1 is valid). `tests/stage2/fakes.py`: the Solana fake answers `getTokenAccountsByOwner` with no accounts by default.
+
+**Verification (exact results)**
+- Baseline before changes: `pytest -q` → 512 passed (94.28 s).
+- After changes: `pytest -q` → 523 passed (89.53 s).
+- `ruff check bip tests` → All checks passed. `ruff format --check bip tests` → 145 files already formatted.
+- `pyright --pythonpath .venv/bin/python` on the changed modules and new tests → 0 errors, 0 warnings.
+- Full-project pyright was not run in this stage.
+
+**Not done (kept for the next stages)**
+- Downstream intelligence (`bip/intel/dataset.py` and related) does not filter provisional events by finality. `ORPHANED` is still never set.
+- Ethereum partial rows (no receipt) are not re-fetched. Provider-specific retry and rate tuning is unchanged.
+- No live provider was contacted. Real Solana v1 behaviour, real token-account volume, and the public endpoint's acceptance of `getTokenAccountsByOwner` are unverified.
+- Token-account history is stored under the token-account address. Wallet endpoints show only the wallet's own history. Intelligence merges owned token accounts where balance metadata links them.
+
+## 2026-11-08 — Phase A: independent review and Stage 1 completion
+
+**Independent review findings (bugs the 523 existing tests did not catch)**
+1. Orphaned data reached intelligence: nothing excluded `orphaned` transactions, and `ORPHANED` was never set. Hash mismatches were only reported and re-checked on every run, so five mismatching blocks starved the finality check forever.
+2. Placeholder rows had no retry bound: a permanently unavailable transaction was re-fetched on every run and could crowd out newer placeholders.
+3. Ethereum rows stored without a receipt (`partial`) were never repaired once they fell out of the scan window, and `store_transaction` could not upgrade them.
+4. Token-account scanning used the full per-run limit for every account (up to 5 x limit calls), and a call-budget stop skipped the token-account coverage fields entirely.
+5. Transfer and balance-change listings reported the finality they were parsed with, so they showed `observed` after the transaction was finalized or orphaned.
+6. Correction to the Stage 1 report: wallet-level aggregation of token-account activity already existed. `wallet_transfers`, `wallet_transactions` (through balance-change ownership) and `load_wallet` all include owned token accounts. A regression test now covers an incoming transfer whose key is not in the wallet's account keys.
+7. The existing end-to-end smoke test made a real provider health-check request. It failed in this sandbox (no data returned), but it was an unintended live contact. That step now runs only with `BIP_E2E_REAL_NETWORK=1`.
+
+**Changes**
+- `bip/db/canonical.py`: shared orphan exclusion (`orphaned_tx_ids`, `canonical_transaction`), applied in `intel/dataset.py`, `intel/graph.py`, `intel/opportunities.py`, `intel/service.py` and `ml/rules.py`.
+- `ObservationStore.mark_ethereum_block_orphaned`: a stored block whose hash differs from the chain at a finalized height is marked `orphaned` (rows kept). In the same transaction it adds an `invalidated` verification per transaction and marks succeeded analyses of every involved address `stale`. Orphaned rows are not re-checked.
+- Retry bound: `repair_max_attempts` (default 5), counted from recorded ingestion errors, least-retried first. No schema change.
+- `store_transaction` upgrades `failed -> complete|partial` and `partial -> complete`; `_repair_ethereum_partials` rebuilds the wallet's Transfer logs from the receipt (`_receipt_logs`, same filter as the scan).
+- Token scan: per-account signature limit (`solana_token_account_signature_limit`, default 10) and coverage written in a `finally`, so a budget stop is reported.
+- Listings use the owning transaction's finality (`tx_finality`).
+
+**Verification (exact)**
+- `pytest -q` -> 530 passed (baseline 512 at the start of Stage 1; 18 new tests across two files).
+- `ruff check bip tests` -> all checks passed; `ruff format --check bip tests` -> formatted.
+- `pyright --pythonpath .venv/bin/python bip tests` -> 0 errors, 0 warnings (whole project).
+- Frontend: `tsc -b --noEmit` clean, `eslint .` clean, `vitest run` -> 96 passed in 15 files.
+- E2E (`npm run e2e`, offline): 49/49 checks passed. The first run (51/51) included the live health-check step described above.
+- SQLite on a populated fixture database: `PRAGMA integrity_check` ok, `foreign_key_check` empty, WAL mode, `migrate()` idempotent at version 6.
+
+**Database implications**: no schema migration. New writes: `transactions.finality = 'orphaned'`, `evidence_verifications.outcome = 'invalidated'` rows, `analysis_runs.status = 'stale'`. Rollback: revert the code; rows already marked orphaned/stale keep that label and can be reset with an UPDATE if a block is later proven canonical.
+
+**Remaining limitations**
+- Orphaning trusts one provider's canonical hash at a finalized height. A second-provider confirmation is not implemented.
+- ML features and classifications already stored are not recomputed after an orphan event.
+- Dashboard counters still count orphaned transactions.
+
+## 2026-11-08 — Backend completion pass (discovery, entities, security, operations)
+
+**Scope.** The "complete the backend" goal: inventory what exists, finish ingestion correctness, add autonomous discovery over stored data, entities and relationships, authentication and operations, and document the API. Offline only: no provider, VPS or paid service was contacted, and nothing is committed.
+
+**Inventory at the start (verified in the repository, not from documents).** Present: 83 routes, ingestion, intelligence, ML (rules, scikit-learn training, Isolation Forest, HDBSCAN, calibration), AI research with a loopback-only Ollama provider, watchlists, cases. Missing: alerts, a signal registry, any authentication or CSRF, API throttling, a scheduler or workers, backups, persisted relationships, transaction/token/contract views, case notes and timeline, model drift monitoring, false-positive measurement.
+
+**Built**
+- Ingestion review fixes (see the Phase A entry): orphan exclusion and marking, bounded repair, partial Ethereum repair, token-scan coverage under a budget, listing finality.
+- `bip/discovery/`: five detectors, scoring, deduplication, cooldown, expiry, alerts, notification abstraction, promotion, performance statistics; routes `/discovery/*`, `/signals/*`, `/alerts/*`, `/alert-rules/*`. Migration v7.
+- Security: `bip/security/{auth,passwords,ratelimit}.py`, `bip/api/{access,protection}.py`, `bip/tools/users.py`; routes `/auth/*`, `/users`, `/audit`. Migration v8.
+- Operations: `bip/ops/{metrics,backup,scheduler,jobs,health}.py`; routes `/system/*`. Migration v9.
+- Entities: `bip/entities/{relationships,views,cases}.py`; routes `/search`, `/transactions/*`, `/tokens/*`, `/contracts/*`, `/entities/*/relationships`, `/relationships/*`, `/investigations/*/notes|timeline`. Migration v10.
+- ML: `bip/ml/drift.py` (`/ml/models/{name}/{version}/drift`).
+- Docs: `docs/API_REFERENCE.md` (generated, guarded by a test), `docs/OPERATIONS.md`, `docs/SIGNALS.md`, ADR-032 to ADR-037 (Proposed), `.env.example`.
+
+**Defects found by the new tests and fixed** (each had a failing test first)
+1. PSI drift used raw PSI, which is biased upward at small samples (about 0.6 at n=30), so it would have flagged healthy models. Fixed with bin-count adaptation and bias correction; the floor became 50 samples after measuring false-drift rates on seeded simulated data (400 pairs per size: 5.7% at 30 values, 1.0% at 50; a 1.5-sigma shift detected 100% at 50).
+2. PSI bins closed on the wrong edge, so a constant reference could not see a shift upward. Fixed.
+3. Same-second backups sorted wrongly (`bip-X.sqlite3` after `bip-X-2.sqlite3`), so pruning could keep the oldest. Fixed with a numeric sequence key.
+4. The health report warned "no healthy provider" on a fresh install where nothing had been checked. It now warns only when providers were checked and none passed.
+5. Ethereum transfer and balance listings showed the finality they were parsed with, not the transaction's current one (fixed earlier in this pass).
+
+**Verification (exact)**
+- `pytest -q`: **754 passed** (155.87 s). The suite was 512 at the start of the work.
+- `ruff check bip tests`: all checks passed. `ruff format --check bip tests`: 195 files already formatted.
+- `pyright --pythonpath .venv/bin/python bip tests`: **0 errors, 0 warnings** (whole project).
+- Frontend: `tsc -b --noEmit` clean, `eslint .` clean, `vitest run` **96 passed** (15 files), `vite build` ok.
+- E2E `npm run e2e` (offline): **49/49** checks passed; the live-provider step is skipped unless `BIP_E2E_REAL_NETWORK=1`.
+- Migrations: a database frozen at v6 with data upgrades to v10 with the data intact; `PRAGMA integrity_check` ok and `foreign_key_check` empty; migrating again is a no-op; an interrupted upgrade resumes; a newer database is refused (`tests/api/test_forward_migration.py`).
+- `gitleaks dir .`: no leaks found (8.75 MB scanned).
+
+**Measurements (this sandbox, synthetic data at the configured caps; not the VPS).** 20 000 transactions and 20 000 transfers over 2 000 wallets: discovery pass 2.7 s (all five detectors, rows scanned 20 000 each, none capped); relationship rebuild 1.0 s first, 1.3 s second; verified backup 0.33 s for 54 MB; database 52.6 MB with a 54.1 MB WAL before a checkpoint; peak resident memory 113 MB. Random data produced few signals (9 deployments); these figures bound the cost of reading the cap, not the yield on real data.
+
+**Not done / blocked** (also in `CURRENT_STATE.md`)
+- Whole-chain discovery and any live collector; event streams; DEX/liquidity/pool detection; Solana program deployment; holder concentration; exchange attribution. Each needs a provider or data-source and cost decision.
+- Frontend sign-in and CSRF header handling; until built, `BIP_AUTH__MODE=required` cannot be used with the bundled UI.
+- Real reviewed labels; a real trained model; a live LLM.
+- No load test on the VPS; SQLite limits are assessed, not measured there.
+- Database changes: migrations v7 to v10 are additive and idempotent. Rollback of the code leaves the extra tables unused; nothing is dropped. To undo the data effects of orphaning, reset `transactions.finality`, `analysis_runs.status = 'stale'`, `signals.status = 'invalidated'` and `entity_relationships.status = 'invalidated'` for the affected rows.
+
+## 2026-11-08 — Bounded Ethereum block collector (discovery without supplied addresses)
+
+**Why.** The goal review said discovery only sees wallets BIP was asked to ingest. This adds the one slice that can be built and proven offline: contract creations and large native transfers read from finalized blocks.
+
+**Built.** `EthereumAdapter.block_full`, `bip/ingest/collector.py` (`ChainCollector`), settings `collector.*` and `workers.collector_enabled`, routes `GET /discovery/collector` and `POST /discovery/collect/ethereum` (admin by the fail-closed table), scheduler job `chain_scan` (off, `contacts_providers`), ADR-038 (Proposed). Finalized blocks only; cursor in `app_metadata`; bounded by blocks, receipts, call budget and deadline; each run writes a coverage manifest; no raw block payloads retained.
+
+**Verification (exact).** `tests/collector/` 9 passed (creations and large transfers stored, small ones counted and dropped, resume and idle runs, block and receipt caps disclosed, missing receipt not turned into a transfer, no finalized tag means nothing read, analyst gets 403, job off by default, `DiscoveryService` raises a signal for a collected contract). Full `pytest -q`: **763 passed**. `ruff check` and `ruff format --check` clean, `pyright` 0 errors, `docs/API_REFERENCE.md` regenerated.
+
+**Not done / still BLOCKED.** Never run against a live provider. No Solana collector, ERC-20 or event-stream ingestion, DEX/pool/liquidity detection, holder concentration or exchange attribution; these need a data source and cost decision from the owner.
+
+## 2026-11-08 — Pool-creation events and the `new_liquidity_pool` detector
+
+**Why.** The goal review still named new pools as unmet. Factory creation events are rare and filterable by topic, so a bounded unfiltered `eth_getLogs` over the planned finalized range is feasible; ERC-20 transfers chain-wide are not (volume).
+
+**Built.** Migration v11 (`pool_events`, additive), `bip/chains/ethereum/pools.py` (v2/v3-style decoders), `EthereumAdapter.pool_logs_adaptive`, pool scan in `ChainCollector` (runs before blocks so a failure leaves the cursor unchanged; checks the log's block hash against the canonical header; stores the creating transaction as evidence), `collector.max_pools_per_run`, detector `new_liquidity_pool` (confidence cap 0.4, flags tokens with no earlier stored pool), pool entities in `/search`.
+
+**Verification (exact).** Event-signature constants checked against a test-only keccak-256. `tests/collector/` 14 passed (decode v2/v3, store with transaction, rerun dedupes, wrong block hash rejected, cap disclosed, detector scoring and search). Full `pytest -q`: **768 passed**. `ruff check`, `ruff format --check` clean; `pyright` 0 errors; `docs/API_REFERENCE.md` regenerated; forward-migration test now ends at v11.
+
+**Not done / still BLOCKED.** Never run live. No Solana collector, chain-wide ERC-20 transfer ingestion, event streams, liquidity/reserve/holder changes, exchange attribution, frontend sign-in, real labels, live LLM.
+

@@ -18,6 +18,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -31,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 11
 
 metadata = MetaData(
     naming_convention={
@@ -1003,3 +1004,268 @@ investigation_research_runs = Table(
 )
 
 V6_TABLES = (investigation_research_runs,)
+
+# ------------------------------------------------- v7: signals, discovery runs, alerts
+
+signals = Table(
+    "signals",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("signal_key", String(160), nullable=False, unique=True),
+    Column("detector_id", String(64), nullable=False),
+    Column("detector_version", String(16), nullable=False),
+    Column("family", String(40), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("subject_kind", String(24), nullable=False),
+    Column("subject_ref", String(100), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("severity", String(12), nullable=False),
+    Column("confidence", Float(asdecimal=False), nullable=False),
+    Column("score", Float(asdecimal=False), nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("explanation_json", Text, nullable=False),
+    Column("evidence_json", Text, nullable=False),
+    Column("coverage_json", Text, nullable=False),
+    Column("observed_at", UTCDateTime, nullable=False),
+    Column("first_seen_at", UTCDateTime, nullable=False),
+    Column("last_seen_at", UTCDateTime, nullable=False),
+    Column("occurrences", Integer, nullable=False),
+    Column("expires_at", UTCDateTime, nullable=True),
+    Column("status_note", String(300), nullable=True),
+    Column("promoted_to", String(60), nullable=True),
+    Column("run_id", Integer, nullable=True),
+    CheckConstraint(
+        "status IN ('open', 'dismissed', 'promoted', 'invalidated', 'expired')",
+        name="signal_status",
+    ),
+    CheckConstraint("severity IN ('low', 'medium', 'high')", name="signal_severity"),
+    Index(None, "status", "score"),
+    Index(None, "chain", "subject_ref"),
+    Index(None, "detector_id", "chain", "subject_ref", "first_seen_at"),
+)
+"""One deduplicated, scored, explainable candidate. ``signal_key`` is the deduplication key."""
+
+signal_evidence = Table(
+    "signal_evidence",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("signal_id", Integer, ForeignKey("signals.id", ondelete="CASCADE"), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("tx_id", String(100), nullable=False),
+    UniqueConstraint("signal_id", "chain", "tx_id"),
+    Index(None, "chain", "tx_id"),
+)
+"""Stored transactions a signal rests on, so a reorganisation can invalidate it."""
+
+discovery_runs = Table(
+    "discovery_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("started_at", UTCDateTime, nullable=False),
+    Column("finished_at", UTCDateTime, nullable=True),
+    Column("chain", String(32), nullable=True),
+    Column("status", String(16), nullable=False),
+    Column("summary_json", Text, nullable=True),
+)
+"""Freshness and coverage record of each detector pass."""
+
+alert_rules = Table(
+    "alert_rules",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("name", String(120), nullable=False, unique=True),
+    Column("enabled", Boolean, nullable=False),
+    Column("min_severity", String(12), nullable=False),
+    Column("min_score", Float(asdecimal=False), nullable=False),
+    Column("families_json", Text, nullable=False),
+    Column("chains_json", Text, nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    CheckConstraint("min_severity IN ('low', 'medium', 'high')", name="rule_severity"),
+)
+
+alerts = Table(
+    "alerts",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("rule_id", Integer, ForeignKey("alert_rules.id", ondelete="CASCADE"), nullable=False),
+    Column("signal_id", Integer, ForeignKey("signals.id", ondelete="CASCADE"), nullable=False),
+    Column("severity", String(12), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("read_at", UTCDateTime, nullable=True),
+    Column("delivery", String(24), nullable=False),
+    UniqueConstraint("rule_id", "signal_id"),
+    Index(None, "read_at", "created_at"),
+)
+"""In-app alerts. One per (rule, signal), so a signal never alerts twice for the same rule."""
+
+V7_TABLES = (signals, signal_evidence, discovery_runs, alert_rules, alerts)
+
+# ------------------------------------------------- v8: users, sessions, audit log
+
+users = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("username", String(64), nullable=False, unique=True),
+    Column("password_hash", String(255), nullable=False),
+    Column("role", String(12), nullable=False),
+    Column("enabled", Boolean, nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("last_login_at", UTCDateTime, nullable=True),
+    Column("failed_logins", Integer, nullable=False),
+    Column("locked_until", UTCDateTime, nullable=True),
+    CheckConstraint("role IN ('viewer', 'analyst', 'admin')", name="user_role"),
+)
+
+sessions = Table(
+    "sessions",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("token_hash", String(64), nullable=False, unique=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("csrf_token", String(64), nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("last_seen_at", UTCDateTime, nullable=False),
+    Column("expires_at", UTCDateTime, nullable=False),
+    Column("ip", String(64), nullable=True),
+    Index(None, "user_id"),
+)
+"""Server-side sessions. Only a SHA-256 of the bearer token is stored, never the token."""
+
+audit_log = Table(
+    "audit_log",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("at", UTCDateTime, nullable=False),
+    Column("actor", String(64), nullable=True),
+    Column("action", String(80), nullable=False),
+    Column("target", String(200), nullable=True),
+    Column("outcome", String(16), nullable=False),
+    Column("ip", String(64), nullable=True),
+    Column("detail", String(300), nullable=True),
+    Index(None, "at"),
+    Index(None, "actor", "at"),
+)
+"""Security-relevant events and every mutating API call. Never holds request bodies or secrets."""
+
+V8_TABLES = (users, sessions, audit_log)
+
+# ------------------------------------------------- v9: background job history
+
+job_runs = Table(
+    "job_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("job", String(40), nullable=False),
+    Column("started_at", UTCDateTime, nullable=False),
+    Column("finished_at", UTCDateTime, nullable=True),
+    Column("status", String(12), nullable=False),
+    Column("detail", String(300), nullable=True),
+    CheckConstraint("status IN ('running', 'ok', 'error', 'skipped')", name="job_status"),
+    Index(None, "job", "started_at"),
+)
+"""One row per scheduler job execution, so health survives a restart."""
+
+V9_TABLES = (job_runs,)
+
+# ------------------------------------------------- v10: relationships, investigation notes
+
+entity_relationships = Table(
+    "entity_relationships",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("kind", String(32), nullable=False),
+    Column("source_kind", String(16), nullable=False),
+    Column("source_ref", String(100), nullable=False),
+    Column("target_kind", String(16), nullable=False),
+    Column("target_ref", String(100), nullable=False),
+    Column("basis", String(12), nullable=False),
+    Column("confidence", Float(asdecimal=False), nullable=False),
+    Column("weight", Integer, nullable=False),
+    Column("status", String(12), nullable=False),
+    Column("note", String(300), nullable=True),
+    Column("first_seen_at", UTCDateTime, nullable=False),
+    Column("last_seen_at", UTCDateTime, nullable=False),
+    UniqueConstraint("chain", "kind", "source_ref", "target_ref"),
+    CheckConstraint(
+        "kind IN ('funded_by', 'deployed_by', 'transferred_to', 'interacted_with')",
+        name="relationship_kind",
+    ),
+    CheckConstraint("basis IN ('observed', 'hypothesis')", name="relationship_basis"),
+    CheckConstraint("status IN ('active', 'invalidated')", name="relationship_status"),
+    Index(None, "chain", "source_ref"),
+    Index(None, "chain", "target_ref"),
+)
+"""A typed relationship with its basis. ``basis`` is never 'verified': automatic builders only
+observe, and a verified attribution has to come from a reviewed source, not from this table."""
+
+relationship_evidence = Table(
+    "relationship_evidence",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "relationship_id",
+        Integer,
+        ForeignKey("entity_relationships.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("chain", String(32), nullable=False),
+    Column("tx_id", String(100), nullable=False),
+    UniqueConstraint("relationship_id", "chain", "tx_id"),
+    Index(None, "chain", "tx_id"),
+)
+
+investigation_notes = Table(
+    "investigation_notes",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "investigation_id",
+        Integer,
+        ForeignKey("investigations.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("kind", String(12), nullable=False),
+    Column("body", Text, nullable=False),
+    Column("author", String(64), nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    CheckConstraint("kind IN ('note', 'hypothesis')", name="note_kind"),
+    Index(None, "investigation_id", "created_at"),
+)
+"""Analyst notes. A hypothesis is a note about something not yet shown; it is stored and shown
+separately from findings, which carry evidence."""
+
+V10_TABLES = (entity_relationships, relationship_evidence, investigation_notes)
+
+
+# ------------------------------------------------- v11: liquidity pool creation events
+
+pool_events = Table(
+    "pool_events",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("protocol", String(24), nullable=False),
+    Column("factory", String(100), nullable=False),
+    Column("pool", String(100), nullable=False),
+    Column("token0", String(100), nullable=False),
+    Column("token1", String(100), nullable=False),
+    Column("fee", Integer, nullable=True),
+    Column("tx_id", String(100), nullable=False),
+    Column("log_index", Integer, nullable=False),
+    Column("block_number", Integer, nullable=False),
+    Column("block_hash", String(100), nullable=False),
+    Column("block_time", UTCDateTime, nullable=False),
+    Column("finality", String(12), nullable=False),
+    Column("stored_at", UTCDateTime, nullable=False),
+    UniqueConstraint("chain", "tx_id", "log_index"),
+    CheckConstraint("protocol IN ('v2_like', 'v3_like')", name="pool_protocol"),
+    Index(None, "chain", "pool"),
+    Index(None, "chain", "block_time"),
+)
+"""Pool-creation events seen in finalized blocks. ``protocol`` names the event layout that matched,
+not a verified DEX: any contract can emit it, so a pool is an observation about an event."""
+
+V11_TABLES = (pool_events,)

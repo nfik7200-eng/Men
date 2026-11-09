@@ -177,7 +177,7 @@ Packages for later stages (`quality/`, `process/`, `agents/`) are created when t
 | | Ethereum | Solana |
 |---|---|---|
 | Discovery | `eth_getLogs` for ERC-20/721 `Transfer` with the wallet as sender or recipient, over the last `BIP_INGEST__ETHEREUM_LOOKBACK_BLOCKS` (default 2,000) blocks, chunked and split if a provider limits ranges | `getSignaturesForAddress`, newest first, up to the limit |
-| Per transaction | `eth_getTransactionByHash`, receipt, block header (timestamp, hash check) | `getTransaction` (`json`, `maxSupportedTransactionVersion: 0`) |
+| Per transaction | `eth_getTransactionByHash`, receipt, block header (timestamp, hash check) | `getTransaction` (`json`, `maxSupportedTransactionVersion: 1`) |
 | Transfers stored | ERC-20 and ERC-721 Transfer logs; top-level ETH value | System Program transfer; SPL Token / Token-2022 `Transfer`, `TransferChecked` |
 | Balance observations | Balance and nonce at head (in the run's coverage) | Native and token pre/post balance changes for the wallet and the token accounts it owns |
 | **Not covered** | Plain ETH transfers without logs (unless the same tx has a Transfer log), internal transfers, activity older than the window, ERC-1155 | Signatures older than the bounded window; other instructions are counted as unknown, not interpreted |

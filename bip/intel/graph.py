@@ -26,6 +26,7 @@ from sqlalchemy import or_, select
 from bip.config.settings import IntelSettings
 from bip.contracts.provenance import Provenance
 from bip.db import schema
+from bip.db.canonical import canonical_transaction, orphaned_tx_ids
 from bip.db.repository import Repository, canonical_address
 from bip.intel.common import J, iso, label, verification_summary
 from bip.intel.dataset import account_owners, effective_verification
@@ -218,7 +219,12 @@ def _expand(
             r[0]: r[1]
             for r in conn.execute(
                 select(bc.c.account, bc.c.owner)
-                .where(bc.c.chain == chain, bc.c.owner.in_(frontier), bc.c.account != bc.c.owner)
+                .where(
+                    bc.c.chain == chain,
+                    bc.c.owner.in_(frontier),
+                    bc.c.account != bc.c.owner,
+                    bc.c.tx_id.not_in(orphaned_tx_ids(chain)),
+                )
                 .distinct()
             ).all()
         }
@@ -229,6 +235,7 @@ def _expand(
                 .where(
                     tr.c.chain == chain,
                     or_(tr.c.from_address.in_(accounts), tr.c.to_address.in_(accounts)),
+                    tr.c.tx_id.not_in(orphaned_tx_ids(chain)),
                 )
                 .order_by(tr.c.id.desc())
                 .limit(limit + 1)
@@ -239,7 +246,7 @@ def _expand(
         txs = (
             conn.execute(
                 select(t)
-                .where(t.c.chain == chain, t.c.from_address.in_(frontier))
+                .where(t.c.chain == chain, t.c.from_address.in_(frontier), canonical_transaction())
                 .order_by(t.c.id.desc())
                 .limit(limit + 1)
             )

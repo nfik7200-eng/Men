@@ -273,3 +273,97 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 **Consequences.**
 - Global search and the workspace render without expected errors.
 - A missing endpoint is shown as an error instead of as "no data".
+
+## ADR-032 Authentication, sessions and access control (Proposed)
+**Context.**
+- The API had no authentication. The owner wants phone access and requires auth, HTTPS, sessions, rate limits and a protected admin before any public deployment.
+- No new dependency is wanted, and the deployment is one process for one person or a small team.
+
+**Decision.**
+- `BIP_AUTH__MODE` is `disabled` (local prototype, loopback only: the app refuses to start otherwise) or `required`.
+- In `required` mode every route except `/health`, `/auth/login` and `/auth/status` needs a server-side session. Passwords use `hashlib.scrypt`; only a SHA-256 of the session token is stored; sessions expire absolutely and when idle; five failures lock an account.
+- Unsafe methods need an `X-CSRF-Token` header matching the session and an allowed `Origin`. The cookie is `HttpOnly`, `SameSite=Strict` and `Secure` by default.
+- Roles `viewer`, `analyst`, `admin`. The policy table lives in `bip/api/access.py` and is fail-closed: a mutating route not listed as analyst-level is admin-only.
+- Users are created only with `python -m bip.tools.users`; there is no open registration endpoint. Mutating calls and sign-in events go to `audit_log` (no bodies, no secrets).
+- Per-client rate limiting (stricter on login). `X-Forwarded-For` is ignored unless `BIP_AUTH__TRUST_PROXY_HEADERS=true`.
+
+**Consequences.**
+- Migration v8 (users, sessions, audit_log). The bundled frontend has no login screen, so it works only in `disabled` mode until one is built.
+- Remote access should use a private network plus a TLS reverse proxy; see `docs/OPERATIONS.md`.
+
+## ADR-033 Discovery as detectors over stored canonical data (Proposed)
+**Context.**
+- Discovery must work without a supplied address, within a zero-cost budget and without claiming more than the data supports. Whole-chain indexing needs a data-source and cost decision that has not been made (ADR-012 excludes self-hosted nodes).
+
+**Decision.**
+- Detectors read only stored, non-orphaned rows. They emit scored, explainable, deduplicated *signals* (candidates), with cooldown merging, expiry, a per-run cap, and invalidation when evidence is orphaned.
+- Scoring is a documented weighted formula; confidence is capped per detector below 1.
+- Signals are promoted by a person into a watchlist or a case (as an unverified finding); alerts are in-app only.
+- False positives are measured from analyst decisions, and the rate is withheld until 20 signals were reviewed.
+
+**Consequences.**
+- Migration v7 (signals, signal_evidence, discovery_runs, alert_rules, alerts).
+- Discovery covers only what ingestion already stored. A chain-wide collector is **not built** and needs an approved source, cost estimate and storage target.
+
+## ADR-034 Evidence-backed relationships and case notes (Proposed)
+**Context.**
+- The relationship graph was computed on demand; there was no persisted, typed relationship with evidence, and no place for analyst notes or hypotheses.
+
+**Decision.**
+- `entity_relationships` (+ `relationship_evidence`) stores `deployed_by`, `funded_by`, `transferred_to` and `interacted_with` built from stored canonical data. The basis is `observed` or `hypothesis`; the schema refuses `verified`.
+- A shared first funder is computed on demand as a labelled hypothesis, never stored as an identity link.
+- A rebuild invalidates relationships a *complete* scan no longer finds, and nothing after a row-capped scan.
+- `investigation_notes` holds notes and hypotheses apart from findings; the case timeline labels each entry's evidential status.
+
+**Consequences.**
+- Migration v10. Relationships rest on stored data only, so their coverage equals ingestion coverage.
+
+## ADR-035 In-process scheduler, backups and retention (Proposed)
+**Context.**
+- Workers, bounded queues, retries, retention and backups were missing. The VPS is disk-constrained and no new infrastructure is wanted.
+
+**Decision.**
+- One daemon thread runs jobs sequentially, records each run in `job_runs`, backs off on failure and is **off by default**.
+- Local-only jobs: discovery, relationships, maintenance (retention, WAL checkpoint), backup. The one provider-contacting job (`watchlist_refresh`) has its own switch, is off by default and uses the normal bounded ingestion path.
+- Backups use the SQLite online backup API, are integrity-checked, owner-only, size-checked before writing and pruned to the newest few. Restore stays manual.
+- SQLite with WAL stays; the assessment and the conditions for leaving it are in `docs/OPERATIONS.md`.
+
+**Consequences.**
+- Migration v9. Enabling `watchlist_refresh` is an owner decision about provider usage.
+
+## ADR-036 Finality upgrade and orphan handling (Proposed)
+**Context.**
+- Finality labels were written once and never revisited, orphaned data could reach intelligence, and a hash mismatch was only reported.
+
+**Decision.**
+- Each ingestion run checks up to five stored Ethereum blocks at or below the finalized height against the canonical hash. A match upgrades the block's transactions to `finalized`; a mismatch marks them `orphaned` (rows kept) and invalidates dependent analyses (stale), signals and relationships in one transaction. Orphaned rows are excluded from all derived reads and labelled in listings.
+- Placeholder and receipt-less rows are repaired in later runs, with an attempt limit read from the recorded errors.
+- The trust placed in one provider's canonical hash is a stated limitation.
+
+**Consequences.**
+- No schema change. A second-provider confirmation before orphaning is a possible hardening.
+
+## ADR-037 Solana v1 transactions and token-account coverage (Proposed)
+**Context.**
+- Solana transaction v1 has been live on mainnet since 2026-09-15, and `maxSupportedTransactionVersion` 0 fails on it. A wallet's signature history omits transfers that only reference its token accounts.
+
+**Decision.**
+- Request version 1 and parse legacy, 0 and 1. Discover SPL Token and Token-2022 accounts with `getTokenAccountsByOwner`, scan a bounded number, and report discovery failures and truncation in the coverage manifest. `getTokenAccountsByOwner` is declared for the public endpoint only; other providers are not assumed to support it until probed.
+
+**Consequences.**
+- Token-account coverage is bounded (default 5 accounts), and incoming transfers beyond the cap are reported as not covered.
+
+## ADR-038 Bounded Ethereum block collector (Proposed)
+**Context.**
+- Discovery detectors only see wallets BIP was asked to ingest, so they cannot surface new contracts or large movements by wallets nobody supplied. Standard RPC has no address index; the only no-index route is reading blocks.
+
+**Decision.**
+- `ChainCollector` reads full blocks in order, only up to the provider's `finalized` tag, and keeps contract creations and native transfers of at least `collector.min_native_value_eth` (receipt fetched for each). For the same range it also reads Uniswap v2/v3-style pool-creation factory logs (no address filter, adaptive split) and stores them with their creating transaction in `pool_events` (migration v11, additive). Other transactions are counted and discarded. A cursor in `app_metadata` advances only over fully read blocks. Work per run is bounded by blocks, receipts, an RPC call budget and a deadline, and every run writes a coverage manifest (skipped counts, receipt gaps, what is not covered). It is admin-only, shares the ingestion lock, and the scheduler job is off by default. No raw block payloads are retained.
+
+**Consequences.**
+- Cost: about one call per block plus one per candidate (default at most 150 calls per run). Nothing was run against a live provider.
+- Coverage is deliberately narrow. ERC-20 activity, DEX/liquidity, holders and Solana need an event source or indexer and stay BLOCKED pending an owner decision on data source and cost.
+- Candidates beyond the receipt cap inside one block are a disclosed gap, not retried.
+- A pool is an observation that a contract emitted a known event layout; BIP does not verify a DEX, liquidity, price or token legitimacy. Pools beyond `max_pools_per_run` are a disclosed gap.
+- Rollback: the code can be reverted; `pool_events` stays unused and nothing is dropped.
+- Needs owner approval before it is run against any provider.

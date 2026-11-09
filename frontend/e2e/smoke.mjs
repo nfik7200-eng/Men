@@ -173,17 +173,22 @@ try {
   const cors = await api("/health", { headers: { Origin: "https://evil.example.net" } });
   check("CORS does not allow foreign origins", !cors.headers.get("access-control-allow-origin"));
 
-  // 7. Provider health check against the REAL network (outcome depends on network access).
-  await page.goto(`${WEB}/providers`);
-  await page.getByRole("button", { name: "Health check" }).first().waitFor();
-  await page.getByRole("button", { name: "Health check" }).first().click();
-  const verdict = page.getByText(/Check passed|Check failed/).first();
-  await verdict.waitFor({ timeout: 90000 });
-  const outcome = (await verdict.textContent())?.trim();
-  check("health-check result is shown in the UI (real network)", true, `observed: ${outcome}`);
-  const lifecycle = await page.getByRole("table", { name: "Provider registry" }).locator("tbody tr").first().locator(".pill").first().textContent();
-  check("provider status reflects the recorded outcome", /Healthy|Unavailable|Degraded/.test(lifecycle ?? ""), `status=${lifecycle}`);
-  realNetwork.healthCheck = outcome ?? "unknown";
+  // 7. Provider health check against the REAL network. This contacts a live provider, so it runs
+  //    only when explicitly requested (BIP_E2E_REAL_NETWORK=1); the default run stays offline.
+  if (process.env.BIP_E2E_REAL_NETWORK === "1") {
+    await page.goto(`${WEB}/providers`);
+    await page.getByRole("button", { name: "Health check" }).first().waitFor();
+    await page.getByRole("button", { name: "Health check" }).first().click();
+    const verdict = page.getByText(/Check passed|Check failed/).first();
+    await verdict.waitFor({ timeout: 90000 });
+    const outcome = (await verdict.textContent())?.trim();
+    check("health-check result is shown in the UI (real network)", true, `observed: ${outcome}`);
+    const lifecycle = await page.getByRole("table", { name: "Provider registry" }).locator("tbody tr").first().locator(".pill").first().textContent();
+    check("provider status reflects the recorded outcome", /Healthy|Unavailable|Degraded/.test(lifecycle ?? ""), `status=${lifecycle}`);
+    realNetwork.healthCheck = outcome ?? "unknown";
+  } else {
+    realNetwork.healthCheck = "skipped (set BIP_E2E_REAL_NETWORK=1 to contact a live provider)";
+  }
 
   // 8. Mobile layout renders without horizontal overflow.
   await page.setViewportSize({ width: 390, height: 844 });

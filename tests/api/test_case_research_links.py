@@ -37,7 +37,7 @@ def test_v5_database_with_cases_upgrades_to_v6_keeping_rows(tmp_path: Path) -> N
     con.close()
 
     engine = create_db_engine(settings)
-    assert migrate(engine) == schema.SCHEMA_VERSION == 6
+    assert migrate(engine) == schema.SCHEMA_VERSION
     with engine.connect() as conn:
         tables = {r[0] for r in conn.exec_driver_sql("SELECT name FROM sqlite_master")}
         kept = conn.exec_driver_sql("SELECT title FROM investigations").scalar_one()

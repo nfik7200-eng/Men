@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from typing import cast
 
-from bip.chains.common import ParseError, SourceInfo
+from bip.chains.common import ParseError, SourceInfo, arr
 from bip.chains.ethereum import parse as eth
 from bip.chains.ethereum.adapter import EthereumAdapter
 from bip.chains.solana import parse as sol
 from bip.chains.solana.adapter import SolanaAdapter
+from bip.chains.solana.parse import TOKEN_2022_PROGRAM, TOKEN_PROGRAM
 from bip.config.settings import Settings
 from bip.contracts.blockchain import SlotPosition, family_of
 from bip.contracts.identifiers import SolanaTxRef
@@ -44,6 +46,46 @@ from bip.rpc.jsonrpc import RpcError
 from bip.rpc.transport import TransportError
 
 log = get_logger("bip.ingest")
+
+
+SOLANA_TOKEN_PROGRAMS: tuple[str, ...] = (TOKEN_PROGRAM, TOKEN_2022_PROGRAM)
+
+
+def _receipt_logs(
+    raw_receipt: object, wallet: str, src: SourceInfo
+) -> dict[tuple[str, int], tuple[object, SourceInfo]]:
+    """Transfer logs of a receipt that involve ``wallet``: the same filter the log scan applies.
+
+    Used to rebuild a transaction's transfers when it is repaired from its receipt alone.
+    """
+    if raw_receipt is None:
+        return {}
+    wanted = eth.pad_address_topic(wallet)
+    found: dict[tuple[str, int], tuple[object, SourceInfo]] = {}
+    for raw in arr(eth.obj(raw_receipt, "receipt").get("logs", []), "receipt.logs", max_len=10_000):
+        entry = eth.obj(raw, "receipt.logs[]")
+        topics = entry.get("topics")
+        if not isinstance(topics, list) or not topics:
+            continue
+        lowered = [str(t).lower() for t in cast("list[object]", topics)]
+        if lowered[0] != eth.TRANSFER_TOPIC or wanted not in lowered[1:3]:
+            continue
+        found[
+            (str(entry.get("blockHash")), eth.position(entry.get("logIndex"), "log.logIndex"))
+        ] = (
+            raw,
+            src,
+        )
+    return found
+
+
+def _failure_code(exc: BaseException) -> str:
+    """Error class for the coverage log: the RPC class if any, else the exception type."""
+    return exc.error_class if isinstance(exc, RpcError) else type(exc).__name__
+
+
+_FINALITY_CHECKS_PER_RUN = 5
+"""Distinct Ethereum blocks whose stored hash is checked against the canonical chain per run."""
 
 
 @dataclass
@@ -169,6 +211,8 @@ class WalletIngestor:
             head_time=head.timestamp,
             finalized_block=finalized,
         )
+        if finalized_pair is not None:
+            self._upgrade_ethereum_finality(run_id, a, finalized_pair[0], stats)
         balance = a.balance(wallet)
         nonce = a.transaction_count(wallet)
         stats.coverage.update(
@@ -277,6 +321,89 @@ class WalletIngestor:
                     "range_notes": notes[:10],
                 }
             )
+        self._repair_ethereum_partials(run_id, a, wallet, finalized, stats)
+
+    def _repair_ethereum_partials(
+        self, run_id: int, a: EthereumAdapter, wallet: str, finalized: int | None, stats: RunStats
+    ) -> None:
+        """Re-fetch stored transactions that have no receipt yet (bounded, attempt-limited)."""
+        pending = self._store.ethereum_partials(
+            wallet, self._cfg.ethereum_partial_repair_limit, self._cfg.repair_max_attempts
+        )
+        block_cache: dict[int, tuple[eth.BlockHeader, SourceInfo]] = {}
+        for txh in pending:
+            try:
+                self._ingest_eth_tx(run_id, a, wallet, txh, None, block_cache, finalized, stats)
+            except (RpcError, RoutingFailedError, TransportError) as exc:
+                self._error(run_id, stats, "eth_tx", _failure_code(exc), str(exc), txh)
+        stats.coverage["partial_transactions_retried"] = len(pending)
+
+    def _upgrade_ethereum_finality(
+        self, run_id: int, a: EthereumAdapter, finalized: eth.BlockHeader, stats: RunStats
+    ) -> None:
+        """Mark stored transactions finalized only where their block hash is canonical.
+
+        A block at or below the finalized height is canonical when its hash matches the chain at
+        that height. The finalized block is compared directly; lower blocks are fetched, one bounded
+        call each. Mismatches are reported and left unchanged. Invalidation stays with the
+        verification path (intel/verify.py). At most ``_FINALITY_CHECKS_PER_RUN`` blocks per run.
+        """
+        checked = upgraded = mismatched = 0
+        orphaned_total = stale_total = signals_total = relationships_total = 0
+        pending = self._store.ethereum_blocks_not_final(finalized.number, _FINALITY_CHECKS_PER_RUN)
+        for number, stored_hash in pending:
+            if number == finalized.number:
+                canonical = finalized.hash
+            else:
+                pair = a.block(number)
+                if pair is None:
+                    self._error(
+                        run_id,
+                        stats,
+                        "eth_finality",
+                        "not_available",
+                        f"block {number} not returned by the provider; not upgraded",
+                    )
+                    continue
+                canonical = pair[0].hash
+            checked += 1
+            if canonical == stored_hash:
+                upgraded += self._store.mark_ethereum_block_finalized(number, stored_hash)
+            else:
+                mismatched += 1
+                effects = self._store.mark_ethereum_block_orphaned(
+                    number,
+                    stored_hash,
+                    f"block {number} is no longer canonical: its hash differs from the chain at a "
+                    "finalized height",
+                )
+                orphaned_total += effects.transactions
+                stale_total += effects.analyses_stale
+                signals_total += effects.signals_invalidated
+                relationships_total += effects.relationships_invalidated
+                self._error(
+                    run_id,
+                    stats,
+                    "eth_finality",
+                    "reorg_detected",
+                    f"stored block {number} is not canonical at a finalized height: "
+                    f"{effects.transactions} transaction(s) marked orphaned, "
+                    f"{effects.analyses_stale} analysis run(s) marked stale, "
+                    f"{effects.signals_invalidated} signal(s) and "
+                    f"{effects.relationships_invalidated} relationship(s) invalidated",
+                )
+        stats.coverage.update(
+            {
+                "finality_blocks_checked": checked,
+                "finality_transactions_upgraded": upgraded,
+                "finality_hash_mismatches": mismatched,
+                "finality_transactions_orphaned": orphaned_total,
+                "analyses_marked_stale": stale_total,
+                "signals_invalidated": signals_total,
+                "relationships_invalidated": relationships_total,
+                "finality_check_limit_reached": len(pending) >= _FINALITY_CHECKS_PER_RUN,
+            }
+        )
 
     def _ingest_eth_tx(
         self,
@@ -284,12 +411,16 @@ class WalletIngestor:
         a: EthereumAdapter,
         wallet: str,
         txh: str,
-        logs: dict[tuple[str, int], tuple[object, SourceInfo]],
+        logs: dict[tuple[str, int], tuple[object, SourceInfo]] | None,
         block_cache: dict[int, tuple[eth.BlockHeader, SourceInfo]],
         finalized: int | None,
         stats: RunStats,
     ) -> bool:
-        """Ingest one transaction; True only if it was stored without a blocking problem."""
+        """Ingest one transaction; True only if it was stored without a blocking problem.
+
+        ``logs`` are the wallet's Transfer logs from the log scan. When ``None`` (a repair from the
+        receipt alone) they are rebuilt from the receipt with the scan's filter.
+        """
         raw_tx, tx_src = a.transaction(txh)
         raw_receipt, _ = a.receipt(txh)
         if raw_tx is None:
@@ -297,6 +428,12 @@ class WalletIngestor:
                 run_id, stats, "eth_tx", "not_found", "provider returned null for transaction", txh
             )
             return False
+        if logs is None:
+            try:
+                logs = _receipt_logs(raw_receipt, wallet, tx_src)
+            except ParseError as exc:
+                self._error(run_id, stats, "eth_tx", "parse_error", str(exc), txh)
+                return False
         try:
             number = eth.quantity(eth.obj(raw_tx, "tx").get("blockNumber"), "tx.blockNumber")
             if number not in block_cache:
@@ -457,14 +594,36 @@ class WalletIngestor:
                 ],
             }
         )
-        cur = self._store.cursor("solana", wallet)
+        # 1) The wallet's own history (transactions whose account keys include the wallet).
+        self._walk_signatures(run_id, a, wallet, wallet, limit, commitment, stats)
+        # 2) Token accounts owned by the wallet: transfers that reference only them are not in (1).
+        accounts = self._scan_token_accounts(run_id, a, wallet, limit, commitment, stats)
+        # 3) Transactions stored as placeholders by earlier runs (fetch or parse failed then).
+        self._repair_solana_placeholders(run_id, a, wallet, accounts, commitment, stats)
+
+    def _walk_signatures(
+        self,
+        run_id: int,
+        a: SolanaAdapter,
+        address: str,
+        owner: str,
+        limit: int,
+        commitment: sol.Commitment,
+        stats: RunStats,
+    ) -> None:
+        """Ingest up to ``limit`` new signatures of ``address``, newest first, from its cursor.
+
+        ``owner`` is the wallet whose view the transactions are parsed for. For a token account it
+        is the owning wallet; the cursor and the activity link are kept under ``address``.
+        """
+        cur = self._store.cursor("solana", address)
 
         def save(
             newest: tuple[str | None, int | None], oldest: tuple[str | None, int | None]
         ) -> None:
             self._store.save_cursor(
                 "solana",
-                wallet,
+                address,
                 Cursor(
                     newest_tx_id=newest[0],
                     newest_position=newest[1],
@@ -477,15 +636,16 @@ class WalletIngestor:
         def ingest(info: sol.SignatureInfo) -> None:
             stats.transactions_seen += 1
             self._store.link_wallet_activity(
-                "solana", wallet, info.signature, "signature_list", run_id
+                "solana", address, info.signature, "signature_list", run_id
             )
-            self._ingest_sol_tx(run_id, a, wallet, info, commitment, stats)
+            self._ingest_sol_tx(run_id, a, owner, info, commitment, stats)
 
         # 1) Newer than the cursor. The cursor's `newest` moves only after the WHOLE batch is
         #    ingested; if the batch filled the limit, a gap may exist below it, so the cursor is
         #    reset to this batch (older ranges are re-walked later; storage dedupes).
-        new = a.signatures(wallet, limit=limit, commitment=commitment, until=cur.newest_tx_id)
-        stats.coverage["activity_found"] = bool(new) or cur.newest_tx_id is not None
+        new = a.signatures(address, limit=limit, commitment=commitment, until=cur.newest_tx_id)
+        if address == owner:
+            stats.coverage["activity_found"] = bool(new) or cur.newest_tx_id is not None
         for info in new:
             ingest(info)
         newest = (cur.newest_tx_id, cur.newest_position)
@@ -502,11 +662,123 @@ class WalletIngestor:
         remaining = limit - len(new)
         if remaining > 0 and oldest[0] is not None:
             for info in a.signatures(
-                wallet, limit=remaining, commitment=commitment, before=oldest[0]
+                address, limit=remaining, commitment=commitment, before=oldest[0]
             ):
                 ingest(info)
                 oldest = (info.signature, info.slot)
                 save(newest, oldest)
+
+    def _scan_token_accounts(
+        self,
+        run_id: int,
+        a: SolanaAdapter,
+        wallet: str,
+        limit: int,
+        commitment: sol.Commitment,
+        stats: RunStats,
+    ) -> list[str]:
+        """Discover the wallet's SPL Token and Token-2022 accounts and walk a bounded number.
+
+        Returns the scanned token-account addresses. Discovery failures, cap truncation and a run
+        that stops part-way (call budget, deadline) are all written to the coverage manifest, even
+        when the exception is re-raised. None of them is ever presented as complete coverage.
+        """
+        cap = self._cfg.solana_token_accounts_limit
+        prior = stats.coverage.get("not_covered")
+        not_covered: list[object] = (
+            [*cast("list[object]", prior)] if isinstance(prior, list) else []
+        )
+        if cap == 0:
+            stats.coverage.update({"token_account_discovery": "disabled"})
+            not_covered.append("token accounts (token-account discovery disabled by configuration)")
+            stats.coverage["not_covered"] = not_covered
+            return []
+        per_account = min(limit, self._cfg.solana_token_account_signature_limit)
+        found: list[str] = []
+        discovery = "incomplete"
+        accounts: list[str] = []
+        walked: list[str] = []
+        failed = 0
+        finished = False
+        try:
+            discovery = "complete"
+            for program in SOLANA_TOKEN_PROGRAMS:
+                try:
+                    found.extend(a.token_accounts_by_owner(wallet, program, commitment))
+                except (RpcError, RoutingFailedError, TransportError) as exc:
+                    discovery = "failed"
+                    self._error(
+                        run_id, stats, "sol_token_accounts", _failure_code(exc), str(exc), wallet
+                    )
+            accounts = list(dict.fromkeys(found))  # de-duplicate, keep discovery order
+            for account in accounts[:cap]:
+                try:
+                    self._walk_signatures(
+                        run_id, a, account, wallet, per_account, commitment, stats
+                    )
+                    walked.append(account)
+                except (RpcError, RoutingFailedError, TransportError) as exc:
+                    failed += 1
+                    self._error(
+                        run_id, stats, "sol_token_accounts", _failure_code(exc), str(exc), account
+                    )
+            finished = True
+        finally:
+            truncated = max(0, len(accounts) - cap)
+            stats.coverage.update(
+                {
+                    "token_account_discovery": discovery
+                    if finished or discovery != "complete"
+                    else "incomplete",
+                    "token_programs": ["spl-token", "spl-token-2022"],
+                    "token_accounts_discovered": len(accounts),
+                    "token_accounts_scanned": len(walked),
+                    "token_accounts_failed": failed,
+                    "token_accounts_truncated_by_cap": truncated,
+                    "token_account_signature_limit": per_account,
+                }
+            )
+            if not finished:
+                not_covered.append(
+                    "token accounts: the run stopped before every discovered account was scanned"
+                )
+            if discovery == "failed":
+                not_covered.append(
+                    "token account discovery failed: "
+                    "transfers that only reference token accounts are unknown"
+                )
+            if truncated > 0:
+                not_covered.append(f"{truncated} token accounts beyond the per-run cap of {cap}")
+            not_covered.append(
+                "token accounts created or closed after this run are unknown until the next run"
+            )
+            stats.coverage["not_covered"] = not_covered
+        return walked
+
+    def _repair_solana_placeholders(
+        self,
+        run_id: int,
+        a: SolanaAdapter,
+        wallet: str,
+        accounts: list[str],
+        commitment: sol.Commitment,
+        stats: RunStats,
+    ) -> None:
+        """Re-fetch placeholder rows of the wallet and its scanned token accounts (bounded)."""
+        limit = self._cfg.solana_placeholder_repair_limit
+        pending = self._store.solana_placeholders(
+            [wallet, *accounts], limit, self._cfg.repair_max_attempts
+        )
+        for tx_id, slot, block_time, failed in pending:
+            info = sol.SignatureInfo(
+                signature=tx_id,
+                slot=slot,
+                block_time=block_time,
+                failed=failed,
+                confirmation_status=None,
+            )
+            self._ingest_sol_tx(run_id, a, wallet, info, commitment, stats)
+        stats.coverage["placeholders_retried"] = len(pending)
 
     def _ingest_sol_tx(
         self,

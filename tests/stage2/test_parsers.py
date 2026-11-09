@@ -182,7 +182,7 @@ def test_solana_missing_meta_is_partial() -> None:
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda t: t.update(version=1),
+        lambda t: t.update(version=2),  # v1 is supported; an unknown version is rejected
         lambda t: t["transaction"].update(signatures=["nope"]),
         lambda t: t["transaction"]["message"].update(accountKeys=["0xabc"]),
         lambda t: t.update(slot=-1),

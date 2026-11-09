@@ -130,6 +130,16 @@ class IngestSettings(BaseModel):
     """How many recent blocks the Ethereum log scan covers (standard RPC has no address index)."""
     ethereum_log_chunk_blocks: Annotated[int, Field(ge=1, le=10_000)] = 500
     solana_commitment: Literal["confirmed", "finalized"] = "finalized"
+    solana_token_accounts_limit: Annotated[int, Field(ge=0, le=50)] = 5
+    """Token accounts (SPL Token and Token-2022) scanned per wallet run; 0 disables discovery."""
+    solana_placeholder_repair_limit: Annotated[int, Field(ge=0, le=100)] = 10
+    """Previously unparsed Solana transactions re-fetched per wallet run."""
+    solana_token_account_signature_limit: Annotated[int, Field(ge=1, le=50)] = 10
+    """Newest signatures walked per token account and run (bounds the per-run call budget)."""
+    ethereum_partial_repair_limit: Annotated[int, Field(ge=0, le=100)] = 10
+    """Ethereum transactions stored without a receipt that are re-fetched per wallet run."""
+    repair_max_attempts: Annotated[int, Field(ge=1, le=20)] = 5
+    """Failed fetches after which a placeholder or partial row is no longer retried."""
     run_deadline_s: Annotated[float, Field(gt=0, le=300)] = 90.0
     max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=500)] = 150
 
@@ -159,6 +169,106 @@ class IntelSettings(BaseModel):
     burst_count: Annotated[int, Field(ge=3, le=100)] = 5
     burst_window_minutes: Annotated[int, Field(ge=1, le=1440)] = 10
     concentration_share: Annotated[float, Field(gt=0.2, le=1.0)] = 0.5
+
+
+class AuthSettings(BaseModel):
+    """Authentication, sessions and request throttling (``BIP_AUTH__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    mode: Literal["disabled", "required"] = "disabled"
+    """``disabled`` keeps the single-user local prototype behaviour and is only allowed while the
+    API is bound to loopback. ``required`` protects every route except the public allow-list."""
+    session_ttl_hours: Annotated[int, Field(ge=1, le=24 * 30)] = 12
+    idle_timeout_minutes: Annotated[int, Field(ge=1, le=24 * 60)] = 60
+    cookie_secure: bool = True
+    """Mark the session cookie Secure (HTTPS only). Turn off only for plain-HTTP local testing."""
+    login_max_failures: Annotated[int, Field(ge=3, le=100)] = 5
+    login_lockout_minutes: Annotated[int, Field(ge=1, le=24 * 60)] = 15
+    rate_limit_per_minute: Annotated[int, Field(ge=0, le=100_000)] = 600
+    """Requests per client address per minute across the API; 0 turns the limiter off."""
+    login_rate_limit_per_minute: Annotated[int, Field(ge=1, le=1000)] = 10
+    trust_proxy_headers: bool = False
+    """Use ``X-Forwarded-For`` as the client address. Enable only behind a proxy you control."""
+    allow_insecure_bind: bool = False
+    """Allow a non-loopback bind with ``mode=disabled``. Never enable on an exposed host."""
+    audit_retention_days: Annotated[int, Field(ge=7, le=3650)] = 365
+
+
+class WorkersSettings(BaseModel):
+    """Background scheduler (``BIP_WORKERS__*``). Off by default.
+
+    Jobs that only read and write the local database (discovery over stored data, maintenance,
+    backups) are always safe. ``watchlist_refresh`` contacts providers, so it has its own switch
+    and stays off until the owner approves it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    enabled: bool = False
+    poll_seconds: Annotated[int, Field(ge=1, le=3600)] = 30
+    discovery_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 60
+    maintenance_interval_hours: Annotated[int, Field(ge=1, le=24 * 7)] = 24
+    backup_enabled: bool = False
+    backup_interval_hours: Annotated[int, Field(ge=1, le=24 * 30)] = 24
+    backup_keep: Annotated[int, Field(ge=1, le=365)] = 7
+    watchlist_refresh_enabled: bool = False
+    """Contacts providers. Requires explicit approval; see docs/OPERATIONS.md."""
+    watchlist_refresh_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 120
+    watchlist_refresh_wallets_per_tick: Annotated[int, Field(ge=1, le=20)] = 2
+    collector_enabled: bool = False
+    """Contacts providers (``chain_scan`` job). Requires explicit approval."""
+    collector_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 30
+    max_backoff_hours: Annotated[int, Field(ge=1, le=72)] = 24
+    closed_signal_retention_days: Annotated[int, Field(ge=1, le=3650)] = 90
+    job_history_days: Annotated[int, Field(ge=1, le=3650)] = 90
+
+
+class CollectorSettings(BaseModel):
+    """Bounded Ethereum block collector (``BIP_COLLECTOR__*``).
+
+    Reads full finalized blocks to find activity nobody asked about: contract creations and
+    large native transfers. Contacts providers, so it only runs when an admin calls it or the
+    owner enables the ``chain_scan`` job (``workers.collector_enabled``).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    blocks_per_run: Annotated[int, Field(ge=1, le=200)] = 20
+    """Finalized blocks read per run (one full-block call each)."""
+    initial_lookback_blocks: Annotated[int, Field(ge=1, le=1000)] = 20
+    """Where the very first run starts, counted back from the finalized head."""
+    min_native_value_eth: Annotated[int, Field(ge=1, le=1_000_000)] = 10
+    """A top-level native transfer is stored when it moves at least this much ETH."""
+    max_receipts_per_run: Annotated[int, Field(ge=1, le=300)] = 60
+    """Receipts fetched per run (creations and large transfers each need one)."""
+    max_pools_per_run: Annotated[int, Field(ge=0, le=100)] = 15
+    """New pool-creation events stored per run (each costs block, transaction and receipt calls)."""
+    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=500)] = 150
+    run_deadline_s: Annotated[float, Field(gt=0, le=300)] = 90.0
+
+
+class DiscoverySettings(BaseModel):
+    """Bounds and thresholds of the stored-data detectors (``BIP_DISCOVERY__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    lookback_hours: Annotated[int, Field(ge=1, le=24 * 30)] = 48
+    """Only events newer than this can open a signal."""
+    baseline_days: Annotated[int, Field(ge=2, le=365)] = 30
+    min_baseline: Annotated[int, Field(ge=5, le=10_000)] = 10
+    """Fewest baseline observations a median/MAD detector accepts."""
+    mad_threshold: Annotated[float, Field(ge=2, le=50)] = 3.5
+    dormant_days: Annotated[int, Field(ge=7, le=3650)] = 90
+    burst_min_count: Annotated[int, Field(ge=3, le=10_000)] = 10
+    funding_min_recipients: Annotated[int, Field(ge=2, le=1000)] = 3
+    funding_window_hours: Annotated[int, Field(ge=1, le=24 * 30)] = 24
+    cooldown_seconds: Annotated[int, Field(ge=0, le=7 * 86_400)] = 6 * 3600
+    """New signals for the same detector and subject inside this window merge into the earlier
+    one instead of opening a new candidate."""
+    ttl_days: Annotated[int, Field(ge=1, le=365)] = 7
+    max_signals_per_detector: Annotated[int, Field(ge=1, le=1000)] = 50
+    max_rows_scanned: Annotated[int, Field(ge=100, le=1_000_000)] = 20_000
 
 
 class ProbeSettings(BaseModel):
@@ -271,6 +381,10 @@ class Settings(BaseSettings):
     rpc: RpcSettings = RpcSettings()
     ingest: IngestSettings = IngestSettings()
     intel: IntelSettings = IntelSettings()
+    discovery: DiscoverySettings = DiscoverySettings()
+    collector: CollectorSettings = CollectorSettings()
+    auth: AuthSettings = AuthSettings()
+    workers: WorkersSettings = WorkersSettings()
     probe: ProbeSettings = ProbeSettings()
     ml: MLSettings = MLSettings()
     ai: AISettings = AISettings()

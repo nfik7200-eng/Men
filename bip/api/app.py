@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import cast
 
 from fastapi import FastAPI
@@ -20,9 +21,13 @@ from bip import __version__
 from bip.api.deps import AppContext
 from bip.api.errors import install_error_handlers
 from bip.api.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
+from bip.api.protection import ProtectionMiddleware
 from bip.api.routes import (
+    auth,
     chains,
     dashboard,
+    discovery,
+    entities,
     health,
     ingestion,
     intelligence,
@@ -32,20 +37,30 @@ from bip.api.routes import (
     providers,
     research,
     settings_route,
+    system,
     wallets,
     watchlists,
 )
 from bip.config.settings import Settings, load_settings
+from bip.core.exceptions import ConfigurationError
 from bip.core.logging import get_logger
 from bip.db.engine import create_db_engine
 from bip.db.errors import DatabaseError
 from bip.db.repository import Repository
+from bip.discovery.service import DiscoveryService
+from bip.entities.cases import CaseService
+from bip.entities.relationships import RelationshipService
+from bip.ingest.collector import ChainCollector
 from bip.ingest.wallet import WalletIngestor
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
 from bip.ml.labels import LabelStore
 from bip.ml.service import ClassificationService
 from bip.ml.training import Trainer
+from bip.ops.backup import BackupService
+from bip.ops.jobs import build_jobs
+from bip.ops.metrics import ApiMetrics, MetricsMiddleware
+from bip.ops.scheduler import Scheduler
 from bip.providers.intelligence import ProbeStore
 from bip.providers.prober import Prober
 from bip.providers.registry import Registry, default_registry
@@ -54,10 +69,32 @@ from bip.research.engine import ResearchManager
 from bip.research.llm import LLMProvider, build_provider
 from bip.router.router import ProviderRouter
 from bip.rpc.transport import HttpsTransport, Transport
+from bip.security.auth import AuthService
 from bip.storage.disk_guard import DiskGuard, guard_from_settings
 
 API_PREFIX = "/api/v1"
 log = get_logger("bip.api")
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def require_safe_exposure(cfg: Settings) -> None:
+    """Refuse to start an unauthenticated API on a non-loopback address.
+
+    ``auth.mode = disabled`` is the single-user local prototype. Binding it to a reachable
+    address would publish every endpoint, including the ones that contact providers, to anyone
+    who can connect.
+    """
+    if (
+        cfg.api.host not in _LOOPBACK_HOSTS
+        and cfg.auth.mode != "required"
+        and not cfg.auth.allow_insecure_bind
+    ):
+        raise ConfigurationError(
+            f"BIP_API__HOST={cfg.api.host!r} is reachable from other machines but authentication "
+            "is off. Set BIP_AUTH__MODE=required (and create a user with python -m "
+            "bip.tools.users), or bind to 127.0.0.1."
+        )
 
 
 def create_app(
@@ -75,6 +112,8 @@ def create_app(
     """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport`` and ``environ``;
     in normal use the transport is the real hardened HTTPS client."""
     cfg = settings if settings is not None else load_settings()
+    require_safe_exposure(cfg)
+    metrics = ApiMetrics()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
@@ -117,9 +156,27 @@ def create_app(
             trainer=Trainer(repo, cfg),
             research=cast(ResearchManager, None),  # set below (needs the context)
             train_lock=threading.Lock(),
+            discovery=DiscoveryService(repo, cfg),
+            discovery_lock=threading.Lock(),
+            auth=AuthService(repo, cfg.auth),
+            metrics=metrics,
+            backups=BackupService(cfg),
+            started_monotonic=time.monotonic(),
+            relationships=RelationshipService(repo, cfg),
+            collector=ChainCollector(router, repo, cfg),
+            cases=CaseService(repo),
+            scheduler=None,
         )
         ctx = app.state.bip
         ctx.research = ResearchManager(ctx, llm_provider or build_provider(cfg.ai, environ))
+        if cfg.workers.enabled:
+            ctx.scheduler = Scheduler(
+                repo,
+                build_jobs(ctx, ctx.backups),
+                poll_seconds=cfg.workers.poll_seconds,
+                max_backoff=timedelta(hours=cfg.workers.max_backoff_hours),
+            )
+            ctx.scheduler.start()
         try:  # runs interrupted by a restart are marked failed, never resumed silently
             ctx.research.recover()
         except DatabaseError as exc:  # the API must still start and report the database state
@@ -127,6 +184,8 @@ def create_app(
         try:
             yield
         finally:
+            if ctx.scheduler is not None:
+                ctx.scheduler.stop()
             ctx.research.shutdown()
             if engine is None:
                 db.dispose()
@@ -141,8 +200,10 @@ def create_app(
     )
     install_error_handlers(app)
     for module in (
+        auth,
         provider_intel,  # before `providers`: its static /providers/... paths must match first
         health,
+        system,
         chains,
         dashboard,
         providers,
@@ -152,18 +213,24 @@ def create_app(
         settings_route,
         ingestion,
         intelligence,
+        discovery,
+        entities,
         ml,
         research,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 
+    required = cfg.auth.mode == "required"
+    # Innermost first (each call wraps the previous): protection, CORS, body limit, headers.
+    app.add_middleware(ProtectionMiddleware, settings=cfg, prefix=API_PREFIX)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(cfg.api.cors_origins),
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Content-Type"],
-        allow_credentials=False,
+        allow_headers=["Content-Type", "X-CSRF-Token"] if required else ["Content-Type"],
+        allow_credentials=required,
     )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=cfg.api.max_request_bytes)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(MetricsMiddleware, metrics=metrics)
     return app

@@ -1,9 +1,26 @@
 # Current State
 
-_Last updated: 2026-11-07 (UI integration: Milestones B–D implemented, E verification done; independent review pending)_
+_Last updated: 2026-11-08 (backend completion pass implemented and tested offline; for owner review)_
 
 ## Phase
-**UI integration (2026-11-06/07): implemented and verified offline.** See the capability matrix below and `IMPLEMENTATION_LOG.md`.
+**Backend completion pass (2026-11-08): implemented and verified offline. Stopped for owner review. Nothing is committed.**
+- **Ingestion hardening** (Stage 1 and its independent review): Solana v1, token accounts, placeholder and partial-row repair with attempt limits, oversized-log splitting, hash-checked finality upgrades, **orphan marking and exclusion from all derived reads**, with analyses marked stale and signals and relationships invalidated on a reorg.
+- **Discovery** over stored canonical data: six detectors, explainable scores, deduplication and cooldown, expiry, in-app alerts, promotion to a watchlist or case, detector review statistics. It does not scan the chain (see Blocked).
+- **Entities**: evidence-backed relationships (`observed`/`hypothesis` only), search, transaction, token and contract detail, case notes and hypotheses, case timeline.
+- **Security**: authentication (`BIP_AUTH__MODE=required`), server-side sessions, CSRF, origin checks, roles, throttling, audit log, a refusal to start unauthenticated on a reachable address. **The bundled frontend has no sign-in screen**, so it runs only with `mode=disabled` on loopback.
+- **Operations**: detailed health and RPC usage, API metrics, verified backups, an in-process scheduler (off by default), retention.
+- **ML**: feature drift monitoring and detector review statistics. Models are still only rules plus a synthetic-trained demo model; no real reviewed labels exist.
+- **API reference** generated from OpenAPI and guarded by a test: `docs/API_REFERENCE.md`.
+- Migrations v7 to v11 (additive; v11 adds `pool_events`). ADR-032 to ADR-038 (all Proposed).
+
+Earlier in this pass: **Stage 1 ingestion correctness (2026-11-08)**
+- Solana transaction versions legacy, 0 and 1 are requested and parsed. Previously, v1 transactions (live on mainnet since 2026-09-15) produced placeholder rows.
+- Placeholder rows from earlier runs are re-fetched and replaced by a real parse (bounded per run).
+- Solana token accounts (SPL Token and Token-2022) are discovered per wallet run and scanned under a cap. Coverage reports discovery status, counts and what remains uncovered.
+- Ethereum: an oversized `eth_getLogs` response splits the window instead of aborting the run. Stored transactions are upgraded to `finalized` only after their block hash is confirmed canonical (at most 5 blocks per run). Mismatches are reported as `reorg_detected`.
+- Left open by Stage 1 and **done afterwards**: orphan exclusion in intelligence, partial Ethereum row repair, stale-label fixes in listings. Still open: provisional (`observed`) rows are used by intelligence and labelled, not excluded; provider retry and rate tuning is unchanged; no live provider was contacted.
+
+Earlier phase: **UI integration (2026-11-06/07): implemented and verified offline.** See the capability matrix below and `IMPLEMENTATION_LOG.md`.
 
 Earlier in this phase:
 **UI integration, Milestone A (2026-11-06): specification only. No code changed.**
@@ -69,7 +86,7 @@ Statuses:
 | Router: capability gating, identity verification, bounded retries with backoff and jitter, 429/Retry-After, unsupported-method memory, call budget, throttle | Implemented and tested (offline) | `tests/stage2/test_router.py` |
 | HTTPS transport: IP pinning, DNS-vs-unsafe distinction, no redirects, size cap, proxy mode | Implemented and tested | Offline tests. Against a real allowed host (pypi.org, not an RPC provider) via proxy: TLS tunnel OK, a 301 redirect was refused, the size cap triggered |
 | Ethereum adapter and parsers (blocks, tx, receipts, logs, ERC-20/721 Transfer, native value) | Implemented, tested offline. **Not tested against a real provider** | Fixtures in `tests/stage2/fakes.py` |
-| Solana adapter and parsers (signatures, tx legacy/v0, fees, errors, System/SPL transfers, balance changes) | Implemented, tested offline. **Not tested against a real provider** | Same |
+| Solana adapter and parsers (signatures, tx legacy/v0/v1, fees, errors, System/SPL transfers, balance changes, token accounts, placeholder repair) | Implemented, tested offline. **Not tested against a real provider** | `tests/stage2/test_stage1_ingestion.py`, `tests/stage2/test_parsers.py` |
 | Wallet ingestion (bounded, resumable, idempotent, provenance, raw payloads, errors recorded) | Implemented and tested (offline) | `tests/stage2/test_ingestion_api.py` |
 | Migration v2 (in place, preserves v1 data) | Implemented and tested | v1 fixture upgrade test |
 | API: providers, health check, chain network and latest block, wallet transactions/transfers/balance changes, ingestion jobs | Implemented and tested (offline transport) | API tests |
@@ -89,10 +106,40 @@ Statuses:
 | AI research: interpreter, fixed planner, 10 typed tools with permissions, 8 specialists, claims with statuses, LLM synthesis (validated and screened), budgets, cancellation, recovery, rerun, reports | Implemented and tested with a fake LLM. **No real LLM used** | `tests/stage5/test_research.py`, `test_pipeline.py` |
 | AI Research page (classification, plan preview, progress and cancel, report, model registry and evaluation, AI provider status) | Implemented and tested | Vitest, e2e Phase B |
 | UI integration Milestones B–D (grouped navigation, global search, wallet workspace, research history page, case ↔ research links, label curation UI, wallet status endpoint) | Implemented and tested | See capability matrix |
+| Ethereum finality upgrade (hash-checked, bounded) and oversized log splitting | Implemented and tested offline. Downstream intelligence does **not** yet filter provisional events | `tests/stage2/test_stage1_ingestion.py` |
+| Orphan handling: marking, exclusion from intelligence, invalidation of analyses, signals and relationships | Implemented and tested offline. Trusts one provider's canonical hash at a finalized height | `tests/stage2/test_stage1_review.py`, `tests/discovery/test_pipeline.py`, `tests/entities/test_relationships.py` |
+| Discovery: 6 detectors, scoring, dedupe, cooldown, expiry, alerts, promotion, review statistics (migration v7) | Implemented and tested. Works over stored data only; **no chain-wide collector** | `tests/discovery/` |
+| Entity relationships, search, transaction/token/contract detail, case notes and timeline (migration v10) | Implemented and tested | `tests/entities/` |
+| Authentication, sessions, CSRF, roles, throttling, audit log (migration v8) | Implemented and tested. **No frontend sign-in yet** | `tests/security/` |
+| Health, usage, metrics, backups, scheduler, retention (migration v9) | Implemented and tested. Not measured on the VPS | `tests/ops/`, `docs/OPERATIONS.md` |
+| Bounded Ethereum block collector: contract creations, large native transfers and Uniswap v2/v3-style pool-creation events (migration v11, detector `new_liquidity_pool`) from finalized blocks, no supplied address needed. **Off by default; never run live**, tested against fakes only | Implemented and tested offline | `tests/collector/`, ADR-038 |
+| ML feature drift monitor | Implemented and tested on simulated data. Needs real model and feature history to mean anything | `tests/stage5/test_drift.py` |
 | Real-data intelligence output | **None yet**: every analysed record so far is an offline fixture (labelled "Demo data") | — |
 | AI research, historical crawler, live followers, Parquet lake | Planned | — |
 
+## BLOCKED register (goal items not built, and why)
+
+Nothing below is claimed as working. Each needs an owner decision; none was attempted live.
+
+| Goal item | State | Blocked by | Owner decision needed |
+|---|---|---|---|
+| Ethereum discovery without addresses | **Partial**: creations, large native transfers, v2/v3-style pool creation (finalized blocks, bounded, off by default) | Never run live | Approve live provider use and quota |
+| Solana discovery without addresses (new wallets, tokens, programs, pools) | **Not built** | Public RPC limits, block size, quota | Data source and cost; approve live use |
+| Chain-wide ERC-20 transfers, new-token discovery | **Not built** | Log volume exceeds provider limits; needs an indexer or paid stream | Data source and budget |
+| Event streams (WebSocket/gRPC) | **Not built** | Provider-specific, may be paid | Provider choice |
+| Liquidity/reserve changes, holder concentration | **Not built** | Needs contract-state or indexer data | Data source and budget |
+| Exchange / entity attribution | **Not built** | Needs reviewed labels | Reviewed label source |
+| Frontend sign-in and CSRF handling | **Not built** | Goal forbids frontend rebuild | Approve frontend work |
+| Classifier on real labels | **Not trained** | No reviewed labels exist | Supply labels |
+| Live LLM synthesis | **Not exercised** | Ollama host not contacted | Supply endpoint |
+| Second-provider orphan confirmation | **Not built** | Needs a second approved provider | Provider choice |
+| Commit, push, PR | **Not done** | Goal requires approval | Authorize |
+
 ## Blockers
+000. **Partly built, rest BLOCKED:** discovery without supplied addresses now exists for one slice only: Ethereum contract creations and large native transfers read from finalized blocks (`ChainCollector`, admin endpoint `POST /discovery/collect/ethereum`, optional `chain_scan` job, off). New pools are now observed from factory events (event layout only; not proof of a DEX). **BLOCKED, needs an owner decision on data source, cost and storage:** a Solana collector, ERC-20 transfer activity chain-wide, liquidity/reserve changes, holder concentration and exchange flows. The collector is not a chain index and has not touched a live provider.
+000. **Not built, needs a provider decision:** event streams (WebSocket/gRPC), Solana program deployment, liquidity/reserve detection. **BLOCKED.**
+000. **Frontend sign-in screen** and CSRF header handling. Until built, authentication cannot be enabled for the bundled UI.
+000. **Real reviewed labels** are still needed before any real classifier is trained; the LLM provider (Ollama) was not contacted.
 00. **Real labelled wallets** (verified, corroborated or analyst-reviewed, with provenance) are needed before any real model can be trained. A local Ollama model is needed for AI synthesis, and must not change the owner's existing models.
 0. **Live provider capability evidence** needs `make probe` from a machine (or environment) whose network allows the RPC hosts.
 1. **Network policy (authoring sandbox):** `ethereum-rpc.publicnode.com`, `api.mainnet.solana.com` and other RPC hosts are denied. To verify live, run `make live-smoke` on a machine with internet access, or allow those hosts in the cloud environment's network settings.
@@ -116,7 +163,12 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 6. Alert channel (Stage 12).
 7. Web-fetcher User-Agent contact string.
 8. Remote LLM providers allowed, or local Ollama only.
-9. UI: self-hosted IBM Plex fonts or system fonts (default); confirm transaction-hash search stays out of scope (`docs/FRONTEND_ARCHITECTURE.md` §12).
+9. UI: self-hosted IBM Plex fonts or system fonts (default); confirm transaction-hash search stays out of scope (`docs/FRONTEND_ARCHITECTURE.md` §12). Note: `/search` now matches stored transaction ids; confirm that is wanted.
+10. ADR-032 to ADR-037 (all Proposed; implemented provisionally).
+11. Switching to `BIP_AUTH__MODE=required` (needs the frontend sign-in work first), the reverse-proxy/VPN choice, and the first administrator.
+12. Running the block collector against a live provider (`POST /discovery/collect/ethereum` or `BIP_WORKERS__COLLECTOR_ENABLED`): it spends provider quota (about one full-block call per block plus one receipt per candidate; default 20 blocks and 60 receipts per run). Enabling the scheduler (`BIP_WORKERS__ENABLED`), backups, and above all `watchlist_refresh`, which spends provider quota.
+13. Whether to confirm an orphaned block with a second provider before orphaning, and whether to build a chain-wide collector (with its data source and cost).
+14. A live check of Solana v1 handling, token-account discovery and `getTokenAccountsByOwner` support on a real provider.
 
 ## Known limitations
 - Ethereum wallet history is discovered only through Transfer logs in the last 2,000 blocks (configurable). Plain ETH transfers without logs, internal transfers and ERC-1155 are not covered.
@@ -127,8 +179,8 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 - Graph and flows are computed per request from SQLite within record limits (ADR-022). Parquet/DuckDB is justified only once the measured triggers in ADR-022 are hit.
 - Ingestion is synchronous, one run at a time. A run can take tens of seconds on rate-limited public endpoints.
 - `GET /chains/{chain}/latest-block` performs a network request and stores an observation. It is also exposed as POST, which the dashboard uses.
-- No authentication. The API binds to 127.0.0.1 by default and must not be exposed.
-- SQLite is single-host. It is fine for one local user but not for multiple concurrent worker processes (ADR-015).
+- Authentication exists (`BIP_AUTH__MODE=required`) but is **off by default** and the bundled frontend cannot sign in. In `disabled` mode the API refuses to start on a non-loopback address. A cross-site request from a local browser could still call the unauthenticated local API.
+- SQLite is single-host and single-writer. It is fine for one process (ADR-015, assessment in `docs/OPERATIONS.md`); it has not been load-tested on the VPS.
 - The disk guard measures the data directory on every write request. That is acceptable at prototype scale, but it should be cached once the lake grows.
 - The frontend CSP is a `<meta>` tag. Vite's dev server sends no security headers; production static hosting must add them.
 - `npm audit`: one moderate advisory (minimatch ReDoS) inside ESLint's dependency tree. It affects development tooling only, not the shipped bundle. The only "fix" downgrades ESLint to v4, so it was not applied.
@@ -137,3 +189,9 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 - Redaction patterns are heuristics; only exact registered secret values are guaranteed to be removed.
 - Provider limits in `docs/PROVIDER_REGISTRY.md` are still search-derived (`verified_at: null`).
 - Context7 and the GitHub plugin failed to connect in the authoring sessions; library behaviour was confirmed by running the installed versions (pydantic 2.14.2, pydantic-settings 2.16.2).
+- Discovery, relationships and signals describe **stored** data. A wallet BIP never ingested is invisible to them, and "new", "dormant" and "normal" mean *in the stored data*.
+- Provisional (`observed`) rows are used by intelligence and labelled; only orphaned rows are excluded.
+- ML features and classifications already stored are not recomputed after an orphan event; stored analyses are marked stale instead.
+- Orphaning trusts a single provider's canonical hash. Dashboard counters still count orphaned transactions.
+- Token-account history is bounded (5 accounts, 10 signatures each per run) and only the public Solana endpoint is declared to support `getTokenAccountsByOwner`.
+- Resource figures in `IMPLEMENTATION_LOG.md` come from this sandbox, not from the production VPS.

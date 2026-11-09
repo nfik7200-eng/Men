@@ -18,6 +18,7 @@ from bip.api.errors import error_response
 from bip.api.routes.chains import _require_chain  # pyright: ignore[reportPrivateUsage]
 from bip.api.schemas import Body
 from bip.ml import runtime, taxonomy
+from bip.ml.drift import drift_report
 from bip.ml.features import DESCRIPTIONS, FEATURE_NAMES, FEATURE_VERSION
 from bip.ml.labels import LabelIn, ReviewIn
 
@@ -106,6 +107,16 @@ def get_model(
     version: Annotated[str, Path(pattern=r"^[0-9][0-9.]{0,31}$")],
 ) -> J:
     return ctx.classifier.model(name, version)
+
+
+@router.get("/models/{name}/{version}/drift")
+def model_drift(
+    ctx: Context,
+    name: Annotated[str, Path(pattern=r"^[a-z0-9\-]{3,64}$")],
+    version: Annotated[str, Path(pattern=r"^[0-9][0-9.]{0,31}$")],
+) -> J:
+    """Feature drift since the model was registered. Not an accuracy measure (see caveats)."""
+    return drift_report(ctx.repo, name, version)
 
 
 @router.get("/training-runs")

@@ -71,6 +71,9 @@ def _clean(row: dict[str, object]) -> dict[str, object]:
         out["collected_at"] = p.collected_at
         out["verification_status"] = p.verification_status.value
         out["finality"] = p.finality.value
+    tx_finality = out.pop("tx_finality", None)
+    if isinstance(tx_finality, str) and tx_finality:
+        out["finality"] = tx_finality  # the transaction row is authoritative
     program_ids = row.get("program_ids_json")
     if isinstance(program_ids, str):
         out["program_ids"] = json.loads(program_ids)

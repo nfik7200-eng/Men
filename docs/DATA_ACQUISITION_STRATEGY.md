@@ -18,7 +18,7 @@ Version 0.1 (2026-11-03). Status: **Draft, awaiting approval.** Provider facts a
 | Data | Ethereum primary | Ethereum fallback / verify | Solana primary | Solana fallback / verify |
 |---|---|---|---|---|
 | Head / new blocks, slots | WS `newHeads` (≥2 providers) | HTTP polling `eth_blockNumber` | WS `slotSubscribe` / `blockSubscribe`* | `getSlot` polling with `finalized` commitment |
-| Blocks + txs | `eth_getBlockByNumber(full)` | 2nd provider hash compare | `getBlock` (`maxSupportedTransactionVersion: 0`) | 2nd provider; Old Faithful for old epochs |
+| Blocks + txs | `eth_getBlockByNumber(full)` | 2nd provider hash compare | `getBlock` (`maxSupportedTransactionVersion: 1`) | 2nd provider; Old Faithful for old epochs |
 | Receipts / logs | `eth_getBlockReceipts`* or `eth_getLogs` ranges | `eth_getTransactionReceipt` sampling | tx meta (logMessages, inner instructions) | — |
 | Traces / internal txs | Not on free dRPC; BigQuery `traces` (narrow) | Providers with free `trace_*`/`debug_*` (probe) | inner instructions in tx meta | — |
 | Contract deployments | receipts `contractAddress` (top-level) + Etherscan `getcontractcreation` + BigQuery `contracts` | traces | BPF Loader Upgradeable program instructions | — |
@@ -87,7 +87,7 @@ Either `SlotRangeTask(start_slot, end_slot)`, used for chain-wide metadata or fo
 ```
 getSignaturesForAddress(address, before=cursor, limit=1000, commitment=finalized)
   -> persist signature page (Bronze) + cursor checkpoint
-for each signature batch: getTransaction(sig, maxSupportedTransactionVersion=0, commitment=finalized, encoding=json)
+for each signature batch: getTransaction(sig, maxSupportedTransactionVersion=1, commitment=finalized, encoding=json)
 validate: signature matches; slot <= finalized; meta present; err field recorded (failed txs are kept, flagged)
 write Bronze; mark signatures fetched; cursor advances only after durable write
 stop when: page shorter than limit AND oldest signature reached (end of history), or until_signature reached
@@ -96,7 +96,7 @@ The checkpoint is the oldest fully processed signature together with its slot. P
 
 ### 5.3 Slot semantics
 - **Skipped slots:** `getBlock` returns an error for skipped slots. These are recorded explicitly as `skipped` (confirmed by `getBlocks(start,end)` from ≥2 providers), never as missing.
-- **Versions:** always request `maxSupportedTransactionVersion: 0`. Store `version` (legacy/0) and resolve address lookup tables from `meta.loadedAddresses`.
+- **Versions:** always request `maxSupportedTransactionVersion: 1` (v1 is live on mainnet since epoch 1035, 2026-09-15; a lower value fails on v1 transactions with -32015). Store `version` (legacy/0/1) and resolve address lookup tables from `meta.loadedAddresses` (v0 only).
 - **Commitment:** historical ingestion uses `finalized` only.
 - **Long-term storage gaps:** RPC providers may not serve old slots. On `-32007`/`-32009`-style "slot not available / cleaned up" errors, the task is re-routed to an Old Faithful-backed source or marked `missing (source_unavailable)`. (Exact error codes must be confirmed against Solana RPC docs during Stage 8.)
 

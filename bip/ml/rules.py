@@ -24,6 +24,7 @@ from typing import Any
 from sqlalchemy import func, select
 
 from bip.db import schema
+from bip.db.canonical import canonical_transaction, orphaned_tx_ids
 from bip.db.repository import Repository
 from bip.intel.dataset import WalletDataset
 from bip.ml.features import FeatureVector
@@ -43,7 +44,9 @@ def account_type(repo: Repository, ds: WalletDataset) -> J:
     with repo.transaction() as conn:
         if chain == "ethereum":
             created = conn.execute(
-                select(t.c.tx_id).where(t.c.chain == chain, t.c.created_contract == a)
+                select(t.c.tx_id).where(
+                    t.c.chain == chain, t.c.created_contract == a, canonical_transaction()
+                )
             ).first()
             if created:
                 return _result(
@@ -57,7 +60,9 @@ def account_type(repo: Repository, ds: WalletDataset) -> J:
                     ],
                 )
             token = conn.execute(
-                select(tr.c.tx_id).where(tr.c.chain == chain, tr.c.token == a)
+                select(tr.c.tx_id).where(
+                    tr.c.chain == chain, tr.c.token == a, tr.c.tx_id.not_in(orphaned_tx_ids(chain))
+                )
             ).first()
             if token:
                 return _result(
@@ -65,7 +70,9 @@ def account_type(repo: Repository, ds: WalletDataset) -> J:
                     [_ev("transfer", token[0], "address emitted a stored Transfer log")],
                 )
             sent = conn.execute(
-                select(t.c.tx_id).where(t.c.chain == chain, t.c.from_address == a)
+                select(t.c.tx_id).where(
+                    t.c.chain == chain, t.c.from_address == a, canonical_transaction()
+                )
             ).first()
             if sent:
                 return _result(
@@ -75,7 +82,9 @@ def account_type(repo: Repository, ds: WalletDataset) -> J:
         else:
             program = conn.execute(
                 select(t.c.tx_id).where(
-                    t.c.chain == chain, func.instr(t.c.program_ids_json, f'"{a}"') > 0
+                    t.c.chain == chain,
+                    func.instr(t.c.program_ids_json, f'"{a}"') > 0,
+                    canonical_transaction(),
                 )
             ).first()
             if program:
@@ -85,7 +94,11 @@ def account_type(repo: Repository, ds: WalletDataset) -> J:
                 )
             acct = conn.execute(
                 select(bc.c.tx_id, bc.c.owner).where(
-                    bc.c.chain == chain, bc.c.account == a, bc.c.owner.is_not(None), bc.c.owner != a
+                    bc.c.chain == chain,
+                    bc.c.account == a,
+                    bc.c.owner.is_not(None),
+                    bc.c.owner != a,
+                    bc.c.tx_id.not_in(orphaned_tx_ids(chain)),
                 )
             ).first()
             if acct:
@@ -94,7 +107,9 @@ def account_type(repo: Repository, ds: WalletDataset) -> J:
                     [_ev("balance_change", acct[0], f"token account owned by {acct[1]}")],
                 )
             payer = conn.execute(
-                select(t.c.tx_id).where(t.c.chain == chain, t.c.from_address == a)
+                select(t.c.tx_id).where(
+                    t.c.chain == chain, t.c.from_address == a, canonical_transaction()
+                )
             ).first()
             if payer:
                 return _result(
@@ -155,7 +170,11 @@ def roles(repo: Repository, ds: WalletDataset, fv: FeatureVector, as_of: datetim
         with repo.transaction() as conn:
             tokens = conn.execute(
                 select(tr.c.token, func.min(tr.c.tx_id))
-                .where(tr.c.chain == ds.chain, tr.c.token.in_(created))
+                .where(
+                    tr.c.chain == ds.chain,
+                    tr.c.token.in_(created),
+                    tr.c.tx_id.not_in(orphaned_tx_ids(ds.chain)),
+                )
                 .group_by(tr.c.token)
             ).all()
         if tokens:

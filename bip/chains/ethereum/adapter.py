@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from bip.chains.base import ChainAdapter
 from bip.chains.common import ParseError, SourceInfo, arr
 from bip.chains.ethereum.parse import (
@@ -15,9 +17,17 @@ from bip.rpc.jsonrpc import RpcError
 
 BlockTag = int | str  # number or "latest" / "finalized" / "safe"
 
+MAX_LOGS_PER_RESPONSE = 10_000
+"""Largest eth_getLogs result BIP accepts before splitting the block window."""
+
 
 def _tag(block: BlockTag) -> str:
     return hex(block) if isinstance(block, int) else block
+
+
+def _length(value: object) -> int:
+    """Number of entries in a JSON array result; 0 for anything that is not an array."""
+    return len(cast("list[object]", value)) if isinstance(value, list) else 0
 
 
 class EthereumAdapter(ChainAdapter):
@@ -37,6 +47,15 @@ class EthereumAdapter(ChainAdapter):
         if result is None:
             return None
         return parse_block_header(result), src
+
+    def block_full(self, block: BlockTag) -> tuple[BlockHeader, list[object], SourceInfo] | None:
+        """Block header plus every transaction body; ``None`` if the provider has no such block."""
+        result, src = self.call("eth_getBlockByNumber", [_tag(block), True])
+        if result is None:
+            return None
+        header = parse_block_header(result)
+        raw = cast("dict[str, object]", result).get("transactions")
+        return header, list(cast("list[object]", raw)) if isinstance(raw, list) else [], src
 
     def finalized_block(self) -> tuple[BlockHeader, SourceInfo] | None:
         """The ``finalized`` tag (post-Merge). ``None`` when the provider does not support it."""
@@ -73,8 +92,48 @@ class EthereumAdapter(ChainAdapter):
             "eth_getLogs",
             [{"fromBlock": hex(from_block), "toBlock": hex(to_block), "topics": topics}],
         )
-        logs = arr(result, "eth_getLogs", max_len=10_000)
+        # An oversized response is a provider-side range problem, not a malformed payload: report
+        # it as range_too_large so transfer_logs_adaptive splits the window instead of aborting.
+        returned = _length(result)
+        if returned > MAX_LOGS_PER_RESPONSE:
+            raise RpcError(
+                "range_too_large",
+                f"eth_getLogs returned more than {MAX_LOGS_PER_RESPONSE} logs for "
+                f"{from_block}-{to_block}; the window must be split",
+            )
+        logs = arr(result, "eth_getLogs", max_len=MAX_LOGS_PER_RESPONSE)
         return logs, src
+
+    def pool_logs_adaptive(
+        self, from_block: int, to_block: int, *, topics: tuple[str, ...], min_span: int = 1
+    ) -> tuple[list[tuple[object, SourceInfo]], list[str]]:
+        """Logs whose first topic is any of ``topics`` (no address filter), split on range limits.
+
+        Meant for rare factory events: a common event such as ERC-20 ``Transfer`` would return
+        far more than a provider allows even for one block.
+        """
+        out: list[tuple[object, SourceInfo]] = []
+        notes: list[str] = []
+        stack = [(from_block, to_block)]
+        while stack:
+            a, b = stack.pop()
+            try:
+                result, src = self.call(
+                    "eth_getLogs",
+                    [{"fromBlock": hex(a), "toBlock": hex(b), "topics": [list(topics)]}],
+                )
+                if _length(result) > MAX_LOGS_PER_RESPONSE:
+                    raise RpcError("range_too_large", f"more than {MAX_LOGS_PER_RESPONSE} logs")
+                out.extend(
+                    (lg, src) for lg in arr(result, "eth_getLogs", max_len=MAX_LOGS_PER_RESPONSE)
+                )
+            except RpcError as exc:
+                if exc.error_class != "range_too_large" or b - a + 1 <= min_span:
+                    raise
+                mid = (a + b) // 2
+                notes.append(f"split {a}-{b} after provider range limit")
+                stack.extend([(a, mid), (mid + 1, b)])
+        return out, notes
 
     def transfer_logs_adaptive(
         self, wallet: str, from_block: int, to_block: int, *, direction: str, min_span: int = 1

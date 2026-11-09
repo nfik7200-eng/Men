@@ -60,6 +60,7 @@ SOLANA_READ_METHODS = frozenset(
         "getBalance",
         "getSignaturesForAddress",
         "getTransaction",
+        "getTokenAccountsByOwner",
         "getVersion",
         "getBlockHeight",
         "getLatestBlockhash",

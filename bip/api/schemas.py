@@ -210,3 +210,72 @@ class PublicSettings(Out):
     solana_commitment: str
     rpc_timeout_s: float
     rpc_max_attempts: int
+
+
+Severity = Literal["low", "medium", "high"]
+RowId = Annotated[int, Field(ge=1, le=2**53)]
+
+
+class DiscoveryRunRequest(Body):
+    chain: ChainField | None = None
+
+
+class SignalDismiss(Body):
+    note: Note | None = None
+
+
+class SignalPromote(Body):
+    target: Literal["watchlist", "investigation"]
+    watchlist_id: RowId | None = None
+    investigation_id: RowId | None = None
+    note: Note | None = None
+
+    @model_validator(mode="after")
+    def _target_id(self) -> Self:
+        if self.target == "watchlist" and self.watchlist_id is None:
+            raise ValueError("watchlist_id is required when target is 'watchlist'")
+        if self.target == "investigation" and self.investigation_id is None:
+            raise ValueError("investigation_id is required when target is 'investigation'")
+        return self
+
+
+class AlertRuleCreate(Body):
+    name: Name
+    min_severity: Severity = "high"
+    min_score: Annotated[float, Field(ge=0, le=100)] = 0.0
+    families: Annotated[list[str], Field(max_length=20)] = []
+    chains: Annotated[list[str], Field(max_length=10)] = []
+    enabled: bool = True
+
+
+class AlertRuleUpdate(Body):
+    enabled: bool | None = None
+    min_severity: Severity | None = None
+    min_score: Annotated[float, Field(ge=0, le=100)] | None = None
+    families: Annotated[list[str], Field(max_length=20)] | None = None
+    chains: Annotated[list[str], Field(max_length=10)] | None = None
+
+
+class LoginBody(Body):
+    username: Annotated[str, Field(min_length=1, max_length=64)]
+    password: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class PasswordChange(Body):
+    current_password: Annotated[str, Field(min_length=1, max_length=256)]
+    new_password: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class UserCreate(Body):
+    username: Annotated[str, Field(min_length=1, max_length=64)]
+    password: Annotated[str, Field(min_length=1, max_length=256)]
+    role: Literal["viewer", "analyst", "admin"]
+
+
+class UserUpdate(Body):
+    role: Literal["viewer", "analyst", "admin"] | None = None
+    enabled: bool | None = None
+
+
+class PasswordSet(Body):
+    new_password: Annotated[str, Field(min_length=1, max_length=256)]

@@ -427,7 +427,7 @@ def _params(chain: str, cap: str, ctx: J, cfg: ProbeSettings) -> tuple[Any, str 
             "commitment": "finalized",
             "transactionDetails": "none",
             "rewards": False,
-            "maxSupportedTransactionVersion": 0,
+            "maxSupportedTransactionVersion": 1,
         }
         match cap:
             case "network_identity" | "health" | "version":
@@ -453,7 +453,7 @@ def _params(chain: str, cap: str, ctx: J, cfg: ProbeSettings) -> tuple[Any, str 
                     {
                         "encoding": "json",
                         "commitment": "finalized",
-                        "maxSupportedTransactionVersion": 0,
+                        "maxSupportedTransactionVersion": 1,
                     },
                 ], None
             case "native_balance":

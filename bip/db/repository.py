@@ -466,28 +466,37 @@ class Repository:
             block_time = tx.block_time
             from_address, to_address = tx.fee_payer, None
             parties = [tx.fee_payer]
+        values: dict[str, object] = {
+            "chain": tx.chain,
+            "status": tx.status.value if tx.status else None,
+            "provenance_json": tx.provenance.model_dump_json(),
+            "stored_at": utcnow(),
+            "tx_id": tx_id,
+            "block_number": block_number,
+            "slot": slot,
+            "block_time": block_time,
+            "from_address": from_address,
+            "to_address": to_address,
+            **dict(extras or {}),
+        }
         t = schema.transactions
         with self._tx() as conn:
             exists = conn.execute(
-                select(t.c.id).where(t.c.chain == tx.chain, t.c.tx_id == tx_id)
+                select(t.c.id, t.c.parse_status).where(t.c.chain == tx.chain, t.c.tx_id == tx_id)
             ).first()
             if exists is not None:
-                return False
-            conn.execute(
-                insert(t).values(
-                    chain=tx.chain,
-                    status=tx.status.value if tx.status else None,
-                    provenance_json=tx.provenance.model_dump_json(),
-                    stored_at=utcnow(),
-                    tx_id=tx_id,
-                    block_number=block_number,
-                    slot=slot,
-                    block_time=block_time,
-                    from_address=from_address,
-                    to_address=to_address,
-                    **dict(extras or {}),
-                )
-            )
+                # A placeholder (parse_status 'failed') is replaced by any real parse, and a partial
+                # row (for example no receipt yet) only by a complete one. A row that is already
+                # complete is never overwritten.
+                new_status = (extras or {}).get("parse_status")
+                upgrade = (
+                    exists.parse_status == "failed" and new_status in {"complete", "partial"}
+                ) or (exists.parse_status == "partial" and new_status == "complete")
+                if not upgrade:
+                    return False
+                conn.execute(update(t).where(t.c.id == exists.id).values(**values))
+            else:
+                conn.execute(insert(t).values(**values))
             observed = block_time or tx.provenance.event_time
             for address in parties:
                 self._touch_wallet(conn, tx.chain, address, observed, tx.provenance)

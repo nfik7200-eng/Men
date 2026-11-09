@@ -9,8 +9,10 @@ Observation kinds are kept distinct and never conflated:
   ``Transfer`` / ``TransferChecked``, decoded from instruction data, top-level and inner;
 - every other instruction is counted as *unknown*, never interpreted.
 
-Transaction versions ``legacy`` and ``0`` are supported (v0 lookup-table keys from
-``meta.loadedAddresses`` are appended in the documented order: writable, then readonly).
+Transaction versions ``legacy``, ``0`` and ``1`` are supported. v0 lookup-table keys from
+``meta.loadedAddresses`` are appended in the documented order (writable, then readonly); v1
+has no lookup tables, and its resource limits live in ``transactionConfig``, which is not used
+for transfer decoding.
 """
 
 from __future__ import annotations
@@ -187,9 +189,17 @@ def parse_transaction(
     slot = integer(r.get("slot"), "slot")
     block_time = _time(r.get("blockTime"), "blockTime")
     version_raw = r.get("version", "legacy")
-    if version_raw not in ("legacy", 0):
+    # Supported: legacy, v0 and v1 (live on mainnet since epoch 1035, 2026-09-15). Anything else
+    # is rejected rather than guessed. Booleans are excluded explicitly because True == 1.
+    version: Literal["legacy"] | int
+    if version_raw == "legacy":
+        version = "legacy"
+    elif (
+        isinstance(version_raw, int) and not isinstance(version_raw, bool) and version_raw in (0, 1)
+    ):
+        version = version_raw
+    else:
         raise ParseError("version", f"unsupported transaction version {version_raw!r}")
-    version: Literal["legacy"] | int = "legacy" if version_raw == "legacy" else 0
     txo = obj(r.get("transaction"), "transaction.transaction")
     sigs = arr(txo.get("signatures"), "transaction.signatures", max_len=64)
     if not sigs:

@@ -11,9 +11,12 @@ import json
 import zlib
 from dataclasses import dataclass
 from datetime import datetime
+from typing import NamedTuple
 
-from sqlalchemy import Select, func, insert, or_, select, update
+from sqlalchemy import ColumnElement, Select, Table, func, insert, or_, select, update
+from sqlalchemy.engine import Connection
 
+from bip.contracts.provenance import Finality, Provenance
 from bip.db import schema
 from bip.db.repository import Repository
 from bip.db.types import utcnow
@@ -30,6 +33,15 @@ class Cursor:
     oldest_position: int | None = None
     scanned_from_block: int | None = None
     scanned_to_block: int | None = None
+
+
+class OrphanEffects(NamedTuple):
+    """What orphaning a block changed."""
+
+    transactions: int
+    analyses_stale: int
+    signals_invalidated: int
+    relationships_invalidated: int
 
 
 class ObservationStore:
@@ -428,6 +440,7 @@ class ObservationStore:
         self, chain: str, address: str, limit: int, offset: int
     ) -> tuple[list[dict[str, object]], int]:
         tr = schema.transfers
+        tx_finality = _tx_finality(tr)
         owned = owned_token_accounts(chain, address)
         cond = (tr.c.chain == chain) & or_(
             tr.c.from_address == address,
@@ -439,7 +452,7 @@ class ObservationStore:
             total = int(conn.execute(select(func.count()).select_from(tr).where(cond)).scalar_one())
             rows = (
                 conn.execute(
-                    select(tr)
+                    select(tr, tx_finality)
                     .where(cond)
                     .order_by(tr.c.block_number.desc(), tr.c.slot.desc(), tr.c.id.desc())
                     .limit(limit)
@@ -454,12 +467,13 @@ class ObservationStore:
         self, chain: str, address: str, limit: int, offset: int
     ) -> tuple[list[dict[str, object]], int]:
         bc = schema.balance_changes
+        tx_finality = _tx_finality(bc)
         cond = (bc.c.chain == chain) & or_(bc.c.account == address, bc.c.owner == address)
         with self.repo.transaction() as conn:
             total = int(conn.execute(select(func.count()).select_from(bc).where(cond)).scalar_one())
             rows = (
                 conn.execute(
-                    select(bc)
+                    select(bc, tx_finality)
                     .where(cond)
                     .order_by(bc.c.slot.desc(), bc.c.id.desc())
                     .limit(limit)
@@ -469,6 +483,329 @@ class ObservationStore:
                 .all()
             )
         return [dict(r) for r in rows], total
+
+    # ------------------------------------------------------------------ recovery and finality
+
+    def solana_placeholders(
+        self, addresses: list[str], limit: int, max_attempts: int
+    ) -> list[tuple[str, int, datetime | None, bool]]:
+        """Solana transactions linked to any of ``addresses`` whose stored row is a placeholder.
+
+        A placeholder is a row written when the transaction could not be fetched or parsed
+        (``parse_status='failed'``). Rows that already failed ``max_attempts`` fetches (counted from
+        the recorded ingestion errors) are skipped, and the least-retried rows come first, so a
+        permanently unavailable transaction cannot starve the others. Returns
+        ``(signature, slot, block_time, failed)``.
+        """
+        if not addresses or limit <= 0:
+            return []
+        t, wa, ie = schema.transactions, schema.wallet_activity, schema.ingestion_errors
+        tries = (
+            select(ie.c.item_ref.label("ref"), func.count().label("n"))
+            .where(ie.c.stage == "sol_tx")
+            .group_by(ie.c.item_ref)
+            .subquery()
+        )
+        attempts = func.coalesce(tries.c.n, 0)
+        with self.repo.transaction() as conn:
+            rows = conn.execute(
+                select(t.c.tx_id, t.c.slot, t.c.block_time, t.c.status, attempts.label("tries"))
+                .distinct()
+                .join(wa, (wa.c.chain == t.c.chain) & (wa.c.tx_id == t.c.tx_id))
+                .outerjoin(tries, tries.c.ref == t.c.tx_id)
+                .where(
+                    t.c.chain == "solana",
+                    t.c.parse_status == "failed",
+                    t.c.slot.is_not(None),
+                    wa.c.address.in_(addresses),
+                    attempts < max_attempts,
+                )
+                .order_by(attempts.asc(), t.c.slot.desc())
+                .limit(limit)
+            ).all()
+        return [(str(r.tx_id), int(r.slot), r.block_time, r.status == "failed") for r in rows]
+
+    def ethereum_partials(self, address: str, limit: int, max_attempts: int) -> list[str]:
+        """Ethereum transactions of ``address`` stored without a receipt, least-retried first.
+
+        Rows with ``max_attempts`` or more recorded ``eth_tx`` errors are skipped.
+        """
+        if limit <= 0:
+            return []
+        t, wa, ie = schema.transactions, schema.wallet_activity, schema.ingestion_errors
+        tries = (
+            select(ie.c.item_ref.label("ref"), func.count().label("n"))
+            .where(ie.c.stage == "eth_tx")
+            .group_by(ie.c.item_ref)
+            .subquery()
+        )
+        attempts = func.coalesce(tries.c.n, 0)
+        with self.repo.transaction() as conn:
+            rows = conn.execute(
+                select(t.c.tx_id, attempts.label("tries"))
+                .distinct()
+                .join(wa, (wa.c.chain == t.c.chain) & (wa.c.tx_id == t.c.tx_id))
+                .outerjoin(tries, tries.c.ref == t.c.tx_id)
+                .where(
+                    t.c.chain == "ethereum",
+                    t.c.parse_status == "partial",
+                    wa.c.address == address,
+                    attempts < max_attempts,
+                )
+                .order_by(attempts.asc(), t.c.block_number.desc())
+                .limit(limit)
+            ).all()
+        return [str(r.tx_id) for r in rows]
+
+    def ethereum_blocks_not_final(self, up_to_block: int, limit: int) -> list[tuple[int, str]]:
+        """Distinct ``(block_number, block_hash)`` of stored Ethereum transactions that are not yet
+        marked finalized, at or below ``up_to_block``. Newest first, at most ``limit`` entries."""
+        t = schema.transactions
+        with self.repo.transaction() as conn:
+            rows = conn.execute(
+                select(t.c.block_number, t.c.block_hash)
+                .distinct()
+                .where(
+                    t.c.chain == "ethereum",
+                    t.c.block_number.is_not(None),
+                    t.c.block_number <= up_to_block,
+                    t.c.block_hash.is_not(None),
+                    or_(
+                        t.c.finality.is_(None),
+                        t.c.finality.not_in([Finality.FINALIZED.value, Finality.ORPHANED.value]),
+                    ),
+                )
+                .order_by(t.c.block_number.desc())
+                .limit(limit)
+            ).all()
+        return [(int(r.block_number), str(r.block_hash)) for r in rows]
+
+    def mark_ethereum_block_finalized(self, block_number: int, block_hash: str) -> int:
+        """Upgrade the stored transactions of one block to ``finalized``.
+
+        Only call this after the block hash has been checked against the canonical chain. Updates
+        both the ``finality`` column and the finality inside ``provenance_json``, and the block row.
+        Returns the number of transactions changed.
+        """
+        t, b = schema.transactions, schema.blocks
+        changed = 0
+        with self.repo.transaction() as conn:
+            rows = conn.execute(
+                select(t.c.id, t.c.provenance_json).where(
+                    t.c.chain == "ethereum",
+                    t.c.block_number == block_number,
+                    t.c.block_hash == block_hash,
+                    or_(t.c.finality.is_(None), t.c.finality != Finality.FINALIZED.value),
+                )
+            ).all()
+            for r in rows:
+                upgraded = Provenance.model_validate_json(str(r.provenance_json)).model_copy(
+                    update={"finality": Finality.FINALIZED}
+                )
+                conn.execute(
+                    update(t)
+                    .where(t.c.id == r.id)
+                    .values(
+                        finality=Finality.FINALIZED.value,
+                        provenance_json=upgraded.model_dump_json(),
+                    )
+                )
+                changed += 1
+            conn.execute(
+                update(b)
+                .where(b.c.chain == "ethereum", b.c.block_hash == block_hash)
+                .values(finality=Finality.FINALIZED.value)
+            )
+        return changed
+
+    def mark_ethereum_block_orphaned(
+        self, block_number: int, block_hash: str, reason: str
+    ) -> OrphanEffects:
+        """Mark the stored transactions of a block that is no longer canonical as orphaned.
+
+        Call this only after the block was shown to be off the canonical chain (its hash differs
+        from the chain at a height at or below the finalized block). Rows are kept for audit.
+        Derived data that may rest on them is invalidated in the same transaction (see
+        :meth:`_invalidate_derived`) and reported in the returned :class:`OrphanEffects`.
+        """
+        t, b = schema.transactions, schema.blocks
+        orphaned = Finality.ORPHANED
+        with self.repo.transaction() as conn:
+            rows = conn.execute(
+                select(t.c.id, t.c.tx_id, t.c.provenance_json).where(
+                    t.c.chain == "ethereum",
+                    t.c.block_number == block_number,
+                    t.c.block_hash == block_hash,
+                    or_(t.c.finality.is_(None), t.c.finality != orphaned.value),
+                )
+            ).all()
+            tx_ids: list[str] = []
+            for r in rows:
+                marked = Provenance.model_validate_json(str(r.provenance_json)).model_copy(
+                    update={"finality": orphaned}
+                )
+                conn.execute(
+                    update(t)
+                    .where(t.c.id == r.id)
+                    .values(finality=orphaned.value, provenance_json=marked.model_dump_json())
+                )
+                tx_ids.append(str(r.tx_id))
+            conn.execute(
+                update(b)
+                .where(b.c.chain == "ethereum", b.c.block_hash == block_hash)
+                .values(finality=orphaned.value)
+            )
+            stale, signals, relationships = self._invalidate_derived(
+                conn, "ethereum", tx_ids, reason
+            )
+        return OrphanEffects(len(tx_ids), stale, signals, relationships)
+
+    @staticmethod
+    def _invalidate_derived(
+        conn: Connection, chain: str, tx_ids: list[str], reason: str
+    ) -> tuple[int, int, int]:
+        """Invalidate derived records that may rest on now-orphaned transactions.
+
+        * Each transaction gets an ``invalidated`` verification, which is already the effective
+          status shown beside any evidence that cites it.
+        * Succeeded analyses of every address that took part in those transactions become
+          ``stale``: they leave the current views and are never reused for a cache hit. They are
+          not deleted, and a new analysis recomputes without the orphaned rows.
+
+        * Open or promoted discovery signals that cite them become ``invalidated`` and stop being
+          alertable; dismissed signals are left alone.
+
+        * Active relationships that cite them become ``invalidated``.
+
+        Findings written by analysts are not edited. Returns ``(analyses_marked_stale,
+        signals_invalidated, relationships_invalidated)``.
+        """
+        if not tx_ids:
+            return 0, 0, 0
+        t, tr, bc, wa = (
+            schema.transactions,
+            schema.transfers,
+            schema.balance_changes,
+            schema.wallet_activity,
+        )
+        ev, ar = schema.evidence_verifications, schema.analysis_runs
+        now = utcnow()
+        addresses: set[str] = set()
+        for start in range(0, len(tx_ids), 400):
+            chunk = tx_ids[start : start + 400]
+            for column in (t.c.from_address, t.c.to_address):
+                addresses.update(
+                    str(a)
+                    for (a,) in conn.execute(
+                        select(column).where(t.c.chain == chain, t.c.tx_id.in_(chunk))
+                    ).all()
+                    if a
+                )
+            for column in (tr.c.from_address, tr.c.to_address):
+                addresses.update(
+                    str(a)
+                    for (a,) in conn.execute(
+                        select(column).where(tr.c.chain == chain, tr.c.tx_id.in_(chunk))
+                    ).all()
+                    if a
+                )
+            for column in (bc.c.account, bc.c.owner):
+                addresses.update(
+                    str(a)
+                    for (a,) in conn.execute(
+                        select(column).where(bc.c.chain == chain, bc.c.tx_id.in_(chunk))
+                    ).all()
+                    if a
+                )
+            addresses.update(
+                str(a)
+                for (a,) in conn.execute(
+                    select(wa.c.address).where(wa.c.chain == chain, wa.c.tx_id.in_(chunk))
+                ).all()
+            )
+        for tx_id in tx_ids:
+            conn.execute(
+                insert(ev).values(
+                    chain=chain,
+                    tx_id=tx_id,
+                    checked_at=now,
+                    outcome="invalidated",
+                    independent_providers=0,
+                    providers_json="[]",
+                    differences_json=json.dumps({"reason": reason[:200]}),
+                    note=reason[:300],
+                )
+            )
+        stale = 0
+        ordered = sorted(addresses)
+        for start in range(0, len(ordered), 400):
+            result = conn.execute(
+                update(ar)
+                .where(
+                    ar.c.chain == chain,
+                    ar.c.address.in_(ordered[start : start + 400]),
+                    ar.c.status == "succeeded",
+                )
+                .values(status="stale")
+            )
+            stale += int(result.rowcount or 0)
+        sg, se = schema.signals, schema.signal_evidence
+        signal_ids: set[int] = set()
+        for start in range(0, len(tx_ids), 400):
+            signal_ids.update(
+                int(i)
+                for (i,) in conn.execute(
+                    select(se.c.signal_id).where(
+                        se.c.chain == chain, se.c.tx_id.in_(tx_ids[start : start + 400])
+                    )
+                ).all()
+            )
+        invalidated = 0
+        ids = sorted(signal_ids)
+        for start in range(0, len(ids), 400):
+            result = conn.execute(
+                update(sg)
+                .where(sg.c.id.in_(ids[start : start + 400]), sg.c.status.in_(("open", "promoted")))
+                .values(status="invalidated", status_note=reason[:300])
+            )
+            invalidated += int(result.rowcount or 0)
+        rel, rev = schema.entity_relationships, schema.relationship_evidence
+        rel_ids: set[int] = set()
+        for start in range(0, len(tx_ids), 400):
+            rel_ids.update(
+                int(i)
+                for (i,) in conn.execute(
+                    select(rev.c.relationship_id).where(
+                        rev.c.chain == chain, rev.c.tx_id.in_(tx_ids[start : start + 400])
+                    )
+                ).all()
+            )
+        rel_invalidated = 0
+        rids = sorted(rel_ids)
+        for start in range(0, len(rids), 400):
+            result = conn.execute(
+                update(rel)
+                .where(rel.c.id.in_(rids[start : start + 400]), rel.c.status == "active")
+                .values(status="invalidated", note=reason[:300])
+            )
+            rel_invalidated += int(result.rowcount or 0)
+        return stale, invalidated, rel_invalidated
+
+
+def _tx_finality(child: Table) -> ColumnElement[str]:
+    """Finality of the transaction a transfer or balance change belongs to.
+
+    Those rows keep the provenance they were parsed with, so their own finality goes stale when
+    the transaction is later finalized or orphaned. The transaction row is authoritative.
+    """
+    t = schema.transactions
+    return (
+        select(t.c.finality)
+        .where(t.c.chain == child.c.chain, t.c.tx_id == child.c.tx_id)
+        .limit(1)
+        .scalar_subquery()
+        .label("tx_finality")
+    )
 
 
 def owned_token_accounts(chain: str, owner: str) -> Select[tuple[str]]:
