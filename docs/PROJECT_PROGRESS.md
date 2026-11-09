@@ -190,3 +190,5 @@ Still open (status as of the latest pass):
 - Forecasting: stays disabled; tests/test_forecasting_disabled.py pins that no route, template or frontend module offers a forecast.
 - Deployment: rehearsed in a temporary prefix only; no VPS access.
 - Admin status: server-rendered and read-only (the page already shows health and budgets).
+- Open decision, safety: `create_app()` with no argument opens the configured database, which is the live `data/watchtower.db`. `main.py` relies on that default (the server must read the live database), so it is not changed here. Ad-hoc callers (probes, scripts) must pass an explicit database. Options for the owner: make the no-argument form refuse unless the caller is the server entry point, or add a lint/test guard. A review probe of this path (commit history: 9224bcd era) confirmed the live file was not written, because its source rows already existed.
+- Ollama: no binary and no server on this machine, so no real model has been run. The optional path is tested only with a mocked transport.
