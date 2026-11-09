@@ -17,8 +17,13 @@ price-limit notice were inspected by eye.
 ## Expected console errors (not defects)
 The 404 pages return HTTP 404 on purpose, so the browser logs a failed resource.
 
+## Contrast, measured (light and dark themes)
+A measurement script computed WCAG contrast for every visible text element on nine pages (about 520 elements per theme),
+using the element's computed colour against the nearest opaque background, at the AA thresholds (4.5 normal, 3 large).
+Light and dark themes: 0 failing elements. The dark theme is defined by `prefers-color-scheme: dark` in `style.css`.
+This is an automated approximation: it does not model text over images or gradients, and it is not an axe audit.
+
 ## Not measured by this audit
-- Colour contrast (needs a contrast tool or an axe run; not available offline here).
 - Keyboard focus order beyond the skip link (checked earlier by the e2e journeys only).
 - Screen-reader output (no screen reader in this environment).
 - Loading states are checked only where the page renders them (island placeholders); empty and error states are covered by tests.
