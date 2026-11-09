@@ -133,3 +133,21 @@ Commits on `claude/sweet-franklin-dsta71` after `2ce6adf`: `90adc00` notificatio
 * **Architecture audit** (`docs/ARCHITECTURE_AUDIT.md`): two small duplications removed; the `create_app` closure is the main debt, recommended for later splitting.
 * **Verified on latest code:** pytest 506 passed, 4 skipped; ruff clean; pyright 78 (unchanged); vitest 61; typecheck clean; bundle fresh; ML venv 51 passed; browser journeys 50/50 on a fresh snapshot copy.
 * **Not done:** VPS testing (no access); live collection (disabled, no contact, policy review pending); live database migration (needs approval); Review Council (guard refuses; not bypassed). A single independent reviewer covered the notification work, and found three defects, all fixed.
+
+## Round: Watchtower completion goal (local, unpushed)
+Commits after `2ce6adf`, on `claude/sweet-franklin-dsta71` (18 unpushed in total at the time of writing; nothing pushed):
+- `cc32afb`: verified deals need eight days of history (`MIN_HISTORY_SPAN_DAYS = 8`); a never-observed listing no longer crashes deal scoring.
+- `7e430ea`: one currency source. `watchtower/currency_exponents.json` is read by Python and generated into the frontend by `scripts/gen_currency_table.py`; a test checks the generated file is current.
+- `bf9a489`: browse price-limit inputs. A typed limit needs a currency; a limit from the page's own link is not carried into another currency.
+- `d190852`: unread-alert badge in the navigation, computed safely per page.
+
+**Done and tested:** the eight-day rule, the single currency source, browse price limits with the currency rule, the badge.
+**Not done in this round (recorded, not hidden):**
+- A dedicated product comparison page (merchant comparison is on the product page).
+- Interactive islands for the watchlist, match review and admin pages (server pages work without JavaScript).
+- Splitting the route closure in `shopping/web/app.py`.
+- Pyright: 78 errors remain (30 argument-type, 22 optional-access, 6 missing-import). Deal scoring holds 22 of them and needs careful review, not mechanical fixes.
+- eBay: no sandbox or production credentials are available here, so nothing live is verified. The adapter stays mock-tested.
+- Local Ollama: existing tests cover the optional path (off unless configured). No real model was tested.
+- Landed-cost duties and taxes remain labelled assumptions, because no verified rate source is configured.
+- Live collection and the live notifications migration stay off, pending the contact address, the legal review and your approval.
