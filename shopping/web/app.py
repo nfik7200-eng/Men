@@ -23,7 +23,7 @@ from shopping.web.charts import price_chart
 from watchtower import config, deals, monitor
 from watchtower import notifications as notes
 from watchtower.health import source_health
-from shopping.web import security
+from shopping.web import routes_alerts, security
 from watchtower.collector import ensure_sources, run_source, set_enabled
 from watchtower.currency import to_minor
 from watchtower.db import Database
@@ -666,63 +666,8 @@ def create_app(db: Database | None = None) -> FastAPI:
         return render(request, "compare.html", rows=rows, currencies=currencies, spec_keys=spec_keys,
                       labels=MATCH_LABELS, banner=banner(s))
 
-    # ------------------------------------------------------------------ in-app notifications (table created only by notify-migrate)
-    def notes_missing() -> HTTPException:
-        return HTTPException(503, "Notifications are not set up on this database. An operator must run notify-migrate on a copy first.")
-
-    def note_json(n) -> dict:
-        return {"id": n.id, "listing_id": n.listing_id, "kind": n.kind, "title": n.title, "body": n.body,
-                "created_at": n.created_at.isoformat(), "read": n.read_at is not None}
-
-    @app.get("/notifications")
-    def notifications_page(request: Request, s=Depends(get_s)):
-        owner = owner_of(request)
-        if not notes.available(s):
-            return render(request, "notifications.html", items=[], unread=0, ready=False, banner=banner(s))
-        notes.generate(s, owner)  # idempotent: only events not yet recorded become rows
-        return render(request, "notifications.html", items=notes.list_for(s, owner), unread=notes.unread_count(s, owner),
-                      ready=True, banner=banner(s))
-
-    @app.post("/notifications/{note_id}/read")
-    def notification_read_form(note_id: int, request: Request, s=Depends(get_s)):
-        if notes.available(s):
-            notes.mark_read(s, owner_of(request), note_id)  # someone else's id answers the same as a missing one
-            s.commit()  # commit inside the handler: a failed write must not be reported as success
-        return RedirectResponse("/notifications", status_code=303)
-
-    @app.post("/notifications/read-all")
-    def notification_read_all_form(request: Request, s=Depends(get_s)):
-        if notes.available(s):
-            notes.mark_all_read(s, owner_of(request))
-            s.commit()  # commit inside the handler: a failed write must not be reported as success
-        return RedirectResponse("/notifications", status_code=303)
-
-    @app.get("/api/v1/notifications")
-    def api_notifications(request: Request, s=Depends(get_s)):
-        owner = require_browser_owner(request)
-        if not notes.available(s):
-            raise notes_missing()
-        notes.generate(s, owner)
-        return {"unread": notes.unread_count(s, owner), "items": [note_json(n) for n in notes.list_for(s, owner)]}
-
-    @app.post("/api/v1/notifications/read-all")
-    def api_notifications_read_all(request: Request, s=Depends(get_s)):
-        owner = require_browser_owner(request)
-        if not notes.available(s):
-            raise notes_missing()
-        marked = notes.mark_all_read(s, owner)
-        s.commit()
-        return {"marked": marked}
-
-    @app.post("/api/v1/notifications/{note_id}/read")
-    def api_notification_read(note_id: int, request: Request, s=Depends(get_s)):
-        owner = require_browser_owner(request)
-        if not notes.available(s):
-            raise notes_missing()
-        found = notes.mark_read(s, owner, note_id)
-        s.commit()
-        if not found:
-            raise HTTPException(404, "notification not found")
-        return {"id": note_id, "read": True}
+    # in-app alert routes live in routes_alerts.py (the table is created only by notify-migrate)
+    routes_alerts.register_alerts(app, get_s=get_s, owner_of=owner_of, require_browser_owner=require_browser_owner,
+                                  render=render, banner=banner)
 
     return app
