@@ -181,5 +181,5 @@ def test_research_page_shows_history_depth_and_cross_merchant_status_in_the_card
     db, c, t0 = world
     html = c.get("/research?q=raspberry+pi+zero+2+w").text
     assert "Price history:" in html and "observation" in html
-    assert ("verified price drop needs 3+ observations over 7+ days" in html) or ("Price history:" in html and "Verified price drop" in html)
+    assert (f"verified price drop needs {config.MIN_HISTORY_OBS}+ observations over {config.MIN_HISTORY_SPAN_DAYS}+ days" in html) or ("Price history:" in html and "Verified price drop" in html)
     assert ("Also sold at" in html) or ("No other shop in our data" in html) or ("awaiting human review" in html)

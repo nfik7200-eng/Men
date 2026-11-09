@@ -80,7 +80,7 @@ def integrity_report(path) -> dict:
             "live_observations": _count(c, f"SELECT count(*) FROM observations o JOIN listings l ON l.id = o.listing_id {_LIVE}"),
             "live_observation_days": _count(c, "SELECT count(DISTINCT date(o.observed_at)) FROM observations o "
                                                f"JOIN listings l ON l.id = o.listing_id {_LIVE}"),
-            # approximation of the deal rule (3+ collections over 7+ days) by distinct days; deals.py is authoritative
+            # approximation of the deal rule (MIN_HISTORY_OBS collections over MIN_HISTORY_SPAN_DAYS days) by distinct days; deals.py is authoritative
             "verified_history_listings": _count(c, "SELECT count(*) FROM (SELECT l.id FROM observations o JOIN listings l "
                                                    f"ON l.id = o.listing_id {_LIVE} AND o.price_minor IS NOT NULL GROUP BY l.id "
                                                    "HAVING count(DISTINCT date(o.observed_at)) >= 3 AND "

@@ -1,3 +1,4 @@
+from watchtower import config as _cfg
 """Loop E, iteration 4: unit spelling must not decide relevance.
 
 Found on the real data (mission 004): for "raspberry pi 5 8gb" the assistant returned SparkFun's 'Raspberry Pi 5 - 8GB'
@@ -301,7 +302,7 @@ def test_insufficient_history_question_lists_what_lacks_history_and_why(db):
     r = assistant.answer(s, "which products have insufficient price history?", now=T0 + timedelta(days=9), use_llm=False)
     assert r["kind"] == "history_gaps"
     assert [p.listing.external_id for p in r["picks"]] == ["1"]  # the Zero 2 W has 3 collections over 8 days
-    assert "3+" in r["text"] and "7+" in r["text"]
+    assert f"{_cfg.MIN_HISTORY_OBS}+" in r["text"] and f"{_cfg.MIN_HISTORY_SPAN_DAYS}+" in r["text"]
 
 
 def test_market_questions_respect_the_named_model(db):

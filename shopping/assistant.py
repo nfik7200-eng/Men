@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from watchtower import config
 from watchtower.currency import to_minor
 from watchtower.deals import DealScore, HistoryContext, PeerContext, score_listing
 from watchtower.models import CrawlUrl, Listing, MatchCandidate, Source, utcnow
@@ -280,7 +281,7 @@ def _market_answer(s: Session, question: str, kind: str, now: datetime) -> dict:
             picks.append(pick(l, f"price fell from {fmt_money(old, l.currency)} to {fmt_money(new, l.currency)} ({(e.pct or 0):+.1f}%) on {e.detected_at:%Y-%m-%d}"))
         if picks:
             caveats.append("A recorded drop is a change between our own observations. It is not a verified price drop: verification needs "
-                           "3+ collections over 7+ days of history.")
+                           f"{config.MIN_HISTORY_OBS}+ collections over {config.MIN_HISTORY_SPAN_DAYS}+ days of history.")
         else:
             caveats.append(f"No price drop has been recorded in the last 14 days. We hold {n_obs} observation{'s' if n_obs != 1 else ''} for "
                            f"{len(live)} matching live listing(s) spanning {span} day{'s' if span != 1 else ''}, so we cannot say whether prices have fallen.")
@@ -301,7 +302,7 @@ def _market_answer(s: Session, question: str, kind: str, now: datetime) -> dict:
                 picks.append(pick(l, f"{len(h)} collection{'s' if len(h) != 1 else ''} over {days} day{'s' if days != 1 else ''}"))
         picks.sort(key=lambda p: (p.meets[0], p.listing.title))
         total = len(live)
-        caveats.append(f"A verified price drop needs 3+ collections over 7+ days of history. {len(picks)} of {total} matching live listings do not have that yet.")
+        caveats.append(f"A verified price drop needs {config.MIN_HISTORY_OBS}+ collections over {config.MIN_HISTORY_SPAN_DAYS}+ days of history. {len(picks)} of {total} matching live listings do not have that yet.")
         picks = picks[:10]
     result = {"question": question, "kind": kind, "interpretation": {k: v for k, v in intent.items() if k not in ("assumptions", "gaps")},
               "picks": picks, "alternatives": [], "gaps": [], "caveats": caveats, "clarification": None,
@@ -500,7 +501,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
             l, n = p.listing, p.deal.n_obs or 0
             days = (l.last_observed_at - l.first_seen_at).days if l.last_observed_at and l.first_seen_at else 0
             p.history = (f"Price history: {n} observation{'s' if n != 1 else ''} over {days} day{'s' if days != 1 else ''}"
-                         + ("" if p.deal.label == "Verified price drop" else "; a verified price drop needs 3+ observations over 7+ days"))
+                         + ("" if p.deal.label == "Verified price drop" else f"; a verified price drop needs {config.MIN_HISTORY_OBS}+ observations over {config.MIN_HISTORY_SPAN_DAYS}+ days"))
     gaps = [f"Our data has no {g}; those aspects cannot be assessed here." for g in intent["gaps"]]
     if not cands and clarification is None:
         if over:

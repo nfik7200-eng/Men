@@ -13,7 +13,7 @@
   <div class="card stat"><b>{{ stats.compared_products }}</b>products compared across stores</div>
   <div class="card stat"><b>{{ stats.observations }}</b>price observations</div>
 </div>
-<p class="muted">{{ stats.listings - stats.real_listings }} further listings come from demo catalogues or API sandboxes and are excluded from deals and default search once real data exists. {% if stats.multi_obs == 0 %}Every listing has a single observation, so no price movement can be shown yet.{% else %}{{ stats.multi_obs }} listings already have 2+ observations; a “verified” deal still needs 3+ collections over 7+ days.{% endif %}</p>
+<p class="muted">{{ stats.listings - stats.real_listings }} further listings come from demo catalogues or API sandboxes and are excluded from deals and default search once real data exists. {% if stats.multi_obs == 0 %}Every listing has a single observation, so no price movement can be shown yet.{% else %}{{ stats.multi_obs }} listings already have 2+ observations; a “verified” deal still needs {{ MIN_HISTORY_OBS }}+ collections over {{ MIN_HISTORY_SPAN_DAYS }}+ days.{% endif %}</p>
 
 {% if products %}<h2>Same product, different stores</h2>
 <div class="card scroll"><table><tr><th>Product</th><th></th></tr>

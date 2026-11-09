@@ -96,7 +96,8 @@ def create_app(db: Database | None = None) -> FastAPI:
             return 0
 
     tpl.env.globals["alerts_unread"] = alerts_unread_for
-    tpl.env.globals.update(SORTS=SORTS, fmt_money=fmt_money)
+    tpl.env.globals.update(SORTS=SORTS, fmt_money=fmt_money, MIN_HISTORY_OBS=config.MIN_HISTORY_OBS,
+                           MIN_HISTORY_SPAN_DAYS=config.MIN_HISTORY_SPAN_DAYS)
 
     def active_disclosures():
         with db.session() as s_:
@@ -633,6 +634,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         if cand.status != "pending":  # resolve_candidate silently does nothing for a decided candidate: say so, do not claim success
             raise HTTPException(409, f"candidate already decided ({cand.status})")
         resolve_candidate(s, cand_id, decision == "accept", by="admin", note=body.get("note") if isinstance(body.get("note"), str) else None)
+        s.commit()  # commit inside the handler: a failed write must not be reported as success
         return {"id": cand_id, "decision": decision}
 
     @app.get("/api/v1/admin/status", dependencies=[Depends(admin)])

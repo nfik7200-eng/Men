@@ -119,3 +119,43 @@ def test_the_admin_json_accepts_the_admin_session_cookie_from_the_same_site(toke
     assert client.post("/admin/login", data={"token": TOKEN}, headers={"Origin": "http://testserver"}, follow_redirects=False).status_code == 303
     assert client.get("/api/v1/match-candidates", headers={"Origin": "http://testserver"}).status_code == 200
     assert client.get("/api/v1/match-candidates").status_code == 200   # the cookie is sent on same-site requests
+
+
+def test_a_failed_commit_on_the_json_match_decision_is_not_reported_as_success(token):
+    from sqlalchemy import event
+    from fastapi.testclient import TestClient
+    from shopping.web.app import create_app
+    from tests._ml_helpers import mk_listing, mk_source
+    from watchtower.models import MatchCandidate, Product
+    db = _empty_db()
+    with db.session() as s:
+        src = mk_source(s, "decsrc")
+        l = mk_listing(s, src, "d1", "Decision board", price=500)
+        p = Product(title="Other")
+        s.add(p); s.flush()
+        s.add(MatchCandidate(listing_id=l.id, product_id=p.id, score=0.5, reasons=[], status="pending"))
+        s.commit()
+        cid = s.query(MatchCandidate.id).first()[0]
+    client = TestClient(create_app(db), base_url="http://testserver", raise_server_exceptions=False)
+    h = {"X-Admin-Token": TOKEN, "Origin": "http://testserver"}
+
+    def boom(session):
+        raise RuntimeError("injected commit failure")
+    event.listen(db.Session, "before_commit", boom)
+    try:
+        r = client.post(f"/api/v1/match-candidates/{cid}/decision", json={"decision": "reject"}, headers=h)
+    finally:
+        event.remove(db.Session, "before_commit", boom)
+    assert r.status_code >= 500, "a decision that did not commit must not be reported as recorded"
+    with db.session() as s:
+        assert s.get(MatchCandidate, cid).status == "pending"
+
+
+def test_the_deals_page_states_the_configured_history_rule(token):
+    from fastapi.testclient import TestClient
+    from shopping.web.app import create_app
+    from watchtower import config
+    client = TestClient(create_app(_empty_db()), base_url="http://testserver")
+    body = client.get("/deals").text
+    assert f"{config.MIN_HISTORY_SPAN_DAYS}+ days" in body
+    assert "7+ days" not in body or config.MIN_HISTORY_SPAN_DAYS == 7
