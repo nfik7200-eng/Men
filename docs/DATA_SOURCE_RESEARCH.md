@@ -62,3 +62,23 @@ eBay wins on *access we can actually obtain next*, not on certainty. It is selec
 
 ## 5. Costs (estimates, mark as such)
 Infrastructure stays ≈$0–10/month. eBay API access cost [U]; EPN is commission-based. No paid service was purchased or subscribed.
+
+## 6. Review status of the eBay adapter (this build)
+
+What is verified in this repository, and how:
+
+| Claim | Evidence |
+|---|---|
+| Not collected live without a reviewed policy, even with credentials and a real contact | `tests/test_acquisition_gate.py` (production eBay refused; sandbox not gated) |
+| Unconfigured source does nothing and says what is missing | `tests/test_ebay_adapter.py::test_unconfigured_source_does_nothing_and_says_what_is_missing` |
+| Token request uses Basic auth and the right scope; token is cached | `tests/test_ebay_adapter.py::test_oauth_basic_auth_scope_and_token_cache` (mocked transport) |
+| Marketplace and affiliate headers are sent as documented | `tests/test_ebay_adapter.py::test_request_headers_marketplace_and_affiliate_context` |
+| Pagination link to a foreign host is blocked | `tests/test_ebay_adapter.py::test_next_link_to_foreign_host_is_blocked` |
+| Rejected credentials stop without retry and do not leak the secret | `tests/test_ebay_adapter.py::test_rejected_credentials_block_without_retry_or_leak` |
+| Currency, condition and unknown fields are preserved or flagged, never guessed | `tests/test_ebay_adapter.py::test_end_to_end_ingest_preserves_currency_condition_and_flags_unknowns` |
+
+What is NOT verified, and therefore not claimed: the adapter has never talked to eBay (no credentials, no network
+allowance); the OAuth endpoint and scope are implemented from the documented client-credentials flow and are unconfirmed
+against the sandbox; the API License Agreement has not been read, so storing price history and displaying data from eBay
+is unapproved. The adapter remains **scaffolding** in every user-facing statement. Activation is the checklist in
+section 4 and needs the owner's decisions and accounts.
