@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-130 routes in 15 groups.
+132 routes in 15 groups.
 
 ### auth
 
@@ -154,7 +154,9 @@ Parameters: `chain` (path, required): string (len>=1, len<=32)
 | POST | `/api/v1/alerts/read-all` | analyst | Read All Alerts |
 | POST | `/api/v1/alerts/{alert_id}/read` | analyst | Read Alert |
 | POST | `/api/v1/discovery/collect/ethereum` | admin | Collect Ethereum: Read the next few finalized Ethereum blocks once. Admin only: this CONTACTS PROVIDERS. |
+| POST | `/api/v1/discovery/collect/solana` | admin | Collect Solana: Read the next few finalized Solana slots once. Admin only: this CONTACTS PROVIDERS. |
 | GET | `/api/v1/discovery/collector` | viewer | Collector Status: Cursor, limits, the last run's manifest and what the collector does not cover. |
+| GET | `/api/v1/discovery/collector/solana` | viewer | Solana Collector Status: Cursor, coverage gaps, limits, recognised programs (with sources) and the last run. |
 | GET | `/api/v1/discovery/detectors` | viewer | Detectors: Every detector with its method, coverage, limitations, refresh frequency and cost. |
 | GET | `/api/v1/discovery/feed` | viewer | Discovery Feed: Open signals ranked by score, with the freshness of the pass behind them. |
 | GET | `/api/v1/discovery/performance` | viewer | Detector Performance: Per-detector outcomes of analyst review (a false-positive proxy, with its caveats). |

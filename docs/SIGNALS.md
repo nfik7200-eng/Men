@@ -24,6 +24,7 @@ relationships and analyses that rested on it are invalidated in the same databas
 | `new_token_activity` | tokens | ethereum | counts of finalized ERC-20 `Transfer` logs per token | 0.35 |
 | `pool_reserve_change` | liquidity | ethereum | change between stored v2-style `Sync` reserves, median/MAD when history allows | 0.5 |
 | `holder_concentration` | holders | ethereum | top-3 share of positive net inflow in stored transfers (observed flow, not balances) | 0.4 |
+| `solana_new_entities` | tokens, contracts, pools | solana | verified compiled-instruction layouts in finalized slots (SPL `InitializeMint`/`InitializeMint2`, upgradeable-loader `DeployWithMaxDataLen`, Raydium AMM v4 `Initialize2`, Orca `initialize_pool`) | 0.45 |
 | `new_liquidity_pool` | pools | ethereum | v2/v3-style `PairCreated`/`PoolCreated` factory logs from finalized blocks | 0.4 |
 | `common_funding_source` | related_wallets | ethereum, solana | one sender funding several recipients with no earlier stored activity | 0.5 |
 
@@ -99,4 +100,15 @@ if a provider limit is hit), stores the transfers of tokens that have a known po
 finalized blocks and was checked against the canonical block hash. `holder_concentration` reports
 observed net inflow inside the stored window; it never claims balances, holdings or ownership.
 `pool_reserve_change` reports what a `Sync` event states, not price or value locked.
+
+## Solana
+
+`SolanaCollector` (`POST /discovery/collect/solana`, admin; optional `solana_scan` job, off) reads
+finalized slots with `getBlock` (compiled `json` encoding, versions 0 and 1) and recognises exactly
+four creation layouts, each checked against an official source on 2026-11-09 and listed with its
+`source_url` by `GET /discovery/collector/solana`. Failed transactions are never decoded. The
+cursor keeps the last slot and blockhash; broken blockhash continuity, skipped or unavailable
+slots, slots given up after repeated failures and ranges jumped when the cursor fell too far behind
+are all counted or recorded as coverage gaps. Not recognised: other pool programs (including Orca
+`initialize_pool_v2`, Raydium CPMM/CLMM, Meteora, pump.fun), SPL transfers, holders and reserves.
 

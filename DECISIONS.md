@@ -369,3 +369,16 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - A pool is an observation that a contract emitted a known event layout; BIP does not verify a DEX, liquidity, price or token legitimacy. Pools beyond `max_pools_per_run` are a disclosed gap.
 - Rollback: the code can be reverted; `pool_events` stays unused and nothing is dropped.
 - Needs owner approval before it is run against any provider.
+
+## ADR-039 Solana finalized-slot collector (Proposed; implemented by delegation of the owner's master goal)
+**Context.**
+- Discovery of new mints, programs and pools needs block-level reading; `getBlocks` is not in the router allow-list, `getBlock` is.
+
+**Decision.**
+- `SolanaCollector` reads finalized slots one `getBlock` at a time (`encoding=json`, versions 0 and 1) and decodes compiled instructions wallet-agnostically in `bip/chains/solana/programs.py`. Only layouts verified against official sources are recognised (SPL Token/Token-2022 `InitializeMint(2)`, upgradeable-loader `DeployWithMaxDataLen`, Raydium AMM v4 `Initialize2`, Orca `initialize_pool`); each is listed with `source_url` and `verified_at`. Cursor plus blockhash continuity; gaps recorded; failing slots given up after `max_slot_attempts`. Migration v13 (`solana_discoveries`).
+
+**Consequences.**
+- Each invocation covers seconds of chain (default 10 slots); lag is reported and jumps are recorded as gaps. Never run live; block size on public endpoints is unmeasured and oversize responses become recorded gaps.
+- Unverified pool programs are deliberately not recognised.
+- Decision basis: the owner delegated ADR decisions in the master goal; this ADR stays Proposed until the owner reviews it.
+

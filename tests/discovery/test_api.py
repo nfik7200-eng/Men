@@ -63,6 +63,7 @@ def test_detector_catalogue_declares_coverage_cost_and_limits(client: TestClient
         "new_token_activity",
         "pool_reserve_change",
         "holder_concentration",
+        "solana_new_entities",
     }
     for d in detectors:
         for field in ("coverage", "limitations", "refresh", "cost"):

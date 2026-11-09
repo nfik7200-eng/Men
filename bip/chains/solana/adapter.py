@@ -66,6 +66,38 @@ class SolanaAdapter(ChainAdapter):
         }
         return summary, src
 
+    def block_full(self, slot: int) -> tuple[dict[str, object], SourceInfo] | None:
+        """A finalized block with every transaction (compiled ``json`` encoding, versions 0 and 1).
+
+        ``None`` for skipped or unavailable slots (the node cannot tell them apart).
+        """
+        try:
+            result, src = self.call(
+                "getBlock",
+                [
+                    slot,
+                    {
+                        "commitment": "finalized",
+                        "encoding": "json",
+                        "transactionDetails": "full",
+                        "rewards": False,
+                        "maxSupportedTransactionVersion": 1,
+                    },
+                ],
+            )
+        except RpcError as exc:
+            if exc.error_class == "not_available":
+                return None
+            raise
+        if result is None:
+            return None
+        b = obj(result, "getBlock")
+        text(b.get("blockhash"), "getBlock.blockhash", max_len=44)
+        text(b.get("previousBlockhash"), "getBlock.previousBlockhash", max_len=44)
+        integer(b.get("parentSlot"), "getBlock.parentSlot")
+        arr(b.get("transactions"), "getBlock.transactions", max_len=100_000)
+        return dict(b), src
+
     def balance(self, address: str, commitment: Commitment) -> int:
         result, _ = self.call("getBalance", [address, {"commitment": commitment}])
         return integer(obj(result, "getBalance").get("value"), "getBalance.value")

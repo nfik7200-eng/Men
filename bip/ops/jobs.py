@@ -78,6 +78,17 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 contacts_providers=True,
             )
         )
+    if w.solana_collector_enabled:
+        jobs.append(
+            Job(
+                "solana_scan",
+                timedelta(minutes=w.solana_collector_interval_minutes),
+                lambda: _solana_scan(ctx),
+                "Read the next few finalized Solana slots for new mints, programs, pools and "
+                "large SOL transfers. CONTACTS PROVIDERS.",
+                contacts_providers=True,
+            )
+        )
     return jobs
 
 
@@ -167,6 +178,25 @@ def _chain_scan(ctx: AppContext) -> str:
     return (
         f"{m['status']}: {m['blocks_scanned']} block(s), {m['contract_creations_stored']} "
         f"creation(s), {m['large_transfers_stored']} large transfer(s)"
+    )
+
+
+def _solana_scan(ctx: AppContext) -> str:
+    from bip.api.deps import INGEST_RESERVE_BYTES
+
+    try:
+        ctx.disk_guard.require(INGEST_RESERVE_BYTES)
+    except StorageLimitError as exc:
+        return f"skipped: storage guard refused ({exc})"
+    if not ctx.ingest_lock.acquire(blocking=False):
+        return "skipped: an ingestion run is in progress"
+    try:
+        m = ctx.solana_collector.run()
+    finally:
+        ctx.ingest_lock.release()
+    return (
+        f"{m['status']}: {m['slots_scanned']} slot(s), {m['mints_found']} mint(s), "
+        f"{m['programs_found']} program(s), {m['pools_found']} pool(s)"
     )
 
 

@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 metadata = MetaData(
     naming_convention={
@@ -1312,3 +1312,29 @@ pool_reserves = Table(
 the event states, not a price and not total value locked."""
 
 V12_TABLES = (token_stats, pool_reserves)
+
+
+# ------------------------------------------------- v13: Solana discoveries
+
+solana_discoveries = Table(
+    "solana_discoveries",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("kind", String(12), nullable=False),
+    Column("ref", String(64), nullable=False),
+    Column("slot", Integer, nullable=False),
+    Column("blockhash", String(64), nullable=False),
+    Column("signature", String(100), nullable=False),
+    Column("block_time", UTCDateTime, nullable=True),
+    Column("detail_json", Text, nullable=False),
+    Column("finality", String(12), nullable=False),
+    Column("stored_at", UTCDateTime, nullable=False),
+    UniqueConstraint("kind", "ref"),
+    CheckConstraint("kind IN ('mint', 'program', 'pool')", name="solana_discovery_kind"),
+    Index(None, "kind", "slot"),
+)
+"""New mints, programs and pools announced by instructions in finalized slots. ``ref`` is the mint,
+program or pool account; the row records the first announcement the collector saw, not a verified
+launch. Pools come only from the two AMM layouts in ``bip.chains.solana.programs``."""
+
+V13_TABLES = (solana_discoveries,)

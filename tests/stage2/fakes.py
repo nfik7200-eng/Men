@@ -315,6 +315,10 @@ class FakeSolNode:
     wallet: str = key(1)
     calls: list[str] = field(default_factory=list[str])
     missing_sig: str | None = None
+    blocks: dict[int, dict[str, object]] = field(default_factory=dict[int, dict[str, object]])
+    """Full blocks served for ``getBlock(..., transactionDetails=full)``; SYNTHETIC."""
+    fail_slots: set[int] = field(default_factory=set[int])
+    """Slots whose ``getBlock`` fails with an internal node error."""
 
     def __post_init__(self) -> None:
         self.recipient = key(2)
@@ -458,6 +462,15 @@ class FakeSolNode:
             return self.head_slot
         if method == "getBlock":
             slot = params[0]
+            opts = params[1] if len(params) > 1 else {}
+            if slot in self.fail_slots:
+                raise _RpcFaultError(-32603, "internal node error")
+            if isinstance(opts, dict) and opts.get("transactionDetails") == "full":
+                if slot in self.blocks:
+                    return self.blocks[slot]  # type: ignore[index]
+                raise _RpcFaultError(
+                    -32007, f"Slot {slot} was skipped, or missing due to ledger jump"
+                )
             if slot == self.head_slot:
                 raise _RpcFaultError(
                     -32007, f"Slot {slot} was skipped, or missing due to ledger jump"
@@ -565,3 +578,52 @@ class FakeTransport:
 
 ETH_HOST = "ethereum-rpc.publicnode.com"
 SOL_HOST = "api.mainnet.solana.com"
+
+
+# ----------------------------------------------------- compiled getBlock transactions (SYNTHETIC)
+
+
+def ix(program_index: int, accounts: list[int], data: bytes) -> dict[str, object]:
+    """A compiled instruction as ``getBlock`` returns it with ``encoding=json``."""
+    return {"programIdIndex": program_index, "accounts": accounts, "data": _b58encode(data)}
+
+
+def block_tx(
+    signature: str,
+    keys: list[str],
+    instructions: list[dict[str, object]],
+    *,
+    err: object = None,
+    version: object = "legacy",
+) -> dict[str, object]:
+    """A successful (or failed) transaction entry of a full block. SYNTHETIC data."""
+    n = len(keys)
+    return {
+        "version": version,
+        "transaction": {
+            "signatures": [signature],
+            "message": {"accountKeys": keys, "instructions": instructions},
+        },
+        "meta": {
+            "err": err,
+            "fee": 5000,
+            "preBalances": [10**12] * n,
+            "postBalances": [10**12 - 5000] + [10**12] * (n - 1),
+            "preTokenBalances": [],
+            "postTokenBalances": [],
+            "innerInstructions": [],
+        },
+    }
+
+
+def make_block(
+    slot: int, blockhash: str, previous: str, txs: list[dict[str, object]]
+) -> dict[str, object]:
+    return {
+        "blockhash": blockhash,
+        "previousBlockhash": previous,
+        "parentSlot": slot - 1,
+        "blockTime": 1_760_000_200 + slot % 1000,
+        "blockHeight": slot - 20_000_000,
+        "transactions": txs,
+    }

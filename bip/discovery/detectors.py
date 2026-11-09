@@ -12,6 +12,7 @@ limitation text of each detector says so, and its confidence cap reflects it.
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
 from collections import defaultdict
@@ -871,6 +872,78 @@ def holder_concentration(ctx: Context) -> DetectorOutput:
     return DetectorOutput(out, len(rows), truncated)
 
 
+# --------------------------------------------------------------------------- solana entities
+
+_SOLANA_KINDS = {
+    "mint": ("token", "tokens", "New token mint initialised", 0.35),
+    "program": ("contract", "contracts", "New program deployed", 0.3),
+    "pool": ("pool", "pools", "New liquidity pool initialised", 0.45),
+}
+
+
+def solana_new_entities(ctx: Context) -> DetectorOutput:
+    """Mints, programs and pools announced by instructions in finalized slots."""
+    if ctx.chain != "solana":
+        return DetectorOutput([], 0, False)
+    sd = schema.solana_discoveries
+    recent_start = ctx.now - timedelta(hours=ctx.cfg.lookback_hours)
+    cap = ctx.cfg.max_rows_scanned
+    with ctx.repo.transaction() as conn:
+        rows = conn.execute(
+            select(sd)
+            .where(sd.c.block_time.is_not(None), sd.c.block_time >= recent_start)
+            .order_by(sd.c.block_time.desc())
+            .limit(cap + 1)
+        ).all()
+    truncated = len(rows) > cap
+    rows = rows[:cap]
+    out: list[RawCandidate] = []
+    for r in rows:
+        subject_kind, family, title, cap_conf = _SOLANA_KINDS[str(r.kind)]
+        detail = json.loads(str(r.detail_json))
+        out.append(
+            RawCandidate(
+                detector_id="solana_new_entities",
+                detector_version="1",
+                family=family,
+                chain=ctx.chain,
+                subject_kind=subject_kind,
+                subject_ref=str(r.ref),
+                title=title,
+                key=f"solana:{r.kind}:{r.ref}",
+                observed_at=r.block_time,
+                tx_ids=[str(r.signature)],
+                evidence_finalized=True,
+                magnitude=0.3,
+                baseline_reliability=0.2,
+                confidence_cap=cap_conf,
+                z=1.0,
+                explanation={
+                    "statement": (
+                        f"A finalized slot contains an instruction creating this {r.kind}."
+                    ),
+                    "observed": {
+                        "kind": r.kind,
+                        "ref": r.ref,
+                        "slot": r.slot,
+                        "blockhash": r.blockhash,
+                        **detail,
+                    },
+                    "method": "Compiled-instruction layouts verified against official sources",
+                    "caveat": (
+                        "An instruction was seen; this does not show the mint, program or pool "
+                        "is legitimate, funded, tradable or unique."
+                    ),
+                },
+                notes={
+                    "magnitude": "fixed 0.3: there is no baseline of creation rates yet",
+                    "baseline_reliability": "fixed 0.2: no baseline of normal creation volume",
+                },
+            )
+        )
+    return DetectorOutput(out, len(rows), truncated)
+
+
 # --------------------------------------------------------------------------- common funding
 
 
@@ -1156,6 +1229,29 @@ DETECTORS: tuple[Detector, ...] = (
             chains=("ethereum",),
         ),
         holder_concentration,
+    ),
+    Detector(
+        DetectorInfo(
+            id="solana_new_entities",
+            version="1",
+            family="solana_discovery",
+            title="New Solana mint, program or pool",
+            method="Compiled-instruction layouts of finalized slots, verified against sources",
+            data_required="Discoveries stored by the Solana collector",
+            coverage=(
+                "Mints, upgradeable-loader deployments, Raydium AMM v4 and Orca Whirlpools pools"
+            ),
+            limitations=(
+                "Needs the Solana collector to have run, and it covers only the slots it read. "
+                "Other pool programs are not recognised. A creation instruction says nothing "
+                "about legitimacy, liquidity or trading."
+            ),
+            refresh="Per collector run, then per discovery pass",
+            cost=STORED_ONLY_COST,
+            confidence_cap=0.45,
+            chains=("solana",),
+        ),
+        solana_new_entities,
     ),
     Detector(
         DetectorInfo(

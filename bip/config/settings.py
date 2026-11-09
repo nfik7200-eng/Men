@@ -219,6 +219,9 @@ class WorkersSettings(BaseModel):
     collector_enabled: bool = False
     """Contacts providers (``chain_scan`` job). Requires explicit approval."""
     collector_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 30
+    solana_collector_enabled: bool = False
+    """Contacts providers (``solana_scan`` job). Requires explicit approval."""
+    solana_collector_interval_minutes: Annotated[int, Field(ge=1, le=24 * 60)] = 5
     max_backoff_hours: Annotated[int, Field(ge=1, le=72)] = 24
     closed_signal_retention_days: Annotated[int, Field(ge=1, le=3650)] = 90
     job_history_days: Annotated[int, Field(ge=1, le=3650)] = 90
@@ -253,6 +256,29 @@ class CollectorSettings(BaseModel):
     max_reserve_pools: Annotated[int, Field(ge=0, le=200)] = 100
     """Known v2-style pools whose ``Sync`` events are read per run (one address-filtered call)."""
     max_reserve_updates_per_run: Annotated[int, Field(ge=0, le=2000)] = 500
+    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=150)] = 150
+    run_deadline_s: Annotated[float, Field(gt=0, le=90)] = 90.0
+
+
+class SolanaCollectorSettings(BaseModel):
+    """Bounded Solana finalized-slot collector (``BIP_SOLANA_COLLECTOR__*``).
+
+    Reads full finalized blocks, one ``getBlock`` request per slot. Public endpoints rate-limit
+    and Solana blocks are large, so each invocation covers only a few seconds of chain; the
+    collector says how far it lags and records any range it skips.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    blocks_per_run: Annotated[int, Field(ge=1, le=100)] = 10
+    max_lag_slots: Annotated[int, Field(ge=10, le=1_000_000)] = 2_000
+    """When the cursor is further behind than this, jump to the head and record the skipped range
+    as a coverage gap instead of reading ever-staler slots."""
+    min_sol_transfer: Annotated[int, Field(ge=1, le=10_000_000)] = 500
+    """A System Program transfer of at least this many SOL is stored (with its transaction)."""
+    max_stored_transactions_per_run: Annotated[int, Field(ge=0, le=500)] = 100
+    max_slot_attempts: Annotated[int, Field(ge=1, le=10)] = 3
+    """Failed reads of one slot before it is given up as a recorded gap (e.g. an oversize block)."""
     max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=150)] = 150
     run_deadline_s: Annotated[float, Field(gt=0, le=90)] = 90.0
 
@@ -400,6 +426,7 @@ class Settings(BaseSettings):
     intel: IntelSettings = IntelSettings()
     discovery: DiscoverySettings = DiscoverySettings()
     collector: CollectorSettings = CollectorSettings()
+    solana_collector: SolanaCollectorSettings = SolanaCollectorSettings()
     auth: AuthSettings = AuthSettings()
     workers: WorkersSettings = WorkersSettings()
     probe: ProbeSettings = ProbeSettings()

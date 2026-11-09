@@ -79,8 +79,9 @@ reports `skipped:` and does not count as a failure.
 | `backup` | off | no | verified backup, keep the newest few |
 | `watchlist_refresh` | **off** | **yes** | re-ingest the least recently refreshed watchlist wallets |
 | `chain_scan` | **off** | **yes** | read the next finalized Ethereum blocks for contract creations and large native transfers |
+| `solana_scan` | **off** | **yes** | read the next finalized Solana slots for new mints, programs, pools and large SOL transfers |
 
-`watchlist_refresh` and `chain_scan` are the jobs that spend provider quota. It needs
+`watchlist_refresh`, `chain_scan` and `solana_scan` are the jobs that spend provider quota. `solana_scan` needs `BIP_WORKERS__SOLANA_COLLECTOR_ENABLED=true` and reads at most `solana_collector.blocks_per_run` (10) finalized slots, one `getBlock` request each, within 150 requests and 90 s. Public Solana endpoints rate-limit and blocks are large: each invocation covers seconds of chain, so the collector reports its lag and records a gap whenever it has to jump ahead. It needs
 `BIP_WORKERS__WATCHLIST_REFRESH_ENABLED=true`, takes at most `watchlist_refresh_wallets_per_tick` (2)
 wallets, and goes through the normal bounded ingestion path (call budget, disk guard, single-run
 lock). `chain_scan` needs `BIP_WORKERS__COLLECTOR_ENABLED=true` and reads at most

@@ -5,13 +5,13 @@ _Last updated: 2026-11-08 (backend completion pass implemented and tested offlin
 ## Phase
 **Backend completion pass (2026-11-08): implemented and verified offline. Stopped for owner review. Nothing is committed.**
 - **Ingestion hardening** (Stage 1 and its independent review): Solana v1, token accounts, placeholder and partial-row repair with attempt limits, oversized-log splitting, hash-checked finality upgrades, **orphan marking and exclusion from all derived reads**, with analyses marked stale and signals and relationships invalidated on a reorg.
-- **Discovery** over stored canonical data: nine detectors, explainable scores, deduplication and cooldown, expiry, in-app alerts, promotion to a watchlist or case, detector review statistics. It does not scan the chain (see Blocked).
+- **Discovery** over stored canonical data: ten detectors, explainable scores, deduplication and cooldown, expiry, in-app alerts, promotion to a watchlist or case, detector review statistics. It does not scan the chain (see Blocked).
 - **Entities**: evidence-backed relationships (`observed`/`hypothesis` only), search, transaction, token and contract detail, case notes and hypotheses, case timeline.
 - **Security**: authentication (`BIP_AUTH__MODE=required`), server-side sessions, CSRF, origin checks, roles, throttling, audit log, a refusal to start unauthenticated on a reachable address. **The bundled frontend has no sign-in screen**, so it runs only with `mode=disabled` on loopback.
 - **Operations**: detailed health and RPC usage, API metrics, verified backups, an in-process scheduler (off by default), retention.
 - **ML**: feature drift monitoring and detector review statistics. Models are still only rules plus a synthetic-trained demo model; no real reviewed labels exist.
 - **API reference** generated from OpenAPI and guarded by a test: `docs/API_REFERENCE.md`.
-- Migrations v7 to v12 (additive; v11 `pool_events`, v12 `token_stats` and `pool_reserves`). ADR-032 to ADR-038 (all Proposed).
+- Migrations v7 to v13 (additive; v11 `pool_events`, v12 `token_stats` and `pool_reserves`, v13 `solana_discoveries`). ADR-032 to ADR-038 (all Proposed).
 
 Earlier in this pass: **Stage 1 ingestion correctness (2026-11-08)**
 - Solana transaction versions legacy, 0 and 1 are requested and parsed. Previously, v1 transactions (live on mainnet since 2026-09-15) produced placeholder rows.
@@ -108,10 +108,11 @@ Statuses:
 | UI integration Milestones B–D (grouped navigation, global search, wallet workspace, research history page, case ↔ research links, label curation UI, wallet status endpoint) | Implemented and tested | See capability matrix |
 | Ethereum finality upgrade (hash-checked, bounded) and oversized log splitting | Implemented and tested offline. Downstream intelligence does **not** yet filter provisional events | `tests/stage2/test_stage1_ingestion.py` |
 | Orphan handling: marking, exclusion from intelligence, invalidation of analyses, signals and relationships | Implemented and tested offline. Trusts one provider's canonical hash at a finalized height | `tests/stage2/test_stage1_review.py`, `tests/discovery/test_pipeline.py`, `tests/entities/test_relationships.py` |
-| Discovery: 9 detectors, scoring, dedupe, cooldown, expiry, alerts, promotion, review statistics (migration v7) | Implemented and tested. Works over stored data only; **no chain-wide collector** | `tests/discovery/` |
+| Discovery: 10 detectors, scoring, dedupe, cooldown, expiry, alerts, promotion, review statistics (migration v7) | Implemented and tested. Works over stored data only; **no chain-wide collector** | `tests/discovery/` |
 | Entity relationships, search, transaction/token/contract detail, case notes and timeline (migration v10) | Implemented and tested | `tests/entities/` |
 | Authentication, sessions, CSRF, roles, throttling, audit log (migration v8) | Implemented and tested. **No frontend sign-in yet** | `tests/security/` |
 | Health, usage, metrics, backups, scheduler, retention (migration v9) | Implemented and tested. Not measured on the VPS | `tests/ops/`, `docs/OPERATIONS.md` |
+| Solana finalized-slot collector (migration v13, detector `solana_new_entities`, `POST /discovery/collect/solana`, job `solana_scan` off by default) | Implemented and tested offline with synthetic fixtures | `tests/collector/test_solana.py` |
 | Collector feeds (migration v12: `token_stats`, `pool_reserves`; detectors `new_token_activity`, `pool_reserve_change`, `holder_concentration`) | Implemented and tested offline with synthetic fixtures | `tests/collector/test_events.py` |
 | Bounded Ethereum block collector: contract creations, large native transfers and Uniswap v2/v3-style pool-creation events (migration v11, detector `new_liquidity_pool`) from finalized blocks, no supplied address needed. **Off by default; never run live**, tested against fakes only | Implemented and tested offline | `tests/collector/`, ADR-038 |
 | ML feature drift monitor | Implemented and tested on simulated data. Needs real model and feature history to mean anything | `tests/stage5/test_drift.py` |
@@ -125,7 +126,7 @@ Nothing below is claimed as working. Each needs an owner decision; none was atte
 | Goal item | State | Blocked by | Owner decision needed |
 |---|---|---|---|
 | Ethereum discovery without addresses | **Partial**: creations, large native transfers, v2/v3-style pool creation (finalized blocks, bounded, off by default) | Never run live | Approve live provider use and quota |
-| Solana discovery without addresses (new wallets, tokens, programs, pools) | **Not built** | Public RPC limits, block size, quota | Data source and cost; approve live use |
+| Solana discovery without addresses | **Built, bounded, not run live**: `SolanaCollector` reads finalized slots (`getBlock`, versions 0 and 1) for new mints, upgradeable-loader program deployments, Raydium AMM v4 and Orca Whirlpools pool initialisations, and large SOL transfers. Gaps recorded; blockhash continuity checked | Live measurement of block size/latency on a free endpoint; other pool programs, SPL transfers, holders and reserves are not covered | None; verify live |
 | ERC-20 transfers chain-wide, new-token discovery | **Built (Ethereum, bounded)**: one topic-filtered `eth_getLogs` per collected range, counted per token; transfers of pooled tokens stored. **Not measured live**: a correction, earlier notes said volume exceeded provider limits, which was never measured | Live measurement of log volume per block on a free endpoint | None; verify live |
 | Event streams (WebSocket/gRPC) | **Not built** | Provider-specific, may be paid | Provider choice |
 | Liquidity/reserve changes, holder concentration | **Partial**: v2-style `Sync` reserves of known pools; holder concentration as observed net inflow of stored transfers (not balances). v3 pools and true balances not covered | `eth_call balanceOf`/indexer for real holdings | Data source for balances |

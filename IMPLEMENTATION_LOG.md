@@ -703,3 +703,13 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not done.** Never run live, so real log volume per block is unmeasured. v3 pool reserves, real balances (`eth_call`), Solana, reviewed labels and exchange attribution are still to do.
 
+## 2026-11-09 — Solana finalized-slot collector (migration v13)
+
+**Why.** The master goal asks for Solana finalized-slot collection with program/mint/pool discovery.
+
+**Built.** `bip/chains/solana/programs.py` (wallet-agnostic decoders; every program id, tag and account position checked against Agave, solana-program/token, anza-xyz/solana-sdk, raydium-amm and orca-so/whirlpools sources on 2026-11-09; docs.raydium.io and dev.orca.so were not reachable from the session), `SolanaAdapter.block_full`, `bip/ingest/solana_collector.py`, migration v13 (`solana_discoveries`), detector `solana_new_entities`, routes `GET /discovery/collector/solana` and `POST /discovery/collect/solana`, job `solana_scan` (off), `solana_collector.*` settings (150 requests, 90 s ceilings), fake node support for full synthetic blocks.
+
+**Verification (exact).** Full `pytest -q`: **783 passed**; `ruff` and `pyright` clean; API reference regenerated. All blocks are synthetic fixtures.
+
+**Not done.** Never run live (block size and latency on a free endpoint unmeasured); Orca `initialize_pool_v2`, Raydium CPMM/CLMM and other pool programs unrecognised; no SPL transfers, holders or reserves for Solana.
+

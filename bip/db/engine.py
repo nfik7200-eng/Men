@@ -157,6 +157,12 @@ def _tokens_and_reserves(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _solana_discoveries(conn: Connection) -> None:
+    """v13: Solana discoveries. Additive, idempotent."""
+    for table in schema.V13_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -172,6 +178,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(10, "entity relationships and investigation notes", _relationships_and_notes),
     Migration(11, "liquidity pool creation events", _pool_events),
     Migration(12, "token statistics and pool reserves", _tokens_and_reserves),
+    Migration(13, "Solana discoveries", _solana_discoveries),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

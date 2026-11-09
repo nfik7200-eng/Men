@@ -76,6 +76,29 @@ def collect_ethereum(ctx: WritableContext) -> Any:
         ctx.ingest_lock.release()
 
 
+@router.get("/discovery/collector/solana")
+def solana_collector_status(ctx: Context) -> dict[str, Any]:
+    """Cursor, coverage gaps, limits, recognised programs (with sources) and the last run."""
+    return _envelope(ctx, ctx.solana_collector.status())
+
+
+@router.post("/discovery/collect/solana", status_code=status.HTTP_201_CREATED)
+def collect_solana(ctx: WritableContext) -> Any:
+    """Read the next few finalized Solana slots once. Admin only: this CONTACTS PROVIDERS.
+
+    Bounded by slots, an RPC call budget and a deadline; shares the ingestion lock.
+    """
+    ctx.disk_guard.require(INGEST_RESERVE_BYTES)
+    if not ctx.ingest_lock.acquire(blocking=False):
+        return error_response(
+            409, "ingestion_busy", "Another ingestion run is in progress. Try again shortly."
+        )
+    try:
+        return _envelope(ctx, ctx.solana_collector.run())
+    finally:
+        ctx.ingest_lock.release()
+
+
 @router.get("/discovery/performance")
 def detector_performance(ctx: Context) -> dict[str, Any]:
     """Per-detector outcomes of analyst review (a false-positive proxy, with its caveats)."""

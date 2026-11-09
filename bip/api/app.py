@@ -51,6 +51,7 @@ from bip.discovery.service import DiscoveryService
 from bip.entities.cases import CaseService
 from bip.entities.relationships import RelationshipService
 from bip.ingest.collector import ChainCollector
+from bip.ingest.solana_collector import SolanaCollector
 from bip.ingest.wallet import WalletIngestor
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
@@ -164,6 +165,7 @@ def create_app(
             started_monotonic=time.monotonic(),
             relationships=RelationshipService(repo, cfg),
             collector=ChainCollector(router, repo, cfg),
+            solana_collector=SolanaCollector(router, repo, cfg),
             cases=CaseService(repo),
             scheduler=None,
         )
