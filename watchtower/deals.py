@@ -75,6 +75,8 @@ class PeerContext:
             # A peer price is only evidence if you could actually buy at it now: not stale, not out of stock/backorder/preorder.
             if avail in ("out_of_stock", "backorder", "preorder") or seen is None or now - seen > timedelta(hours=stale_h or 72):
                 continue
+            if price is None:  # an unavailable price is never peer evidence (and must not be sorted with numbers)
+                continue
             dc = data_class(kind)
             if pid is not None:
                 self.by_product.setdefault((dc, pid, cur), []).append((sid, price))
