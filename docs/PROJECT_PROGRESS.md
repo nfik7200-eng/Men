@@ -158,3 +158,17 @@ Commits after `dd56639`: `f2fb5dc` interactive watchlist (save target, remove, s
 Verified on this round's code: pytest 519 passed, 4 skipped; ruff clean; pyright 78 (unchanged); vitest 74; typecheck clean; bundle fresh; browser journeys 62/62 on a fresh copy (populated watchlist and review queue included); automated UX audit 32 views with nothing flagged.
 
 Still not done: a dedicated product comparison page; splitting the route closure in `shopping/web/app.py`; Pyright's 78 errors; an admin status island (the server page already shows health and budgets); deployment-readiness documentation beyond what `docs/DEPLOYMENT.md` already records (no VPS access); a populated alerts browser journey; a contrast and screen-reader check; eBay live verification (no credentials here). Live collection and the live notifications migration remain off, pending the contact address, the legal review and approval.
+
+### Watchtower completion goal: second continuation (local, unpushed)
+Commits after `9f30334`: `c5c3ef5` the comparison page at `/compare?ids=...` (up to eight listings, each price in its own currency, with a note when currencies differ; linked from the product page), a populated-alerts browser journey, and `e2e/run.sh` migrating its own temporary copy so that journey runs.
+
+Verified: pytest 522 passed, 4 skipped; ruff clean; browser journeys 68/68 on a migrated disposable copy (populated alerts, the badge and mark-read included); the live database hash is unchanged.
+
+Still open, and why:
+- Pyright: 78 errors remain. Deal scoring (`watchtower/deals.py`) holds 22: the type checker cannot see that missing prices are filtered first. Each fix narrows a type in scoring code, so it needs review as a behaviour change, not a mechanical edit.
+- `shopping/web/app.py` route closure is not split. This is the largest debt and needs its own reviewed change.
+- eBay live verification: no credentials are available. The adapter stays mock-tested.
+- Local model: no real Ollama model was run. Existing tests cover the optional path.
+- Admin status stays server-rendered. The page already shows health and budgets, and it is read-only.
+- Contrast and screen-reader checks are not measured.
+- Landed-cost duties and taxes remain labelled assumptions. No verified rate source is configured.
