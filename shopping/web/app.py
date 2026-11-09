@@ -315,7 +315,7 @@ def create_app(db: Database | None = None) -> FastAPI:
         plan = plans.plan_for(owner_of(request))
         texts = {"limit": f"The {plan.key} plan allows {plan.watch_limit} watched items. Upgrade (not yet available) to watch more.",
                  "invalid": "Invalid target price or listing"}
-        return render(request, "watchlist.html", items=monitor.evaluate(s, owner_of(request)), msg=texts.get(msg, ""), banner=banner(s))
+        return render(request, "watchlist.html", items=monitor.evaluate(s, owner_of(request)), msg=texts.get(msg, ""), banner=banner(s), islands=True)
 
     def parse_target(text: str, currency: str) -> int | None:
         if not text.strip():

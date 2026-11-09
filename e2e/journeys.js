@@ -84,6 +84,11 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     const lid = productHref.split('/').pop();
     await page.request.post(`${BASE}/watch/${lid}`, { form: { target: '' }, maxRedirects: 0 }).catch(() => {});
     await go('/watchlist');
+    // populated watchlist: the interactive island renders the watched item and hides the server copy
+    await page.waitForSelector('.watch-card', { timeout: 8000 }).catch(() => {});
+    check(`${label}: watchlist island renders the watched item`, (await page.$$('.watch-card')).length > 0);
+    check(`${label}: watchlist server copy is hidden once the island runs`, (await page.$eval('.server-watchlist', e => e.hidden).catch(() => false)) === true);
+    check(`${label}: no horizontal overflow on watchlist`, (await overflow(page)) === 0);
     // keyboard: skip link is the first tab stop
     await go('/');
     await page.keyboard.press('Tab');

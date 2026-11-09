@@ -5,6 +5,7 @@ import { mountListingChart } from './pages/listingChart';
 import { mountDeals } from './pages/deals';
 import { mountResearch } from './pages/research';
 import { mountCoverage } from './pages/coverage';
+import { mountWatchlist } from './pages/watchlist';
 
 const islands: Record<string, (root: HTMLElement) => void> = {
   discovery: mountDiscovery,
@@ -12,6 +13,7 @@ const islands: Record<string, (root: HTMLElement) => void> = {
   deals: mountDeals,
   research: mountResearch,
   coverage: mountCoverage,
+  watchlist: mountWatchlist,
 };
 
 for (const el of document.querySelectorAll<HTMLElement>('[data-island]')) {

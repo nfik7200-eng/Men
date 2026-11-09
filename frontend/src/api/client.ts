@@ -1,6 +1,6 @@
 import type {
   CoverageResponse, DealsResponse, EventsResponse, HistoryResponse, ListingPage,
-  Listing, ResearchResponse, SourcesResponse,
+  Listing, ResearchResponse, SourcesResponse, WatchlistResponse,
 } from './types';
 
 /** A failure the UI can show in words: what went wrong and what the person can do about it. */
@@ -13,6 +13,26 @@ export class ApiError extends Error {
   }
 }
 
+/** Maps a failed response to a message the person can act on, from the server's own refusal text when it has one. */
+async function errorFrom(res: Response): Promise<ApiError> {
+  let detail = '';
+  try {
+    const body = (await res.json()) as { error?: string; detail?: string };
+    detail = body.detail ?? body.error ?? '';
+  } catch {
+    /* non-JSON error page: fall through to the generic message */
+  }
+  const messages: Record<number, string> = {
+    401: 'Sign in or open a Watchtower page in this browser first.',
+    403: 'That action is not allowed here.',
+    404: 'That item is not in the collected data.',
+    409: 'That has already been decided or is already in place.',
+    422: 'Some of the inputs were not valid. Check them and try again.',
+    429: 'Too many requests. Wait a minute and retry.',
+  };
+  return new ApiError(res.status, detail || messages[res.status] || `The server returned an error (${res.status}).`);
+}
+
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
@@ -21,21 +41,23 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
     if ((err as Error).name === 'AbortError') throw err;
     throw new ApiError(0, 'Could not reach Watchtower. Check your connection and try again.');
   }
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const body = (await res.json()) as { error?: string; detail?: string };
-      detail = body.detail ?? body.error ?? '';
-    } catch {
-      /* non-JSON error page: fall through to the generic message */
-    }
-    const messages: Record<number, string> = {
-      404: 'That item is not in the collected data.',
-      422: 'Some of the inputs were not valid. Check the filters and try again.',
-      429: 'Too many requests. Wait a minute and retry.',
-    };
-    throw new ApiError(res.status, detail || messages[res.status] || `The server returned an error (${res.status}).`);
+  if (!res.ok) throw await errorFrom(res);
+  return (await res.json()) as T;
+}
+
+/** A state-changing request. Same-origin only: the server checks the Origin header on every unsafe method. */
+async function sendJson<T>(url: string, method: 'POST' | 'DELETE', body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, 'Could not reach Watchtower. Check your connection and try again.');
   }
+  if (!res.ok) throw await errorFrom(res);
   return (await res.json()) as T;
 }
 
@@ -64,6 +86,12 @@ export interface ListingQuery {
 }
 
 export const api = {
+  watchlist: (signal?: AbortSignal) => getJson<WatchlistResponse>('/api/v1/watchlist', signal),
+  /** targetPrice is in MAJOR units of the listing's currency, or null to clear it. */
+  watchSet: (listingId: number, targetPrice: number | null) =>
+    sendJson<{ listing_id: number }>('/api/v1/watchlist', 'POST', { listing_id: listingId, target_price: targetPrice }),
+  watchRemove: (listingId: number) =>
+    sendJson<{ removed: number }>(`/api/v1/watchlist/${encodeURIComponent(String(listingId))}`, 'DELETE'),
   listings: (q: ListingQuery, signal?: AbortSignal) =>
     getJson<ListingPage>(`/api/v1/listings${qs({ ...q })}`, signal),
   listing: (id: number, signal?: AbortSignal) =>

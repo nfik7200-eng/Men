@@ -158,3 +158,22 @@ export interface ApiErrorBody {
   error?: string;
   detail?: string;
 }
+
+export interface WatchItem {
+  listing_id: number;
+  title: string;
+  url: string;
+  source: string;
+  currency: string;
+  price_minor: number | null;
+  target_price_minor: number | null;
+  baseline_price_minor: number | null;
+  notify_restock: boolean;
+  triggered: boolean;
+  reasons: string[];
+}
+
+export interface WatchlistResponse {
+  limit: number;
+  items: WatchItem[];
+}
