@@ -3,7 +3,7 @@
 {% block body %}
 <p class="muted"><a class="cta-link" href="/search">← Browse</a></p>
 <h1>{{ prod.title }}</h1>
-<p class="muted">{{ items | length }} merchant listing{{ '' if items | length == 1 else 's' }} matched to this product.
+<p class="muted">{{ items | length }} merchant listing{{ '' if items | length == 1 else 's' }} matched to this product. {% if items | length > 1 %}<a class="cta-link" href="/compare?ids={{ items | map(attribute='l.id') | join(',') }}">Compare these listings side by side →</a>{% endif %}
 {% if 'live' not in kinds %}<span class="badge warn">Test data only — not real retailers</span>{% endif %}</p>
 {% if multi_currency %}<div class="banner" role="note">Merchants price in different currencies. We do <b>not</b> convert or rank across currencies without a sourced exchange rate, so the “cheapest” mark is per currency.</div>{% endif %}
 {% if items and not cheapest %}<div class="banner" role="note">No merchant listed this product as in stock at its last check, so no “lowest price” is marked. Prices below are what each merchant last showed.</div>{% endif %}

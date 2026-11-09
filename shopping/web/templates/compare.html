@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Compare{% endblock %}
+{% block body %}
+<h1>Compare listings</h1>
+{% if not rows %}
+<div class="card">Nothing to compare yet. Open a product and choose “Compare these listings side by side”, or add listing numbers to the address: <span class="mono small">/compare?ids=1,2</span>.</div>
+{% else %}
+<p class="muted">{{ rows | length }} listing{{ '' if rows | length == 1 else 's' }}. Each price is shown in its own currency.</p>
+{% if currencies | length > 1 %}<div class="banner" role="status">These listings use {{ currencies | join(', ') }}. Their prices are not compared with each other, and no conversion is applied.</div>{% endif %}
+<div class="scroll card"><table>
+<tr><th scope="col">Listing</th>{% for l in rows %}<th scope="col"><a href="/listing/{{ l.id }}">{{ l.title }}</a><div class="muted small">{{ l.source.name }}</div></th>{% endfor %}</tr>
+<tr><th scope="row">Price</th>{% for l in rows %}<td>{{ l.price_minor | money(l.currency) }}</td>{% endfor %}</tr>
+<tr><th scope="row">Availability</th>{% for l in rows %}<td>{{ l.availability.replace('_', ' ') }}</td>{% endfor %}</tr>
+<tr><th scope="row">Last observed</th>{% for l in rows %}<td>{{ l.last_observed_at | dt }}</td>{% endfor %}</tr>
+<tr><th scope="row">Match</th>{% for l in rows %}<td>{{ labels.get(l.match_status, l.match_status) }}</td>{% endfor %}</tr>
+{% for k in spec_keys %}<tr><th scope="row">{{ k }}</th>{% for l in rows %}<td>{{ (l.specs or {}).get(k, '—') }}</td>{% endfor %}</tr>{% endfor %}
+</table></div>
+{% endif %}
+{% endblock %}

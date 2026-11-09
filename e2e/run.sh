@@ -12,6 +12,9 @@ cp "$SNAP" "$TMP/e2e.db"
 # here (0 = off) for the DISPOSABLE copy only; production keeps the default.
 export WATCHTOWER_DB_URL="sqlite:///$TMP/e2e.db" WATCHTOWER_ADMIN_TOKEN="${E2E_ADMIN_TOKEN:-e2e-admin-token-0123456789-abc}" WATCHTOWER_RATE_LIMIT=0
 python -m watchtower.cli rematch >"$TMP/rematch.log" 2>&1   # clean the DISPOSABLE copy only (the production cleanup needs the owner's approval)
+# The alerts table is created on the DISPOSABLE copy only, so the populated-alerts journey can run. The live database is
+# never migrated by this script (the CLI also refuses the live file).
+python -m watchtower.cli notify-migrate --db "$TMP/e2e.db" --apply >"$TMP/notify-migrate.log" 2>&1
 python -m uvicorn main:app --host 127.0.0.1 --port 8041 --no-proxy-headers >"$TMP/uvicorn.log" 2>&1 & PID=$!
 for _ in $(seq 1 60); do curl -sf http://127.0.0.1:8041/health >/dev/null && break; sleep 0.5; done
 mkdir -p "${E2E_OUT:-/tmp/e2e-shots}"

@@ -646,6 +646,24 @@ def create_app(db: Database | None = None) -> FastAPI:
             "pending_review": s.scalar(select(func.count()).select_from(MatchCandidate).where(MatchCandidate.status == "pending")) or 0,
         }
 
+    # ------------------------------------------------------------------ comparison: chosen listings side by side
+    MATCH_LABELS = {"self": "Own product", "auto": "Automatic match", "confirmed": "Confirmed match", "review": "Awaiting review"}
+
+    @app.get("/compare")
+    def compare_page(request: Request, ids: Annotated[str, Query(max_length=200)] = "", s=Depends(get_s)):
+        """Up to eight listings side by side. Prices stay in each listing's own currency: when the listings use more than
+        one currency they are shown, never ranked against each other."""
+        wanted: list[int] = []
+        for part in ids.split(","):
+            part = part.strip()
+            if part.isdigit() and int(part) not in wanted and len(wanted) < 8:
+                wanted.append(int(part))
+        rows = [l for l in (s.get(Listing, i) for i in wanted) if l is not None]
+        currencies = sorted({l.currency for l in rows})
+        spec_keys = sorted({k for l in rows for k in (l.specs or {})})
+        return render(request, "compare.html", rows=rows, currencies=currencies, spec_keys=spec_keys,
+                      labels=MATCH_LABELS, banner=banner(s))
+
     # ------------------------------------------------------------------ in-app notifications (table created only by notify-migrate)
     def notes_missing() -> HTTPException:
         return HTTPException(503, "Notifications are not set up on this database. An operator must run notify-migrate on a copy first.")

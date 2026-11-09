@@ -89,6 +89,15 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     check(`${label}: watchlist island renders the watched item`, (await page.$$('.watch-card')).length > 0);
     check(`${label}: watchlist server copy is hidden once the island runs`, (await page.$eval('.server-watchlist', e => e.hidden).catch(() => false)) === true);
     check(`${label}: no horizontal overflow on watchlist`, (await overflow(page)) === 0);
+    // populated alerts: a target above any real price makes the watched item an alert; the page and the badge show it
+    await page.request.post(`${BASE}/watch/${lid}`, { form: { target: '999999' }, maxRedirects: 0 }).catch(() => {});
+    await go('/notifications');
+    await page.waitForSelector('.alerts li', { timeout: 8000 }).catch(() => {});
+    check(`${label}: an alert appears on the alerts page`, (await page.$$('.alerts li')).length > 0);
+    check(`${label}: the unread badge shows in the navigation`, (await page.$('nav[aria-label="Main"] .nav-badge')) !== null);
+    await page.click('.alerts li form button').catch(() => {});
+    await page.waitForLoadState('networkidle').catch(() => {});
+    check(`${label}: marking an alert read clears its unread state`, (await page.$$('.alerts li .small:has-text("Unread")')).length === 0);
     // keyboard: skip link is the first tab stop
     await go('/');
     await page.keyboard.press('Tab');
