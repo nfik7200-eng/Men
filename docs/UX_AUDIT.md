@@ -63,3 +63,14 @@ AXE_PATH=/path/to/scratch/node_modules/axe-core/axe.min.js E2E_BASE=http://127.0
 
 The check injects axe into a test context with `bypassCSP`. The application's Content-Security-Policy is unchanged; the
 policy correctly blocks inline script in the page itself.
+
+## Reflow at 320 CSS pixels (measured)
+
+`e2e/reflow-check.js` loads the populated pages at a 320 px viewport (the width 400% zoom gives on a 1280 px screen) and
+measures horizontal page scroll. Before this pass the listing page overflowed by 59 px: a card's price line could not wrap,
+and the price-history facts grid and the layout column kept a minimum width wider than the phone. The fixes are CSS only:
+the price line wraps, the facts grid is one column below 420 px, and the layout grid column can shrink
+(`minmax(0, …)`). After the fixes all 11 populated pages show 0 px of page scroll at 320 px.
+
+Limits: this measures page-level scroll, not text reflow inside every component, and it does not test 200% text-size
+settings or any screen reader. Those remain unmeasured here.

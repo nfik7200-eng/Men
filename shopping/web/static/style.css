@@ -17,7 +17,7 @@ main{padding:20px 0 48px}h1{font-size:1.6rem;margin:.2em 0 .5em}h2{font-size:1.2
 .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
 .item{display:flex;flex-direction:column;gap:6px}.item h3{font-size:1rem;margin:0;line-height:1.3}.item h3 a{color:var(--ink);text-decoration:none}
 .item h3 a:hover{text-decoration:underline}
-.price{font-size:1.4rem;font-weight:700}.price s{font-size:.9rem;color:var(--muted);font-weight:400;margin-left:6px}
+.price{font-size:1.4rem;font-weight:700;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}.price s{font-size:.9rem;color:var(--muted);font-weight:400;margin-left:6px}
 .muted{color:var(--muted);font-size:.88rem}
 .skip{position:absolute;left:-9999px;top:0;background:var(--card);color:var(--ink);padding:10px 14px;z-index:20;border:2px solid var(--brand)}
 .skip:focus{left:8px;top:8px}
@@ -38,7 +38,7 @@ button.danger{background:var(--bad);color:#fff}
 .stat b{display:block;font-size:1.6rem}
 table{width:100%;border-collapse:collapse;font-size:.92rem}th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
 .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-.layout{display:grid;gap:16px}@media(min-width:860px){.layout{grid-template-columns:2fr 1fr}}
+.layout{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}@media(min-width:860px){.layout{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}}
 .chart{width:100%;height:auto}.chart .axis{stroke:var(--line)}.chart .line{fill:none;stroke:var(--brand);stroke-width:2}.chart .dot{fill:var(--brand)}.chart .lbl{fill:var(--muted);font-size:11px}
 .pick{border-left:4px solid var(--brand)}.pick ul{margin:.3em 0;padding-left:1.2em}
 .ok-t{color:var(--ok)}.bad-t{color:var(--bad)}.warn-t{color:var(--warn)}
@@ -51,8 +51,9 @@ button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;filter:g
 @media(max-width:640px){.hide-sm{display:none}.show-sm{display:block}}
 
 /* Client islands (frontend/): facts grid for price history and the state text. Uses the existing tokens only. */
-.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px 18px;margin:0 0 14px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:12px 18px;margin:0 0 14px}
 .facts .fact{min-width:0}
+@media (max-width:420px){.facts{grid-template-columns:1fr}}
 .facts dt{color:var(--muted);font-size:.8rem;margin:0}
 .facts dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}
 .state{color:var(--muted);margin:.5rem 0}
