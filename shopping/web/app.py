@@ -1,12 +1,8 @@
 """FastAPI app: server-rendered pages + JSON API under /api/v1. Modular monolith: no business logic here."""
 import re
-import time
 from pathlib import Path
-from typing import Annotated
-from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.encoders import jsonable_encoder
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -14,15 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 
-from shopping import affiliate, assistant, plans
-from shopping.search import SORTS, CurrencyRequired, facets, search_listings
+from shopping import affiliate, plans
+from shopping.search import SORTS, facets
 from watchtower import config, deals, monitor
 from watchtower import notifications as notes
-from shopping.web import routes_admin, routes_alerts, routes_catalog, routes_compare, routes_watchlist, security
-from shopping.web.params import Money, Text
+from shopping.web import routes_admin, routes_alerts, routes_catalog, routes_compare, routes_public, routes_watchlist, security
 from watchtower.collector import ensure_sources
 from watchtower.db import Database
-from watchtower.coverage import coverage_report
 from watchtower.models import (AffiliateClick, CollectionRun, Listing, Observation, Product, Source,
                                utcnow)
 from watchtower.money import fmt_money
@@ -198,113 +192,14 @@ def create_app(db: Database | None = None) -> FastAPI:
     routes_catalog.register_catalog(app, get_s=get_s, render=render, banner=banner, owner_of=owner_of,
                                     kinds_for=kinds_for, with_status=with_status)
 
-
-    _cov_cache: dict = {"at": 0.0, "rep": None}
-
-    def cached_coverage(s):
-        """The report scans every crawl_urls row; the route is public, so recompute at most every 30 s."""
-        if _cov_cache["rep"] is None or time.monotonic() - _cov_cache["at"] > COVERAGE_TTL_S:
-            _cov_cache["rep"], _cov_cache["at"] = coverage_report(s, with_next_up=True), time.monotonic()
-        return _cov_cache["rep"]
-
-    @app.get("/coverage")
-    def coverage_page(request: Request, s=Depends(get_s)):
-        return render(request, "coverage.html", rep=cached_coverage(s), banner=banner(s), islands=True)
-
-    @app.get("/api/v1/coverage")
-    def api_coverage(s=Depends(get_s)):
-        return JSONResponse(jsonable_encoder(cached_coverage(s)))
-
-    @app.get("/research")
-    def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):
-        res = assistant.answer(s, q, shipping_major=ship) if q.strip() else None
-        return render(request, "research.html", q=q, res=res, ship=ship, banner=banner(s), islands=True)
-
-    @app.get("/go/{listing_id}")
-    def go(listing_id: int, s=Depends(get_s)):
-        l = s.get(Listing, listing_id)
-        if not l:
-            raise HTTPException(404)
-        target = affiliate.record_click(s, l).url
-        if urlparse(target).scheme not in ("http", "https"):
-            raise HTTPException(404, "no safe outbound link for this listing")
-        return RedirectResponse(target, status_code=302)
+    # coverage report and the public JSON API live in routes_public.py (research and the redirect are in routes_catalog.py)
+    routes_public.register_public(app, get_s=get_s, render=render, banner=banner, kinds_of=kinds_of)
 
     # watchlist routes live in routes_watchlist.py (HTML page, forms and the per-browser JSON API)
     require_browser_owner = routes_watchlist.register_watchlist(app, get_s=get_s, owner_of=owner_of, render=render, banner=banner)
 
     # admin pages, form actions and the token-protected review/status JSON live in routes_admin.py
     routes_admin.register_admin(app, db=db, get_s=get_s, render=render, banner=banner, admin=admin, adapters=ADAPTERS)
-
-    # ------------------------------------------------------------------ JSON API (v1)
-    def listing_json(l: Listing, deal: deals.DealScore | None = None):
-        d = {"id": l.id, "title": l.title, "brand": l.brand, "category": l.category, "url": l.url,
-             "source": l.source.key, "source_kind": l.source.kind, "currency": l.currency,
-             "price_minor": l.price_minor, "original_price_minor": l.original_price_minor,
-             "availability": l.availability, "specs": l.specs, "active": l.active, "product_id": l.product_id,
-             "match_status": l.match_status, "match_confidence": l.match_confidence,
-             "last_observed_at": l.last_observed_at.isoformat() if l.last_observed_at else None,
-             "price_status": price_status(l, l.source), "freshness": freshness(l, l.source)}
-        if deal:
-            d["deal"] = {"score": deal.score, "label": deal.label, "confidence": deal.confidence, "warnings": deal.warnings,
-                         "components": [c.__dict__ for c in deal.components]}
-        return d
-
-    @app.get("/api/v1/listings")
-    def api_listings(q: Text = "", category: Text = "", source: Text = "", currency: Text = "", min_price: Money = None,
-                     max_price: Money = None, in_stock: bool = False, sort: Text = "price_asc",
-                     page: int = Query(1, ge=1, le=1000), per_page: int = Query(24, ge=1, le=100),
-                     data: Text = "", s=Depends(get_s)):
-        """`data` = real | demo | all. Omitted keeps the historical behaviour (every source); the browse island always sends it."""
-        kinds = kinds_of(data) if data else None
-        info: dict = {}
-        try:
-            rows, total = search_listings(s, q, category or None, source or None, currency or None, min_price, max_price,
-                                          in_stock, sort, page, per_page, kinds=kinds, info=info)
-        except CurrencyRequired as e:
-            raise HTTPException(422, str(e))
-        return {"total": total, "page": page, "items": [listing_json(l) for l in rows],
-                "currencies": info.get("currencies", []), "sort_fallback": info.get("sort_fallback")}
-
-    @app.get("/api/v1/listings/{listing_id}")
-    def api_listing(listing_id: int, s=Depends(get_s)):
-        l = s.get(Listing, listing_id)
-        if not l:
-            raise HTTPException(404, "listing not found")
-        return listing_json(l, deals.score_listing(s, l))
-
-    @app.get("/api/v1/listings/{listing_id}/history")
-    def api_history(listing_id: int, s=Depends(get_s)):
-        if not s.get(Listing, listing_id):
-            raise HTTPException(404, "listing not found")
-        obs = s.scalars(select(Observation).where(Observation.listing_id == listing_id).order_by(Observation.observed_at)).all()
-        return {"listing_id": listing_id, "observations": [
-            {"observed_at": o.observed_at.isoformat(), "price_minor": o.price_minor, "original_price_minor": o.original_price_minor,
-             "currency": o.currency, "availability": o.availability, "shipping_minor": o.shipping_minor} for o in obs]}
-
-    @app.get("/api/v1/deals")
-    def api_deals(category: Text = "", limit: int = Query(20, ge=1, le=100), s=Depends(get_s)):
-        return {"items": [listing_json(l, d) for l, d in deals.top_deals(s, limit, category or None)]}
-
-    @app.get("/api/v1/events")
-    def api_events(limit: int = Query(50, ge=1, le=200), s=Depends(get_s)):
-        return {"items": [{"id": e.id, "listing_id": e.listing_id, "kind": e.kind, "old": e.old_value, "new": e.new_value,
-                           "pct": e.pct, "detected_at": e.detected_at.isoformat()} for e in monitor.recent_events(s, None, limit)]}
-
-    @app.get("/api/v1/sources")
-    def api_sources(s=Depends(get_s)):
-        return {"items": [{"key": x.key, "name": x.name, "kind": x.kind, "currency": x.currency,
-                           "last_success_at": x.last_success_at.isoformat() if x.last_success_at else None,
-                           "last_status": x.last_status, "terms_note": x.terms_note} for x in s.scalars(select(Source))]}
-
-    @app.get("/api/v1/research")
-    def api_research(q: str = Query(..., min_length=3, max_length=500), ship: Money = None, s=Depends(get_s)):
-        r = assistant.answer(s, q, shipping_major=ship)
-        return JSONResponse({"text": r["text"], "interpretation": r["interpretation"], "caveats": r["caveats"],
-                             "gaps": r["gaps"], "retrieved_listing_ids": r["retrieved_listing_ids"],
-                             "llm_summary": r["llm_summary"],
-                             "picks": [{"listing": listing_json(p.listing, p.deal), "meets": p.meets, "misses": p.misses,
-                                        "unknown": p.unknown, "import_estimate": p.import_estimate} for p in r["picks"]]})
 
     routes_compare.register_compare(app, get_s=get_s, render=render, banner=banner)
     # in-app alert routes live in routes_alerts.py (the table is created only by notify-migrate)

@@ -2,12 +2,14 @@
 create_app closure in shopping/web/app.py; behaviour is unchanged. The helpers that depend on app-wide state
 (kinds_for, with_status) are passed in by the caller."""
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
-from shopping import affiliate, importcost
+from shopping import affiliate, assistant, importcost
 from shopping import fx as fxmod
 from shopping.search import CurrencyRequired, facets, same_product, search_listings
 from shopping.web.charts import price_chart
@@ -96,3 +98,18 @@ def register_catalog(app, *, get_s, render, banner, owner_of, kinds_for, with_st
         kinds, data = kinds_for(s, data)
         return render(request, "deals.html", top=deals.top_deals(s, 30, category or None, kinds=kinds), category=category,
                       facets=facets(s), banner=banner(s), data=data, islands=True)
+
+    @app.get("/research")
+    def research(request: Request, q: Annotated[str, Query(max_length=500)] = "", ship: Money = None, s=Depends(get_s)):
+        res = assistant.answer(s, q, shipping_major=ship) if q.strip() else None
+        return render(request, "research.html", q=q, res=res, ship=ship, banner=banner(s), islands=True)
+
+    @app.get("/go/{listing_id}")
+    def go(listing_id: int, s=Depends(get_s)):
+        l = s.get(Listing, listing_id)
+        if not l:
+            raise HTTPException(404)
+        target = affiliate.record_click(s, l).url
+        if urlparse(target).scheme not in ("http", "https"):
+            raise HTTPException(404, "no safe outbound link for this listing")
+        return RedirectResponse(target, status_code=302)
