@@ -11,7 +11,8 @@
     <input name="q" placeholder="Search products…" aria-label="Search products" value="{{ (f.q if f is defined else '') or '' }}">
   </form>
   {% set unread_alerts = alerts_unread(request) %}
-  <nav aria-label="Main">{% for href, label in [('/search','Browse'),('/deals','Deals'),('/research','Research'),('/watchlist','Watchlist'),('/notifications','Alerts'),('/coverage','Coverage'),('/admin','Admin')] %}<a href="{{ href }}"{% if request.url.path == href or request.url.path.startswith(href + '/') %} aria-current="page"{% endif %}>{{ label }}{% if href == '/notifications' and unread_alerts %} <span class="nav-badge" aria-label="{{ unread_alerts }} unread alerts">{{ unread_alerts }}</span>{% endif %}</a>{% endfor %}</nav>
+  {% set alerts_badge = unread_alerts if unread_alerts <= 100 else '100+' %}
+  <nav aria-label="Main">{% for href, label in [('/search','Browse'),('/deals','Deals'),('/research','Research'),('/watchlist','Watchlist'),('/notifications','Alerts'),('/coverage','Coverage'),('/admin','Admin')] %}<a href="{{ href }}"{% if request.url.path == href or request.url.path.startswith(href + '/') %} aria-current="page"{% endif %}>{{ label }}{% if href == '/notifications' and unread_alerts %} <span class="nav-badge" aria-label="{{ unread_alerts }} unread alerts">{{ alerts_badge }}</span>{% endif %}</a>{% endfor %}</nav>
 </div></header>
 <main class="wrap" id="main">
 {% if banner == 'demo' %}<div class="banner" role="note"><b>Demo / test data only.</b> No real-retailer listings have been collected yet: everything shown comes from scraping-practice sites or API sandboxes. The pipeline is real; the prices are not shopping opportunities.</div>{% endif %}

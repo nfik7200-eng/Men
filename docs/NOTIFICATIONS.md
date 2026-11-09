@@ -65,5 +65,4 @@ The rest of the database is untouched by either direction. Rolling back never ch
 - **SQLite spellings.** Every SQLite URL form that `Database` accepts (`sqlite:///`, `sqlite+pysqlite:///`, with query
   strings) is parsed by SQLAlchemy's own URL parser. A SQLite configuration whose file cannot be located (in-memory, empty,
   or a `file:` URI) fails closed: the guard treats the target as live and refuses.
-- **List cap.** The alerts page lists at most 100 notifications, but the unread badge and the JSON `unread` count every
-  unread row. With more than 100 unread, the badge can be higher than the number of rows shown. Mark-all-read clears both.
+- **List cap.** The alerts page and `GET /api/v1/notifications` list at most 100 notifications. The unread count is the full count, never capped: the JSON reports `unread`/`unread_total` (full count), `listed` (rows returned) and `more` (true when unread alerts are not in the list). The navigation badge shows `100+` above 100, and its screen-reader label keeps the exact number.

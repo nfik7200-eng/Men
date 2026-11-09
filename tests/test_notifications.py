@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import inspect
 
+from shopping.web import security
 from shopping.web.app import create_app
 from tests._ml_helpers import mk_listing, mk_source
 from watchtower import cli, config, monitor, notifications as notes
@@ -176,7 +177,7 @@ def test_web_routes_answer_503_until_an_operator_migrates(db):
     page = client.get("/notifications")
     assert page.status_code == 200 and "not set up on this database" in page.text
     _migrated(db)
-    assert client.get("/api/v1/notifications").json() == {"unread": 0, "items": []}
+    assert client.get("/api/v1/notifications").json() == {"unread": 0, "unread_total": 0, "listed": 0, "more": False, "items": []}
 
 
 def test_web_mark_read_is_owner_scoped(db):
@@ -322,3 +323,21 @@ def test_the_badge_never_breaks_a_page_when_alerts_are_not_migrated(db):
     client = TestClient(create_app(db), base_url="http://testserver")
     assert client.get("/").status_code == 200
     assert client.get("/search").status_code == 200                  # no alerts table: the page still renders
+
+
+def test_more_than_100_unread_is_reported_honestly_in_json_and_on_the_badge(db):
+    _migrated(db)
+    lid = _listing(db, price=1000)
+    client = TestClient(create_app(db), base_url="http://testserver")
+    client.get("/")  # a page visit gives the browser its owner cookie
+    owner = client.cookies.get(security.COOKIE_OWNER)
+    assert owner, "the owner cookie is set on a page visit"
+    with db.session() as s:
+        for i in range(101):
+            s.add(notes.Notification(owner=owner, listing_id=lid, kind="back_in_stock", title=f"Back in stock {i}",
+                                     dedupe_key=f"seed-{i}"))
+        s.commit()
+    body = client.get("/api/v1/notifications").json()
+    assert body["unread"] == 101 and body["unread_total"] == 101
+    assert body["listed"] == 100 and body["more"] is True
+    assert 'aria-label="101 unread alerts">100+</span>' in client.get("/").text

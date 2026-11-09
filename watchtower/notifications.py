@@ -139,6 +139,11 @@ def list_for(s: Session, owner: str, limit: int = 100) -> list[Notification]:
                           .order_by(Notification.created_at.desc(), Notification.id.desc()).limit(limit)))
 
 
+def list_page(s: Session, owner: str, limit: int = 100) -> tuple[list[Notification], int]:
+    """The newest `limit` notifications for this owner, and the full unread count (which can exceed the rows listed)."""
+    return list_for(s, owner, limit), unread_count(s, owner)
+
+
 def mark_read(s: Session, owner: str, note_id: int) -> bool:
     n = s.scalar(select(Notification).where(Notification.id == note_id, Notification.owner == owner))
     if n is None:

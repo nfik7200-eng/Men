@@ -44,7 +44,10 @@ def register_alerts(app, *, get_s, owner_of, require_browser_owner, render, bann
         if not notes.available(s):
             raise notes_missing()
         notes.generate(s, owner)
-        return {"unread": notes.unread_count(s, owner), "items": [note_json(n) for n in notes.list_for(s, owner)]}
+        rows, total = notes.list_page(s, owner)
+        listed_unread = sum(1 for n in rows if n.read_at is None)
+        return {"unread": total, "unread_total": total, "listed": len(rows), "more": total > listed_unread,
+                "items": [note_json(n) for n in rows]}
 
     @app.post("/api/v1/notifications/read-all")
     def api_notifications_read_all(request: Request, s=Depends(get_s)):
