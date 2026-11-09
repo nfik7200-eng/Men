@@ -172,3 +172,18 @@ Still open, and why:
 - Admin status stays server-rendered. The page already shows health and budgets, and it is read-only.
 - Contrast and screen-reader checks are not measured.
 - Landed-cost duties and taxes remain labelled assumptions. No verified rate source is configured.
+
+### Watchtower completion goal: third continuation (local, unpushed)
+Commits after `c5c3ef5`: `7bb738f`/`5e78b58`/`b0a7c21`/`16a966f`/`9c04f05`/`c11c246`/`0efb34a` (Pyright and the defects it exposed: no-product matching, missing CLI and collector rows, optional scraper and assistant values, the ML path resolved from the isolated environment); `7269c92` the first route module (`shopping/web/routes_alerts.py`); `f3f87f0` contrast measured in both themes.
+
+Verified on the latest code: pyright watchtower shopping reports **0 errors** (78 at the start of this goal); pytest 528 total, 524 passed, 4 skipped; ruff clean; vitest 74; typecheck clean; bundle fresh; generated currency table current; browser journeys 68/68 on a migrated disposable copy.
+
+Real defects found and fixed along the way: `_members(None)` matched every unmatched listing; `_queue` could write a question with no product; a listing with no observation time crashed deal scoring; the admin session cookie never reached the admin JSON.
+
+Still open:
+- Route split: one module moved (alerts). The watchlist, comparison, match review and admin routes remain in the `create_app` closure.
+- eBay: no credentials are available; the adapter stays mock-tested.
+- Ollama: no local model is configured or reachable here; existing tests cover the optional path.
+- Deployment: rehearsed in a temporary prefix only; no VPS access.
+- Admin status: server-rendered and read-only (the page already shows health and budgets).
+- Screen-reader behaviour is not measured here; contrast is (see docs/UX_AUDIT.md).
