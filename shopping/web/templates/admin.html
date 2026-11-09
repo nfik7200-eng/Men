@@ -5,6 +5,7 @@
 {% if msg %}<div class="banner" role="status">{{ msg }}</div>{% endif %}
 {% for k, why in collect_errors.items() %}<div class="banner" role="alert">Last manual collection of <b>{{ k }}</b> was refused or failed: {{ why }}</div>{% endfor %}
 <form method="post" action="/admin/logout" style="margin:0 0 12px"><button class="secondary">Sign out</button></form>
+{% if islands %}<div class="island-slot" data-island="admin-settings" hidden><p class="state">Loading source settings…</p></div>{% endif %}
 <div class="scroll card" tabindex="0"><table>
 <tr><th>Source</th><th>Kind</th><th>Enabled</th><th>Last success</th><th>Last status</th><th>Terms / robots note</th><th>Actions</th></tr>
 {% for s in sources %}<tr><td>{{ s.name }}<div class="muted">{{ s.key }}</div></td><td>{{ s.kind }}</td><td>{{ "yes" if s.enabled else "DISABLED" }}</td><td>{{ s.last_success_at | dt }}</td>

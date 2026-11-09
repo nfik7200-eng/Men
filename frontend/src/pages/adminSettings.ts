@@ -3,13 +3,13 @@ import { h, status } from '../components/dom';
 import type { AdminSettingsResponse, AdminSource } from '../api/types';
 
 /**
- * Admin source settings, interactive. Lists every source with its enabled state and lets an admin switch one on or off.
+ * Admin source switches, interactive. Lists every source with its enabled state and lets an admin switch one on or off.
+ * It sits beside the server table and does not replace it: the server table keeps the collection actions and run history.
  * Scheduled collection is shown as read-only: it is set on the server, never from this page. After every change the
  * page reloads the settings and shows the state the server stored, not the state the admin clicked.
  * Signed-out visitors are told to sign in; nothing here is a secret.
  */
 export function mountAdminSettings(root: HTMLElement): void {
-  document.querySelector<HTMLElement>('.server-sources')?.setAttribute('hidden', '');
   root.replaceChildren(status('Loading source settings…'));
   void load(root);
 }

@@ -27,17 +27,17 @@ function stubApi(routes: Record<string, () => Response>) {
 describe('admin settings island', () => {
   let root: HTMLElement;
   beforeEach(() => {
-    document.body.innerHTML = '<div class="server-sources">server table</div>';
+    document.body.innerHTML = '<div class="scroll card">server table</div>';
     root = document.createElement('div');
     document.body.append(root);
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('renders one row per source, the scheduler as read-only text, and hides the server table', async () => {
+  it('renders one row per source and the scheduler as read-only text, and leaves the server table in place', async () => {
     stubApi({ 'GET /api/v1/admin/settings': () => json(settings(true)) });
     mountAdminSettings(root);
     await flush(); await flush();
-    expect(document.querySelector<HTMLElement>('.server-sources')?.hidden).toBe(true);
+    expect(document.querySelector<HTMLElement>('.scroll.card')?.hidden).toBe(false);
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
     expect(root.textContent).toContain('Scheduled collection: disabled');
     expect(root.querySelector('[data-scheduler] button')).toBeNull();
