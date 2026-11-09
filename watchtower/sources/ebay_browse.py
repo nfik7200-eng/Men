@@ -76,11 +76,11 @@ class EbayBrowse(SourceAdapter):
     def env(self) -> str:
         return "production" if os.getenv("EBAY_ENV", "sandbox").lower() == "production" else "sandbox"
 
-    @property
+    @property  # pyright: ignore[reportIncompatibleVariableOverride]  # the environment decides this at call time, so it is a property
     def kind(self) -> str:  # sandbox data is test data and is flagged as such everywhere in the UI
         return "live" if self.env == "production" else "sandbox"
 
-    @property
+    @property  # pyright: ignore[reportIncompatibleVariableOverride]  # chosen per environment at call time
     def base_url(self) -> str:
         return "https://api.ebay.com" if self.env == "production" else "https://api.sandbox.ebay.com"
 
@@ -88,7 +88,7 @@ class EbayBrowse(SourceAdapter):
     def marketplace(self) -> str:
         return os.getenv("EBAY_MARKETPLACE", "EBAY_US")
 
-    @property
+    @property  # pyright: ignore[reportIncompatibleVariableOverride]  # derived from the marketplace at call time
     def country(self) -> str:
         return {"EBAY_US": "US", "EBAY_GB": "GB", "EBAY_DE": "DE", "EBAY_CA": "CA", "EBAY_AU": "AU"}.get(self.marketplace, "US")
 
@@ -154,9 +154,9 @@ class EbayBrowse(SourceAdapter):
         return h
 
     # ---- parsing ----
-    def parse_page(self, body, url):
+    def parse_page(self, html, url):  # the base contract names this argument html; eBay's JSON body is passed through it
         self.parse_errors = []
-        data = json.loads(body)
+        data = json.loads(html)
         out = []
         for it in data.get("itemSummaries") or []:
             try:

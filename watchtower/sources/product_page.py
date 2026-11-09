@@ -13,6 +13,7 @@ from ..identifiers import clean_mpn, normalise_gtin
 from ..specs import detect_brand, parse_specs
 from ..structured import (SitemapEntry, jsonld_nodes, normalise_url, offer_from_product, product_nodes, text_of)
 from .base import RawListing, SourceAdapter
+from .htmlattr import attr_text
 
 CANONICAL_CATEGORY = "maker-electronics"
 
@@ -62,7 +63,7 @@ class ProductPageAdapter(SourceAdapter):
         if cur is None:  # currency missing: we do not guess it onto a price
             price = None
         meta_desc = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", property="og:description")
-        desc_src = (meta_desc.get("content") if meta_desc else "") or ""
+        desc_src = (attr_text(meta_desc.get("content")) if meta_desc else "") or ""
         raw = RawListing(
             external_id=sku or clean.rstrip("/").rsplit("/", 1)[-1], url=clean, title=title,
             price_minor=price, currency=(cur or self.currency), description="",

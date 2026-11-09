@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from ..money import parse_money
 from ..specs import detect_brand, parse_specs
 from .base import RawListing, SourceAdapter
+from .htmlattr import attr_text
 
 ROOT = "https://webscraper.io/test-sites/e-commerce/static"
 # Only paths NOT disallowed by robots.txt (/test-sites/product/, /pagination/, /scroll/, /load-more/).
@@ -39,7 +40,7 @@ class WebscraperIoStatic(SourceAdapter):
             if item:
                 out.append(item)
         nxt = soup.select_one("ul.pagination a[rel=next]")
-        return out, (urljoin(url, nxt["href"]) if nxt and nxt.get("href") else None)
+        return out, (urljoin(url, attr_text(nxt["href"]) or "") if nxt and nxt.get("href") else None)
 
     def _card(self, card, url, category):
         a = card.select_one("a.title")

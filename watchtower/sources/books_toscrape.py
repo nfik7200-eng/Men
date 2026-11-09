@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 from ..money import parse_money
 from .base import RawListing, SourceAdapter
+from .htmlattr import attr_text
 
 _STARS = {"One": 1, "Two": 2, "Three": 3, "Four": 4, "Five": 5}
 
@@ -36,7 +37,7 @@ class BooksToScrape(SourceAdapter):
             if item:
                 out.append(item)
         nxt = soup.select_one("li.next a")
-        return out, (urljoin(url, nxt["href"]) if nxt else None)
+        return out, (urljoin(url, attr_text(nxt["href"]) or "") if nxt else None)
 
     def _card(self, art, url):
         a = art.select_one("h3 a")

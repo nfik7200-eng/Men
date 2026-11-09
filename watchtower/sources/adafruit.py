@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 
 from ..structured import SitemapEntry, normalise_url
 from .product_page import ProductPageAdapter
+from .htmlattr import attr_text
 
 _PRODUCT = re.compile(r"^/product/(\d+)/?$")
 
@@ -30,7 +31,7 @@ class Adafruit(ProductPageAdapter):
         for cat in self.categories:
             html = fetcher.get(f"{self.base_url}/category/{cat}")
             for a in BeautifulSoup(html, "lxml").find_all("a", href=True):
-                path = a["href"].split("#")[0].split("?")[0]
+                path = (attr_text(a["href"]) or "").split("#")[0].split("?")[0]
                 path = path.replace(self.base_url, "") if path.startswith(self.base_url) else path
                 if not _PRODUCT.match(path):
                     continue

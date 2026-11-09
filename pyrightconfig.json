@@ -1,0 +1,5 @@
+{
+  "include": ["watchtower", "shopping", "tests", "scripts", "main.py"],
+  "extraPaths": [".venv-ml/lib/python3.13/site-packages"],
+  "reportMissingModuleSource": "warning"
+}
