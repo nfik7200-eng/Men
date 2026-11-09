@@ -23,7 +23,7 @@ from shopping.web.charts import price_chart
 from watchtower import config, deals, monitor
 from watchtower import notifications as notes
 from watchtower.health import source_health
-from shopping.web import routes_alerts, security
+from shopping.web import routes_alerts, routes_compare, security
 from watchtower.collector import ensure_sources, run_source, set_enabled
 from watchtower.currency import to_minor
 from watchtower.db import Database
@@ -650,24 +650,7 @@ def create_app(db: Database | None = None) -> FastAPI:
             "pending_review": s.scalar(select(func.count()).select_from(MatchCandidate).where(MatchCandidate.status == "pending")) or 0,
         }
 
-    # ------------------------------------------------------------------ comparison: chosen listings side by side
-    MATCH_LABELS = {"self": "Own product", "auto": "Automatic match", "confirmed": "Confirmed match", "review": "Awaiting review"}
-
-    @app.get("/compare")
-    def compare_page(request: Request, ids: Annotated[str, Query(max_length=200)] = "", s=Depends(get_s)):
-        """Up to eight listings side by side. Prices stay in each listing's own currency: when the listings use more than
-        one currency they are shown, never ranked against each other."""
-        wanted: list[int] = []
-        for part in ids.split(","):
-            part = part.strip()
-            if part.isdigit() and int(part) not in wanted and len(wanted) < 8:
-                wanted.append(int(part))
-        rows = [l for l in (s.get(Listing, i) for i in wanted) if l is not None]
-        currencies = sorted({l.currency for l in rows})
-        spec_keys = sorted({k for l in rows for k in (l.specs or {})})
-        return render(request, "compare.html", rows=rows, currencies=currencies, spec_keys=spec_keys,
-                      labels=MATCH_LABELS, banner=banner(s))
-
+    routes_compare.register_compare(app, get_s=get_s, render=render, banner=banner)
     # in-app alert routes live in routes_alerts.py (the table is created only by notify-migrate)
     routes_alerts.register_alerts(app, get_s=get_s, owner_of=owner_of, require_browser_owner=require_browser_owner,
                                   render=render, banner=banner)
