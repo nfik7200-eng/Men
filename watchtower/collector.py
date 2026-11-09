@@ -104,9 +104,10 @@ def run_source(db: Database, key: str, fetcher: Fetcher | None = None, max_pages
     except Exception as e:  # unexpected: never leave a run stuck in 'running'
         with db.session() as s:
             run, src = s.get(CollectionRun, run_id), s.get(Source, src_id)
-            run.status, run.complete, run.finished_at = "failed", False, now_fn()
-            run.error = f"{type(e).__name__}: {e}"[:500]
-            src.last_run_at, src.last_status, src.last_error = run.finished_at, "failed", run.error
+            if run is not None and src is not None:  # never leave a run stuck in 'running', even if its rows went missing
+                run.status, run.complete, run.finished_at = "failed", False, now_fn()
+                run.error = f"{type(e).__name__}: {e}"[:500]
+                src.last_run_at, src.last_status, src.last_error = run.finished_at, "failed", run.error
         log.exception("run %s crashed", key)
         raise
     return run_id

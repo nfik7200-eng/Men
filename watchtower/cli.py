@@ -94,6 +94,9 @@ def main(argv=None):
                 continue
             with db.session() as s:
                 r = s.get(CollectionRun, rid)
+                if r is None:
+                    print(f"{key}: run {rid} is not in the database")
+                    continue
                 print(f"{key}: {r.status} pages={r.pages_fetched} seen={r.items_seen} new={r.items_new} "
                       f"invalid={r.items_invalid} price_changes={r.price_changes} complete={r.complete}"
                       + (f" error={r.error}" if r.error else ""))
