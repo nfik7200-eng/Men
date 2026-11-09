@@ -55,3 +55,15 @@ The rest of the database is untouched by either direction. Rolling back never ch
 ## Verification in this repository
 - `tests/test_notifications.py`: schema isolation, dry runs, idempotence, target and restock events, read state, owner isolation, rollback safety, 503 before migration, and the live-database refusal.
 - Disposable-copy run: dry run, apply, generation twice (second run 0 new), rollback refusal, rollback with the flag. The live database's SHA-256 was identical before and after.
+
+## Limitations (recorded after the independent review)
+
+- **Which database the guard protects.** The live-database guard compares `--db` with the database that the CLI itself
+  is configured to use (`WATCHTOWER_DB_URL`, or the default `data/watchtower.db`). If you run `notify-*` with a
+  different environment from the server, the guard protects the wrong file. Run `notify-*` with the same environment as the
+  server, and always on a copy first.
+- **SQLite spellings.** Every SQLite URL form that `Database` accepts (`sqlite:///`, `sqlite+pysqlite:///`, with query
+  strings) is parsed by SQLAlchemy's own URL parser. A SQLite configuration whose file cannot be located (in-memory, empty,
+  or a `file:` URI) fails closed: the guard treats the target as live and refuses.
+- **List cap.** The alerts page lists at most 100 notifications, but the unread badge and the JSON `unread` count every
+  unread row. With more than 100 unread, the badge can be higher than the number of rows shown. Mark-all-read clears both.

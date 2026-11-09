@@ -182,18 +182,27 @@ def _notify(args) -> int:
 
 
 def _configured_sqlite_path() -> str | None:
-    """File path of the configured database when it is SQLite, else None."""
+    """File path of the configured database when it is SQLite, else None. Parsed with SQLAlchemy's own URL parser, so
+    every SQLite spelling (sqlite:///, sqlite+pysqlite:///) and any query string are read the way Database reads them."""
+    from sqlalchemy.engine import make_url
     from . import config
-    prefix = "sqlite:///"
-    return config.DB_URL[len(prefix):] if config.DB_URL.startswith(prefix) else None
+    u = make_url(config.DB_URL)
+    return u.database if u.get_backend_name() == "sqlite" else None
 
 
 def _is_live_db(path) -> bool:
-    """True when `path` IS the configured live database: same resolved path OR same inode (a hardlink or bind alias)."""
+    """True when `path` IS the configured live database: same resolved path OR same inode (a hardlink or bind alias).
+    Fails closed: a SQLite configuration whose file cannot be located (in-memory, empty, or a URI) counts as live."""
     from pathlib import Path
+    from sqlalchemy.engine import make_url
+    from . import config
+    if make_url(config.DB_URL).get_backend_name() != "sqlite":
+        return False  # a server database has no file to compare against
     live = _configured_sqlite_path()
-    if not live or not Path(live).exists():
-        return bool(live) and Path(path).resolve() == Path(live).resolve()
+    if not live or live == ":memory:" or live.startswith("file:"):
+        return True  # SQLite, but the file cannot be located: fail closed
+    if not Path(live).exists():
+        return Path(path).resolve() == Path(live).resolve()
     return Path(path).exists() and Path(path).samefile(live)
 
 
