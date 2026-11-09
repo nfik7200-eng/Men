@@ -47,9 +47,10 @@ def _event(s, listing, run, kind, old=None, new=None, pct=None, now=None):
 
 def ingest_listing(s: Session, source: Source, run: CollectionRun | None, raw: RawListing,
                    now: datetime) -> tuple[Listing | None, bool, list[str]]:
-    raw, problems = validate(raw)
-    if raw is None:
+    checked, problems = validate(raw)
+    if checked is None:
         return None, False, problems  # a rejected listing: no row, and the problems say why
+    raw = checked
     listing = s.scalar(select(Listing).where(Listing.source_id == source.id, Listing.external_id == raw.external_id))
     dh = raw.desc_hash or _hash(raw.description)
     id_changed = False

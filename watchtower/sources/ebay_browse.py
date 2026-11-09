@@ -76,20 +76,20 @@ class EbayBrowse(SourceAdapter):
     def env(self) -> str:
         return "production" if os.getenv("EBAY_ENV", "sandbox").lower() == "production" else "sandbox"
 
-    @property  # pyright: ignore[reportIncompatibleVariableOverride]  # the environment decides this at call time, so it is a property
-    def kind(self) -> str:  # sandbox data is test data and is flagged as such everywhere in the UI
+    @property
+    def kind(self) -> str:  # pyright: ignore[reportIncompatibleVariableOverride]  # the environment decides this at call time  # sandbox data is test data and is flagged as such everywhere in the UI
         return "live" if self.env == "production" else "sandbox"
 
-    @property  # pyright: ignore[reportIncompatibleVariableOverride]  # chosen per environment at call time
-    def base_url(self) -> str:
+    @property
+    def base_url(self) -> str:  # pyright: ignore[reportIncompatibleVariableOverride]  # chosen per environment at call time
         return "https://api.ebay.com" if self.env == "production" else "https://api.sandbox.ebay.com"
 
     @property
     def marketplace(self) -> str:
         return os.getenv("EBAY_MARKETPLACE", "EBAY_US")
 
-    @property  # pyright: ignore[reportIncompatibleVariableOverride]  # derived from the marketplace at call time
-    def country(self) -> str:
+    @property
+    def country(self) -> str:  # pyright: ignore[reportIncompatibleVariableOverride]  # derived from the marketplace at call time
         return {"EBAY_US": "US", "EBAY_GB": "GB", "EBAY_DE": "DE", "EBAY_CA": "CA", "EBAY_AU": "AU"}.get(self.marketplace, "US")
 
     def configured(self):

@@ -36,7 +36,7 @@ class Adafruit(ProductPageAdapter):
                 if not _PRODUCT.match(path):
                     continue
                 u = normalise_url(urljoin(self.base_url + "/", path))
-                name = (a.get("title") or a.get_text(" ", strip=True) or (a.find("img") or {}).get("alt") or "").strip().rstrip(".")
+                name = (attr_text(a.get("title")) or a.get_text(" ", strip=True) or attr_text((a.find("img") or {}).get("alt")) or "").strip().rstrip(".")
                 tier = 0 if self._CORE.search(name) else (1 if self._BRAND.search(name) else 2)
                 cur = seen.get(u)
                 if cur is None or (name and tier < cur.priority):

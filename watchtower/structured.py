@@ -39,7 +39,7 @@ class SitemapEntry:
 
 def parse_sitemap(xml: str) -> tuple[list[str], list[SitemapEntry]]:
     """Returns (child sitemap URLs, page entries). Safe against entity-expansion/XXE and absurd sizes."""
-    from lxml import etree
+    from lxml import etree  # pyright: ignore[reportAttributeAccessIssue]  # lxml provides etree at runtime; its stubs do not declare it
     parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False, recover=True)
     try:
         root = etree.fromstring(xml.encode("utf-8", "ignore"), parser)
