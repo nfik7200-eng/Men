@@ -457,7 +457,9 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     alternatives: list[Pick] = []
     if top:
         best = top[0]
-        alternatives = [p for p in pool[3:] if p.listing.price_minor <= best.listing.price_minor * 0.9 and p.fit >= best.fit - 2][:2]
+        best_price = best.listing.price_minor
+        alternatives = [p for p in pool[3:] if best_price is not None and p.listing.price_minor is not None
+                        and p.listing.price_minor <= best_price * 0.9 and p.fit >= best.fit - 2][:2]
         if intent["want_import"]:
             for p in top[:1] + alternatives[:1]:
                 ship_minor = to_minor(shipping_major, p.listing.currency) if shipping_major is not None else None
@@ -503,7 +505,7 @@ def answer(s: Session, question: str, now: datetime | None = None, use_llm: bool
     if not cands and clarification is None:
         if over:
             caveats.append(f"{len(over)} matching listing(s) exist but all are above your budget "
-                           f"(cheapest {fmt_money(min(l.price_minor for l in over), over[0].currency)}).")
+                           f"(cheapest {fmt_money(min(p for p in (l.price_minor for l in over) if p is not None), over[0].currency)}).")
         elif not any(c.startswith("No collected listing") for c in caveats):
             caveats.append("No collected listing matches this request.")
     if clarification:

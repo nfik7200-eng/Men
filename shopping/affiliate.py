@@ -61,7 +61,7 @@ def build_link(listing: Listing, click_id: int | str = "", cfg: dict | None = No
         url = rule["template"].format(url=listing.url, url_enc=quote(listing.url, safe=""), click_id=click_id, listing_id=listing.id)
         if _http(url):
             return OutboundLink(url, rule.get("network", "unknown"), True)
-    if _provider_url_ok(listing):
+    if _provider_url_ok(listing) and listing.affiliate_url:
         return OutboundLink(listing.affiliate_url, (rule or {}).get("network", listing.source.key + "_affiliate"), True)
     return OutboundLink(listing.url, None, False)
 

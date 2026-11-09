@@ -143,6 +143,8 @@ class Fetcher:
             except httpx.HTTPError as e:
                 raise FetchError(f"robots.txt unreachable for {origin}: {e}") from e
             self._robots_unreliable[origin] = False
+            if r is None:  # every attempt raised: the caller treats an unreadable robots.txt as a refusal, not a crash
+                raise FetchError(f"robots.txt unreadable for {origin}")
             if r.status_code == 200:
                 rb = Robots(r.text)
                 self._robots[origin] = rb

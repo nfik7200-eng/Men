@@ -100,10 +100,10 @@ def create_app(db: Database | None = None) -> FastAPI:
 
     def active_disclosures():
         with db.session() as s_:
-            nets = set(n for (n,) in s_.execute(select(AffiliateClick.network).where(AffiliateClick.network.is_not(None)).distinct()).all())
+            nets: set[str] = {n for (n,) in s_.execute(select(AffiliateClick.network).where(AffiliateClick.network.is_not(None)).distinct()).all() if n}
             if s_.scalar(select(Listing.id).where(Listing.affiliate_url.is_not(None)).limit(1)):
                 nets.add("provider")
-        nets |= {r.get("network", "x") for r in affiliate.load_config().values()}
+        nets |= {r.get("network") or "x" for r in affiliate.load_config().values()}
         return affiliate.disclosures(nets)
     tpl.env.globals["disclosures"] = active_disclosures
 
@@ -364,6 +364,8 @@ def create_app(db: Database | None = None) -> FastAPI:
         if not security.token_ok(token):
             return RedirectResponse("/admin/login?err=1", status_code=303)
         r = RedirectResponse("/admin", status_code=303)
+        if not config.ADMIN_TOKEN:  # token_ok above already required one; this makes the type and the rule explicit
+            raise HTTPException(403, "Admin is disabled.")
         value = security.admin_cookie_value(config.ADMIN_TOKEN)
         # The same signed session is sent to the admin pages and to the two admin JSON prefixes the review island uses.
         # Each path is narrow: the cookie is still never sent to the public pages.
