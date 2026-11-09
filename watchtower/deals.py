@@ -155,6 +155,9 @@ def priced_history(s: Session, listing: Listing) -> list[Observation]:
 
 def _reference(hist: list[Observation]):
     """Split history at the start of the CURRENT price. Returns (prior_obs, ref_price, ref_days, prior_min)."""
+    hist = [o for o in hist if o.price_minor is not None]  # an unpriced observation is never a reference price
+    if not hist:
+        return [], None, 0, None
     i = len(hist) - 1
     while i > 0 and hist[i - 1].price_minor == hist[-1].price_minor:
         i -= 1
@@ -164,10 +167,13 @@ def _reference(hist: list[Observation]):
         return [], hist[-1].price_minor, span, None
     dur: dict[int, float] = {}
     for k, o in enumerate(prior):
+        if o.price_minor is None:
+            continue
         end = prior[k + 1].observed_at if k + 1 < len(prior) else hist[i].observed_at
         dur[o.price_minor] = dur.get(o.price_minor, 0.0) + (end - o.observed_at).total_seconds() / 86400
-    ref_price = max(dur, key=dur.get)
-    return prior, ref_price, dur[ref_price], min(o.price_minor for o in prior)
+    ref_price = max(dur, key=lambda k: dur[k])  # the longest-held price; ties keep the first one seen
+    priced_prior = [o.price_minor for o in prior if o.price_minor is not None]
+    return prior, ref_price, dur[ref_price], (min(priced_prior) if priced_prior else None)
 
 
 def is_stale(listing: Listing, now: datetime) -> bool:
@@ -203,10 +209,10 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
         ds.warnings.append("Not enough price history to confirm any discount is genuine.")
     elif not prior:
         comps.append(Component("history_drop", 0, 40, "none", f"price unchanged over {span_days:.0f} days — no drop"))
-    elif not price < prior_min:
+    elif prior_min is None or not price < prior_min:
         comps.append(Component("history_drop", 0, 40, "none",
                                f"not lower than the lowest earlier price ({fmt_money(prior_min, listing.currency)}); returning to a usual price is not a drop"))
-    elif ref_days < config.MIN_REFERENCE_DAYS:
+    elif ref_price is None or ref_days < config.MIN_REFERENCE_DAYS:
         comps.append(Component("history_drop", 0, 40, "none",
                                f"earlier reference price only held {ref_days:.1f} days (need {config.MIN_REFERENCE_DAYS}+)"))
     else:
@@ -221,7 +227,7 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
         pts = max(0.0, min(1.0, (1 - price / med) / 0.4)) * (40 if need > 1 else 25)  # a single other merchant: weaker evidence, capped
         rel = (price / med - 1) * 100
         comps.append(Component("peer_value", round(pts, 1), 40, "estimated",
-                               f"{abs(rel):.0f}% {'below' if rel < 0 else 'above'} the median ({fmt_money(med, listing.currency)}) of {basis}"))
+                               f"{abs(rel):.0f}% {'below' if rel < 0 else 'above'} the median ({fmt_money(round(med), listing.currency)}) of {basis}"))
     else:
         comps.append(Component("peer_value", 0, 40, "none", f"{basis}" if n_peers == 0 else f"only {n_peers} comparable listing(s); need {need}+"))
 
@@ -277,7 +283,7 @@ def top_deals(s: Session, limit: int = 12, category: str | None = None, now: dat
         else HistoryContext(s, select(Listing.id).where(Listing.active.is_(True)))
     scored = [(l, score_listing(s, l, ctx, now, hist_ctx)) for l in cands]
     scored = [x for x in scored if x[1].score is not None and x[1].score > 0]
-    scored.sort(key=lambda x: x[1].score, reverse=True)
+    scored.sort(key=lambda x: x[1].score or 0.0, reverse=True)
     return scored[:limit]
 
 
@@ -308,14 +314,18 @@ def price_stats(s: Session, listing: Listing, hist_ctx: HistoryContext | None = 
     if not hist:
         st.note = "no priced observations yet"
         return st
-    prices = [o.price_minor for o in hist]
+    prices = [o.price_minor for o in hist if o.price_minor is not None]
+    if not prices:
+        st.note = "no priced observations yet"
+        return st
     st.first_at, st.last_at = hist[0].observed_at, hist[-1].observed_at
     st.span_days = (st.last_at - st.first_at).total_seconds() / 86400
-    st.minimum, st.maximum, st.mean, st.median = min(prices), max(prices), sum(prices) / len(prices), median(prices)
+    lo, hi, mean, mid = min(prices), max(prices), sum(prices) / len(prices), median(prices)
+    st.minimum, st.maximum, st.mean, st.median = lo, hi, mean, mid
     st.changes = sum(1 for a, b in zip(prices, prices[1:]) if a != b)
     cur = listing.price_minor if listing.price_minor is not None else prices[-1]
-    st.current_vs_min_pct = round((cur / st.minimum - 1) * 100, 1)
-    st.current_vs_median_pct = round((cur / st.median - 1) * 100, 1)
+    st.current_vs_min_pct = round((cur / lo - 1) * 100, 1)
+    st.current_vs_median_pct = round((cur / mid - 1) * 100, 1)
     if len(prices) >= 3 and st.mean:
         mu = st.mean
         st.volatility_pct = round((sum((p - mu) ** 2 for p in prices) / (len(prices) - 1)) ** 0.5 / mu * 100, 2)
