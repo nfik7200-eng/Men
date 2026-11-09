@@ -2,6 +2,7 @@
 JSON the review island uses, and the read-only admin status JSON. Moved out of the create_app closure in
 shopping/web/app.py; behaviour is unchanged. Every route except sign-in is guarded by the `admin` dependency
 (security.require_admin), which is fail-closed when no sufficiently long token is configured."""
+import logging
 import os
 import threading
 from typing import Annotated
@@ -18,6 +19,8 @@ from watchtower.collector import run_source, set_enabled
 from watchtower.health import source_health
 from watchtower.matching import resolve_candidate
 from watchtower.models import AffiliateClick, CollectionRun, Listing, MatchCandidate, Source, SourcePolicy
+
+log = logging.getLogger("watchtower.admin")
 
 # Cookie paths for the signed admin session: the admin pages and the two admin JSON prefixes the review island uses.
 # Each path is narrow, so the cookie is never sent to the public pages.
@@ -187,3 +190,30 @@ def register_admin(app, *, db, get_s, render, banner, admin, adapters):
                      s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10))],
             "pending_review": s.scalar(select(func.count()).select_from(MatchCandidate).where(MatchCandidate.status == "pending")) or 0,
         }
+
+    @app.get("/api/v1/admin/settings", dependencies=[Depends(admin)])
+    def api_admin_settings(s=Depends(get_s)):
+        """Operator settings the admin page shows, as JSON. Read-only except the per-source enabled flag (see below).
+        The scheduler is reported, never changed here: it stays disabled unless the owner enables it on the server."""
+        budgets = {b["key"]: b for b in budget_rows(adapters)}
+        return {
+            "sources": [{"key": x.key, "name": x.name, "kind": x.kind, "enabled": x.enabled,
+                         "configured": adapters[x.key].configured()[0] if x.key in adapters else False,
+                         "page_budget": budgets.get(x.key, {}).get("effective")}
+                        for x in s.scalars(select(Source).order_by(Source.name))],
+            "scheduler": scheduler_status(),
+        }
+
+    @app.post("/api/v1/admin/sources/{key}/enabled", dependencies=[Depends(admin)])
+    async def api_admin_source_enabled(key: str, request: Request, s=Depends(get_s)):
+        """Enable or disable one source. Body: {"enabled": true|false} (a real boolean; strings are refused).
+        Admin token required and Origin-checked like every unsafe method. Changes are logged without any secret."""
+        if key not in adapters:
+            raise HTTPException(404, "unknown source")
+        body = await json_body(request)
+        enabled = body.get("enabled")
+        if not isinstance(enabled, bool):
+            raise HTTPException(422, "enabled must be true or false")
+        set_enabled(db, key, enabled)
+        log.info("admin: source %s set to %s via API", key, "enabled" if enabled else "disabled")
+        return {"key": key, "enabled": enabled}
