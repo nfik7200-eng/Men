@@ -181,7 +181,7 @@ Verified on the latest code: pyright watchtower shopping reports **0 errors** (7
 Real defects found and fixed along the way: `_members(None)` matched every unmatched listing; `_queue` could write a question with no product; a listing with no observation time crashed deal scoring; the admin session cookie never reached the admin JSON.
 
 Still open:
-- Route split: four modules moved out of `create_app` (`routes_alerts.py`, `routes_compare.py`, `routes_watchlist.py`, `routes_admin.py`; the watchlist module owns the per-browser owner check the alert routes reuse, and the admin module owns sign-in, the admin page, the review JSON and the status JSON). The search and product routes remain in the closure.
+- Route split: five modules moved out of `create_app` (`routes_alerts.py`, `routes_compare.py`, `routes_watchlist.py`, `routes_admin.py`, `routes_catalog.py` for search, listing, product and deal radar; shared query types in `params.py`). The home page, coverage, research, the redirect and the listing JSON API remain in the closure.
 - E2E runner: `e2e/run.sh` now runs the migration on its copy with the override unset, so the live-database guard compares against the real path; and its cleanup trap no longer signals the process group when the server never started. Verified: 68/68 journey checks on a fresh migrated copy.
 - eBay: no credentials are available; the adapter stays mock-tested.
 - Ollama: no local model is configured or reachable here; existing tests cover the optional path.
