@@ -1,0 +1,45 @@
+# /etc/systemd/system/bip-api.service   (example; not installed by anything in this repository)
+[Unit]
+Description=BIP API (blockchain intelligence platform)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bip
+Group=bip
+WorkingDirectory=/opt/bip/app
+EnvironmentFile=/etc/bip/bip.env
+# Refuse to start on an unsafe configuration (exit status 1 stops the unit).
+ExecStartPre=/opt/bip/app/.venv/bin/python -m bip.tools.preflight --env-file /etc/bip/bip.env
+ExecStart=/opt/bip/app/.venv/bin/python -m bip.api
+Restart=on-failure
+RestartSec=5
+# Give the database a moment to checkpoint on stop.
+TimeoutStopSec=30
+
+# Confinement
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+ReadWritePaths=/var/lib/bip
+
+# Resource bounds (the host is shared and disk-constrained)
+MemoryMax=2G
+TasksMax=256
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

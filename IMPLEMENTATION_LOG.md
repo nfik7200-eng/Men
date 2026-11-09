@@ -719,3 +719,9 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Verification.** `tests/entities/test_labels.py` 6 passed (evidence rules, human-only approval, separate reviewer, attribution only after approval, ungrounded AI suggestions dropped, unconfigured model reported). ruff and pyright clean.
 
+## 2026-11-09 — Deployment kit and pre-flight check
+
+**Built.** `deploy/` (production env template, hardened systemd unit with `ExecStartPre` pre-flight, Caddy and nginx examples, off-disk backup timer, README with install/verify/upgrade/rollback and the procedure for turning collection on), `bip/tools/preflight.py` (PASS/WARN/FAIL; exit 1 on FAIL, 2 on invalid config; prints names and reasons, never values).
+
+**Verification.** `tests/unit/test_preflight.py` 12 passed, including that the shipped template loads through the real settings with no FAIL and with collection off. Nothing was installed or started anywhere; `systemd-analyze` and the proxies were not run.
+

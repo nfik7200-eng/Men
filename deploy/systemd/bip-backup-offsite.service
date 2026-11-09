@@ -1,0 +1,12 @@
+# /etc/systemd/system/bip-backup-offsite.service   (example; the destination is your decision)
+# BIP writes verified backups under /var/lib/bip/operational/backups on the same disk. This copies
+# them somewhere else so losing the disk does not lose the data. Nothing is uploaded by BIP itself.
+[Unit]
+Description=Copy BIP backups off this disk
+
+[Service]
+Type=oneshot
+User=bip
+Group=bip
+# Replace with your destination (another volume, or an SSH target you control).
+ExecStart=/usr/bin/rsync -a --delete-after /var/lib/bip/operational/backups/ /mnt/offsite/bip-backups/

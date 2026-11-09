@@ -105,6 +105,15 @@ backups. It never returns file paths or secrets. `status` is `ok`, `degraded` (a
 `GET /api/v1/system/usage?days=N` totals BIP's own RPC requests per day, chain and provider from the
 ingestion run log. It is not the provider's meter, so it shows no credits or prices.
 
+## Deployment kit
+
+`deploy/` holds a reproducible, **unapplied** VPS kit: a production env template, a hardened systemd
+unit that runs the pre-flight check before every start, Caddy and nginx examples, an off-disk backup
+timer and `deploy/README.md` (install, verify, upgrade, roll back). `python -m bip.tools.preflight
+--env-file /etc/bip/bip.env` fails closed on an unsafe configuration (authentication off, insecure
+cookie, proxy headers trusted on a reachable bind, a world-readable env file) and warns when a
+job that contacts providers is on. It prints names and reasons, never values.
+
 ## Exposure
 
 The API refuses to start on a non-loopback address unless `BIP_AUTH__MODE=required` (or

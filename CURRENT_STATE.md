@@ -112,6 +112,7 @@ Statuses:
 | Entity relationships, search, transaction/token/contract detail, case notes and timeline (migration v10) | Implemented and tested | `tests/entities/` |
 | Authentication, sessions, CSRF, roles, throttling, audit log (migration v8) | Implemented and tested. **No frontend sign-in yet** | `tests/security/` |
 | Health, usage, metrics, backups, scheduler, retention (migration v9) | Implemented and tested. Not measured on the VPS | `tests/ops/`, `docs/OPERATIONS.md` |
+| VPS deployment kit (`deploy/`, `python -m bip.tools.preflight`): not applied to any host | Implemented; pre-flight tested; the kit itself is unexercised on a real host | `tests/unit/test_preflight.py` |
 | Reviewed entity labels (migration v14, `/entities/labels*`, attribution on signals) | Implemented and tested offline with synthetic data | `tests/entities/test_labels.py` |
 | Solana finalized-slot collector (migration v13, detector `solana_new_entities`, `POST /discovery/collect/solana`, job `solana_scan` off by default) | Implemented and tested offline with synthetic fixtures | `tests/collector/test_solana.py` |
 | Collector feeds (migration v12: `token_stats`, `pool_reserves`; detectors `new_token_activity`, `pool_reserve_change`, `holder_concentration`) | Implemented and tested offline with synthetic fixtures | `tests/collector/test_events.py` |
