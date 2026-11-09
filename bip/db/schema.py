@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 metadata = MetaData(
     naming_convention={
@@ -1269,3 +1269,46 @@ pool_events = Table(
 not a verified DEX: any contract can emit it, so a pool is an observation about an event."""
 
 V11_TABLES = (pool_events,)
+
+
+# ------------------------------------------------- v12: token statistics, pool reserves
+
+token_stats = Table(
+    "token_stats",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("token", String(100), nullable=False),
+    Column("first_seen_block", Integer, nullable=False),
+    Column("first_seen_at", UTCDateTime, nullable=False),
+    Column("first_tx_id", String(100), nullable=False),
+    Column("transfers_seen", Integer, nullable=False),
+    Column("last_seen_block", Integer, nullable=False),
+    UniqueConstraint("chain", "token"),
+    Index(None, "chain", "first_seen_at"),
+)
+"""Per-token counters from the collector's ERC-20 Transfer scan. ``first_seen_*`` is the first
+time the *collector* saw the token, never the token's creation."""
+
+pool_reserves = Table(
+    "pool_reserves",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("pool", String(100), nullable=False),
+    Column("tx_id", String(100), nullable=False),
+    Column("log_index", Integer, nullable=False),
+    Column("block_number", Integer, nullable=False),
+    Column("block_hash", String(100), nullable=False),
+    Column("block_time", UTCDateTime, nullable=False),
+    Column("reserve0", String(80), nullable=False),
+    Column("reserve1", String(80), nullable=False),
+    Column("finality", String(12), nullable=False),
+    Column("stored_at", UTCDateTime, nullable=False),
+    UniqueConstraint("chain", "tx_id", "log_index"),
+    Index(None, "chain", "pool", "block_number"),
+)
+"""Reserves announced by v2-style ``Sync`` events of pools the collector knows. Reserves are what
+the event states, not a price and not total value locked."""
+
+V12_TABLES = (token_stats, pool_reserves)

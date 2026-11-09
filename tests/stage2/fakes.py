@@ -19,6 +19,7 @@ from tests.base58 import b58encode as _b58encode
 
 PAIR_CREATED = "0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9"
 POOL_CREATED = "0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118"
+SYNC = "0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1"
 TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 SOL_GENESIS = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
 SYSTEM = "11111111111111111111111111111111"
@@ -148,6 +149,40 @@ class FakeEthNode:
             }
         )
 
+    def _event(
+        self, n: int, txh: str, address: str, topics: list[str], data: str
+    ) -> dict[str, object]:
+        return {
+            "address": address,
+            "blockNumber": hex(n),
+            "blockHash": self._block(n)["hash"],
+            "transactionHash": txh,
+            "transactionIndex": hex(0),
+            "logIndex": hex(len(self.logs) + 100),
+            "topics": topics,
+            "data": data,
+            "removed": False,
+        }
+
+    def add_token_transfer(
+        self, n: int, txh: str, token: str, frm: str, to: str, amount: int
+    ) -> None:
+        """An ERC-20 ``Transfer`` log of ``token`` inside a transaction of block ``n``."""
+        if txh not in self.txs:
+            self.add_block_tx(n, txh, frm, token, 0)
+        word = lambda a: "0x" + "0" * 24 + a[2:]  # noqa: E731
+        self.logs.append(
+            self._event(n, txh, token, [TRANSFER, word(frm), word(to)], "0x" + f"{amount:064x}")
+        )
+
+    def add_sync(self, n: int, txh: str, pool: str, reserve0: int, reserve1: int) -> None:
+        """A v2-style ``Sync`` log of ``pool``."""
+        if txh not in self.txs:
+            self.add_block_tx(n, txh, addr(0xDEAD), pool, 0)
+        self.logs.append(
+            self._event(n, txh, pool, [SYNC], "0x" + f"{reserve0:064x}{reserve1:064x}")
+        )
+
     def _block(self, n: int) -> dict[str, object]:
         return {
             "number": hex(n),
@@ -225,8 +260,13 @@ class FakeEthNode:
             if self.max_log_range is not None and b - a + 1 > self.max_log_range:
                 raise _RpcFaultError(-32005, "query exceeds max block range 1000")
             want = f["topics"]
+            only = f.get("address")
             out = []
             for lg in self.logs:
+                if only is not None and lg["address"] not in (
+                    only if isinstance(only, list) else [only]
+                ):
+                    continue
                 n = int(str(lg["blockNumber"]), 16)
                 t = lg["topics"]
                 assert isinstance(t, list)

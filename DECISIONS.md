@@ -364,6 +364,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - Cost: about one call per block plus one per candidate (default at most 150 calls per run). Nothing was run against a live provider.
 - Coverage is deliberately narrow. ERC-20 activity, DEX/liquidity, holders and Solana need an event source or indexer and stay BLOCKED pending an owner decision on data source and cost.
 - Candidates beyond the receipt cap inside one block are a disclosed gap, not retried.
+- Version 3 of the collector adds, over the same range: ERC-20 `Transfer` counting per token (`token_stats`), storage of transfers of pooled tokens, and v2 `Sync` reserves of known pools (`pool_reserves`), migration v12. The block loop keeps 60 provider requests in reserve for these feeds, and the cursor moves only after they finish. Counting is guarded by its own block cursor so a rescan never counts a block twice.
+- Correction: an earlier note said chain-wide ERC-20 volume exceeds provider limits. That was never measured; the feed splits the window when a limit is hit and must be measured live.
 - A pool is an observation that a contract emitted a known event layout; BIP does not verify a DEX, liquidity, price or token legitimacy. Pools beyond `max_pools_per_run` are a disclosed gap.
 - Rollback: the code can be reverted; `pool_events` stays unused and nothing is dropped.
 - Needs owner approval before it is run against any provider.

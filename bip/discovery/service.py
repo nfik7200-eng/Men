@@ -252,7 +252,11 @@ class DiscoveryService:
         out: list[tuple[RawCandidate, Score, dict[str, int]]] = []
         for cand in output.candidates:
             total = len(cand.tx_ids)
-            final = sum(1 for tx in cand.tx_ids if finality.get(tx) == "finalized")
+            final = (
+                total
+                if cand.evidence_finalized
+                else sum(1 for tx in cand.tx_ids if finality.get(tx) == "finalized")
+            )
             share = final / total if total else 0.0
             notes = {
                 **cand.notes,

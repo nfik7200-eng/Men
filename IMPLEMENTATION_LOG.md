@@ -693,3 +693,13 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not done / still BLOCKED.** Never run live. No Solana collector, chain-wide ERC-20 transfer ingestion, event streams, liquidity/reserve/holder changes, exchange attribution, frontend sign-in, real labels, live LLM.
 
+## 2026-11-09 — ERC-20 coverage, pool reserves, holder concentration (migration v12)
+
+**Why.** The new master goal asks for ERC-20 coverage, liquidity/reserve changes and holder concentration. The earlier "volume exceeds provider limits" claim was unmeasured, so the feed was built to split windows instead.
+
+**Built.** `bip/ingest/ethereum_events.py` (`EventFeeds`: pools, tokens, reserves; collector now orchestrates blocks only), `EthereumAdapter.event_logs_adaptive` (topic and optional address filter, adaptive split), `decode_sync`, migration v12 (`token_stats`, `pool_reserves`), detectors `new_token_activity`, `pool_reserve_change`, `holder_concentration`, `RawCandidate.evidence_finalized`, settings caps (`ingest`/`collector` limited to 150 calls and 90 s by validators).
+
+**Verification (exact).** Full `pytest -q`: **776 passed**. `ruff` and `pyright` clean; `docs/API_REFERENCE.md` regenerated. Synthetic fixtures only; the Sync topic is checked against a test-only keccak-256.
+
+**Not done.** Never run live, so real log volume per block is unmeasured. v3 pool reserves, real balances (`eth_call`), Solana, reviewed labels and exchange attribution are still to do.
+

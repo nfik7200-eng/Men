@@ -151,6 +151,12 @@ def _pool_events(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _tokens_and_reserves(conn: Connection) -> None:
+    """v12: token statistics and pool reserves. Additive, idempotent."""
+    for table in schema.V12_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -165,6 +171,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(9, "background job history", _job_history),
     Migration(10, "entity relationships and investigation notes", _relationships_and_notes),
     Migration(11, "liquidity pool creation events", _pool_events),
+    Migration(12, "token statistics and pool reserves", _tokens_and_reserves),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

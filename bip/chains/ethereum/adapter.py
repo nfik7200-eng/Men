@@ -104,29 +104,40 @@ class EthereumAdapter(ChainAdapter):
         logs = arr(result, "eth_getLogs", max_len=MAX_LOGS_PER_RESPONSE)
         return logs, src
 
-    def pool_logs_adaptive(
-        self, from_block: int, to_block: int, *, topics: tuple[str, ...], min_span: int = 1
+    def event_logs_adaptive(
+        self,
+        from_block: int,
+        to_block: int,
+        *,
+        topics: tuple[str, ...],
+        addresses: tuple[str, ...] | None = None,
+        min_span: int = 1,
     ) -> tuple[list[tuple[object, SourceInfo]], list[str]]:
-        """Logs whose first topic is any of ``topics`` (no address filter), split on range limits.
+        """Logs whose first topic is any of ``topics``, optionally from given contracts.
 
-        Meant for rare factory events: a common event such as ERC-20 ``Transfer`` would return
-        far more than a provider allows even for one block.
+        No address filter means every contract: fine for rare factory events, heavy for common
+        ones such as ERC-20 ``Transfer``. The window is split whenever the provider (or the
+        10,000-log cap) says the range is too large; a one-block window that is still too large
+        raises.
         """
         out: list[tuple[object, SourceInfo]] = []
         notes: list[str] = []
         stack = [(from_block, to_block)]
         while stack:
             a, b = stack.pop()
+            flt: dict[str, object] = {
+                "fromBlock": hex(a),
+                "toBlock": hex(b),
+                "topics": [list(topics)],
+            }
+            if addresses:
+                flt["address"] = list(addresses)
             try:
-                result, src = self.call(
-                    "eth_getLogs",
-                    [{"fromBlock": hex(a), "toBlock": hex(b), "topics": [list(topics)]}],
-                )
+                result, src = self.call("eth_getLogs", [flt])
                 if _length(result) > MAX_LOGS_PER_RESPONSE:
                     raise RpcError("range_too_large", f"more than {MAX_LOGS_PER_RESPONSE} logs")
-                out.extend(
-                    (lg, src) for lg in arr(result, "eth_getLogs", max_len=MAX_LOGS_PER_RESPONSE)
-                )
+                logs = arr(result, "eth_getLogs", max_len=MAX_LOGS_PER_RESPONSE)
+                out.extend((lg, src) for lg in logs)
             except RpcError as exc:
                 if exc.error_class != "range_too_large" or b - a + 1 <= min_span:
                     raise

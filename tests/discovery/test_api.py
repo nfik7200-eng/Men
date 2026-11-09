@@ -60,6 +60,9 @@ def test_detector_catalogue_declares_coverage_cost_and_limits(client: TestClient
         "new_contract_deployment",
         "common_funding_source",
         "new_liquidity_pool",
+        "new_token_activity",
+        "pool_reserve_change",
+        "holder_concentration",
     }
     for d in detectors:
         for field in ("coverage", "limitations", "refresh", "cost"):

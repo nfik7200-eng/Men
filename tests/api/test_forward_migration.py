@@ -29,6 +29,8 @@ NEW_TABLES = {
     "relationship_evidence",
     "investigation_notes",
     "pool_events",
+    "token_stats",
+    "pool_reserves",
 }
 
 
@@ -78,7 +80,7 @@ def test_version_six_data_survives_the_upgrade(tmp_path: Path) -> None:
                     updated_at=datetime.now(UTC),
                 )
             )
-        assert migrate(engine) == schema.SCHEMA_VERSION == 11
+        assert migrate(engine) == schema.SCHEMA_VERSION == 12
         with engine.connect() as conn:
             tables = set(
                 conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars()
@@ -95,8 +97,8 @@ def test_version_six_data_survives_the_upgrade(tmp_path: Path) -> None:
                 .scalars()
                 .all()
             )
-        assert versions == list(range(1, 12))
-        assert migrate(engine) == 11  # idempotent
+        assert versions == list(range(1, 13))
+        assert migrate(engine) == 12  # idempotent
     finally:
         engine.dispose()
 

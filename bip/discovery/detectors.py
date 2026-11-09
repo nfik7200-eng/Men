@@ -18,7 +18,8 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import NamedTuple
+from itertools import pairwise
+from typing import Any, NamedTuple
 
 from sqlalchemy import select
 
@@ -74,6 +75,10 @@ class RawCandidate:
     notes: dict[str, str] = field(default_factory=dict[str, str])
     z: float = 0.0
     """Ranking value used to keep the strongest candidates when a detector is capped."""
+    evidence_finalized: bool = False
+    """The evidence comes from rows the collector only reads at finalized height (and checks
+    against the canonical block hash), so it counts as finalized even without a stored
+    transaction row."""
 
 
 @dataclass(slots=True)
@@ -530,6 +535,7 @@ def new_liquidity_pool(ctx: Context) -> DetectorOutput:
                     key=f"pool:{ctx.chain}:{r.pool}",
                     observed_at=r.block_time,
                     tx_ids=[str(r.tx_id)],
+                    evidence_finalized=True,
                     magnitude=0.6 if unseen else 0.25,
                     baseline_reliability=0.3,
                     confidence_cap=0.4,
@@ -562,6 +568,306 @@ def new_liquidity_pool(ctx: Context) -> DetectorOutput:
                     },
                 )
             )
+    return DetectorOutput(out, len(rows), truncated)
+
+
+# --------------------------------------------------------------------------- new tokens
+
+
+def new_token_activity(ctx: Context) -> DetectorOutput:
+    """Tokens the collector first saw in the lookback window and that are being transferred."""
+    if ctx.chain != "ethereum":
+        return DetectorOutput([], 0, False)
+    ts, pe = schema.token_stats, schema.pool_events
+    recent_start = ctx.now - timedelta(hours=ctx.cfg.lookback_hours)
+    cap = ctx.cfg.max_rows_scanned
+    with ctx.repo.transaction() as conn:
+        rows = conn.execute(
+            select(ts)
+            .where(
+                ts.c.chain == ctx.chain,
+                ts.c.first_seen_at >= recent_start,
+                ts.c.transfers_seen >= ctx.cfg.new_token_min_transfers,
+            )
+            .order_by(ts.c.transfers_seen.desc())
+            .limit(cap + 1)
+        ).all()
+        truncated = len(rows) > cap
+        rows = rows[:cap]
+        with_pool: set[str] = set()
+        tokens = [str(r.token) for r in rows]
+        for i in range(0, len(tokens), 400):
+            chunk = tokens[i : i + 400]
+            for col in (pe.c.token0, pe.c.token1):
+                with_pool.update(
+                    str(x)
+                    for x in conn.execute(
+                        select(col).where(pe.c.chain == ctx.chain, col.in_(chunk))
+                    ).scalars()
+                )
+    out: list[RawCandidate] = []
+    for r in rows:
+        pooled = str(r.token) in with_pool
+        out.append(
+            RawCandidate(
+                detector_id="new_token_activity",
+                detector_version="1",
+                family="tokens",
+                chain=ctx.chain,
+                subject_kind="token",
+                subject_ref=str(r.token),
+                title="Token newly seen by the collector"
+                + (" and paired in a stored pool" if pooled else ""),
+                key=f"newtoken:{ctx.chain}:{r.token}",
+                observed_at=r.first_seen_at,
+                tx_ids=[str(r.first_tx_id)],
+                evidence_finalized=True,
+                magnitude=clamp(math.log10(max(1, r.transfers_seen)) / 3 + (0.2 if pooled else 0)),
+                baseline_reliability=0.2,
+                confidence_cap=0.35,
+                z=float(r.transfers_seen),
+                explanation={
+                    "statement": (
+                        "The collector counted ERC-20 transfers of a token it had not seen before."
+                    ),
+                    "observed": {
+                        "token": r.token,
+                        "first_seen_block": r.first_seen_block,
+                        "transfers_counted": r.transfers_seen,
+                        "paired_in_stored_pool": pooled,
+                    },
+                    "method": "Per-token counts of finalized ERC-20 Transfer logs",
+                    "caveat": (
+                        "'New' means new to this database, not newly created: the token may be "
+                        "years old. Nothing here says the token is legitimate or a scam."
+                    ),
+                },
+                notes={
+                    "magnitude": (
+                        "log10(transfers counted) / 3, plus 0.2 when a stored pool pairs it"
+                    ),
+                    "baseline_reliability": "fixed 0.2: there is no baseline of token launches",
+                },
+            )
+        )
+    return DetectorOutput(out, len(rows), truncated)
+
+
+# --------------------------------------------------------------------------- pool reserves
+
+
+def pool_reserve_change(ctx: Context) -> DetectorOutput:
+    """Pools whose stated reserves moved sharply between two stored ``Sync`` updates."""
+    if ctx.chain != "ethereum":
+        return DetectorOutput([], 0, False)
+    pr = schema.pool_reserves
+    recent_start = ctx.now - timedelta(hours=ctx.cfg.lookback_hours)
+    since = ctx.now - timedelta(days=ctx.cfg.baseline_days)
+    cap = ctx.cfg.max_rows_scanned
+    with ctx.repo.transaction() as conn:
+        rows = conn.execute(
+            select(pr)
+            .where(pr.c.chain == ctx.chain, pr.c.block_time >= since)
+            .order_by(pr.c.pool, pr.c.block_number, pr.c.log_index)
+            .limit(cap + 1)
+        ).all()
+    truncated = len(rows) > cap
+    rows = rows[:cap]
+    by_pool: dict[str, list[Any]] = defaultdict(list)
+    for r in rows:
+        by_pool[str(r.pool)].append(r)
+    out: list[RawCandidate] = []
+    threshold = ctx.cfg.reserve_change_threshold
+    for pool, series in by_pool.items():
+        changes: list[tuple[float, Any, Any]] = []
+        for prev, cur in pairwise(series):
+            p0, p1 = int(prev.reserve0), int(prev.reserve1)
+            c0, c1 = int(cur.reserve0), int(cur.reserve1)
+            if p0 <= 0 or p1 <= 0:
+                continue
+            changes.append((max(abs(c0 - p0) / p0, abs(c1 - p1) / p1), prev, cur))
+        recent = [c for c in changes if c[2].block_time >= recent_start and c[0] >= threshold]
+        if not recent:
+            continue
+        change, prev, cur = max(recent, key=lambda c: c[0])
+        history = [c[0] for c in changes]
+        if len(history) >= ctx.cfg.min_baseline:
+            z, median, mad = robust_z(change, history, 0.01)
+            magnitude = magnitude_from_z(z, ctx.cfg.mad_threshold)
+            method = "median/MAD of this pool's stored reserve changes"
+            baseline = {"median_change": median, "scaled_mad": mad, "robust_z": z}
+        else:
+            z = change / threshold
+            magnitude = clamp(change / (2 * threshold))
+            method = "fixed relative-change threshold (too little history for median/MAD)"
+            baseline = {"threshold": threshold}
+        out.append(
+            RawCandidate(
+                detector_id="pool_reserve_change",
+                detector_version="1",
+                family="liquidity",
+                chain=ctx.chain,
+                subject_kind="pool",
+                subject_ref=pool,
+                title=f"Pool reserves moved {change:.0%} between two stored updates",
+                key=f"reserve:{ctx.chain}:{pool}",
+                observed_at=cur.block_time,
+                tx_ids=[str(prev.tx_id), str(cur.tx_id)],
+                evidence_finalized=True,
+                magnitude=magnitude,
+                baseline_reliability=reliability_from_count(len(history)),
+                confidence_cap=0.5,
+                z=z,
+                explanation={
+                    "statement": "A v2-style Sync event states reserves far from the previous one.",
+                    "observed": {
+                        "pool": pool,
+                        "relative_change": change,
+                        "before": [prev.reserve0, prev.reserve1],
+                        "after": [cur.reserve0, cur.reserve1],
+                        "updates_compared": len(history),
+                        **baseline,
+                    },
+                    "method": method,
+                    "caveat": (
+                        "Reserves are what the event states, not a price or total value locked. "
+                        "Only the last update per block is stored, and reserves are raw token "
+                        "units. A large move can be an ordinary trade."
+                    ),
+                },
+                notes={
+                    "magnitude": "robust z / (3 x MAD threshold), or change / (2 x threshold)",
+                    "baseline_reliability": (
+                        f"{len(history)} stored reserve change(s) for this pool"
+                    ),
+                },
+            )
+        )
+    return DetectorOutput(out, len(rows), truncated)
+
+
+# --------------------------------------------------------------------------- holder concentration
+
+
+def holder_concentration(ctx: Context) -> DetectorOutput:
+    """Tokens whose stored transfers show most net inflow going to very few addresses."""
+    if ctx.chain != "ethereum":
+        return DetectorOutput([], 0, False)
+    tr, pe = schema.transfers, schema.pool_events
+    since = ctx.now - timedelta(days=ctx.cfg.baseline_days)
+    cap = ctx.cfg.max_rows_scanned
+    zero = "0x" + "0" * 40
+    with ctx.repo.transaction() as conn:
+        pooled = {
+            str(t)
+            for r in conn.execute(select(pe.c.token0, pe.c.token1).where(pe.c.chain == ctx.chain))
+            for t in (r.token0, r.token1)
+        }
+        pools = {
+            str(x) for x in conn.execute(select(pe.c.pool).where(pe.c.chain == ctx.chain)).scalars()
+        }
+        rows = conn.execute(
+            select(
+                tr.c.tx_id,
+                tr.c.token,
+                tr.c.from_address,
+                tr.c.to_address,
+                tr.c.amount_raw,
+                tr.c.block_time,
+                tr.c.provenance_json,
+            )
+            .where(
+                tr.c.chain == ctx.chain,
+                tr.c.token_id.is_(None),
+                tr.c.token.is_not(None),
+                tr.c.block_time.is_not(None),
+                tr.c.block_time >= since,
+                tr.c.tx_id.not_in(orphaned_tx_ids(ctx.chain)),
+            )
+            .order_by(tr.c.block_time.desc())
+            .limit(cap + 1)
+        ).all()
+    truncated = len(rows) > cap
+    rows = rows[:cap]
+    per_token: dict[str, list[Any]] = defaultdict(list)
+    for r in rows:
+        if str(r.token) in pooled:
+            per_token[str(r.token)].append(r)
+    out: list[RawCandidate] = []
+    excluded = pools | {zero}
+    for token, transfers in per_token.items():
+        if len(transfers) < ctx.cfg.holder_min_transfers:
+            continue
+        net: dict[str, int] = defaultdict(int)
+        for t in transfers:
+            try:
+                amount = int(t.amount_raw)
+            except ValueError:
+                continue
+            if t.from_address:
+                net[str(t.from_address)] -= amount
+            if t.to_address:
+                net[str(t.to_address)] += amount
+        holders = {a: v for a, v in net.items() if v > 0 and a not in excluded}
+        total = sum(holders.values())
+        if len(holders) < ctx.cfg.holder_min_addresses or total <= 0:
+            continue
+        top = sorted(holders.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        share = sum(v for _, v in top) / total
+        if share < ctx.cfg.holder_concentration_share:
+            continue
+        top_set = {a for a, _ in top}
+        evidence = [str(t.tx_id) for t in transfers if t.to_address in top_set][:5]
+        finalized = all(
+            '"finality":"finalized"' in str(t.provenance_json).replace(" ", "") for t in transfers
+        )
+        newest = max(t.block_time for t in transfers)
+        out.append(
+            RawCandidate(
+                detector_id="holder_concentration",
+                detector_version="1",
+                family="holders",
+                chain=ctx.chain,
+                subject_kind="token",
+                subject_ref=token,
+                title=f"Top 3 addresses took {share:.0%} of net inflow in stored transfers",
+                key=f"holders:{ctx.chain}:{token}",
+                observed_at=newest,
+                tx_ids=evidence,
+                evidence_finalized=finalized,
+                magnitude=clamp((share - 0.5) / 0.5),
+                baseline_reliability=reliability_from_count(len(transfers)),
+                confidence_cap=0.4,
+                z=share,
+                explanation={
+                    "statement": (
+                        "Most of the net inflow visible in stored transfers went to a few "
+                        "addresses."
+                    ),
+                    "observed": {
+                        "token": token,
+                        "top_share": share,
+                        "top_addresses": [{"address": a, "net_inflow_raw": str(v)} for a, v in top],
+                        "addresses_with_positive_net_inflow": len(holders),
+                        "transfers_used": len(transfers),
+                    },
+                    "method": (
+                        "Net inflow per address over stored transfers; pools and the zero "
+                        "address are excluded"
+                    ),
+                    "caveat": (
+                        "This is observed net flow inside the stored window, not balances or "
+                        "holdings: earlier balances, unstored transfers and contracts that hold "
+                        "tokens for many users are invisible. It says nothing about who owns the "
+                        "addresses."
+                    ),
+                },
+                notes={
+                    "magnitude": "(top-3 share - 0.5) / 0.5",
+                    "baseline_reliability": f"{len(transfers)} stored transfers of this token",
+                },
+            )
+        )
     return DetectorOutput(out, len(rows), truncated)
 
 
@@ -785,6 +1091,71 @@ DETECTORS: tuple[Detector, ...] = (
             chains=("ethereum",),
         ),
         new_liquidity_pool,
+    ),
+    Detector(
+        DetectorInfo(
+            id="new_token_activity",
+            version="1",
+            family="tokens",
+            title="Token newly seen by the collector",
+            method="Per-token counts of finalized ERC-20 Transfer logs",
+            data_required="Token statistics stored by the block collector",
+            coverage="Tokens with transfers in blocks the collector read",
+            limitations=(
+                "New means new to this database, not newly created. Needs the block collector "
+                "to have run. Says nothing about legitimacy."
+            ),
+            refresh="Per collector run, then per discovery pass",
+            cost=STORED_ONLY_COST,
+            confidence_cap=0.35,
+            chains=("ethereum",),
+        ),
+        new_token_activity,
+    ),
+    Detector(
+        DetectorInfo(
+            id="pool_reserve_change",
+            version="1",
+            family="liquidity",
+            title="Sharp change in pool reserves",
+            method=(
+                "Relative change between stored v2-style Sync updates, median/MAD when "
+                "history allows"
+            ),
+            data_required="Pool reserves stored by the block collector",
+            coverage="Known v2-style pools; last update per block only",
+            limitations=(
+                "Reserves are not price or total value locked. v3-style pools are not covered. "
+                "A large move can be an ordinary trade."
+            ),
+            refresh="Per collector run, then per discovery pass",
+            cost=STORED_ONLY_COST,
+            confidence_cap=0.5,
+            chains=("ethereum",),
+        ),
+        pool_reserve_change,
+    ),
+    Detector(
+        DetectorInfo(
+            id="holder_concentration",
+            version="1",
+            family="holders",
+            title="Concentrated net inflow",
+            method=(
+                "Share of positive net inflow held by the top three addresses over stored transfers"
+            ),
+            data_required="Stored ERC-20 transfers of tokens with a known pool",
+            coverage="Tokens with enough stored transfers and addresses",
+            limitations=(
+                "Observed net flow inside the stored window, not balances or holdings. Cannot "
+                "see contracts that hold tokens for many users. Says nothing about ownership."
+            ),
+            refresh="On demand or per scheduled pass",
+            cost=STORED_ONLY_COST,
+            confidence_cap=0.4,
+            chains=("ethereum",),
+        ),
+        holder_concentration,
     ),
     Detector(
         DetectorInfo(

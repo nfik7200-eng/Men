@@ -27,19 +27,16 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlalchemy import insert, select
-
 from bip.chains.common import ParseError
 from bip.chains.ethereum import parse as eth
 from bip.chains.ethereum.adapter import EthereumAdapter
-from bip.chains.ethereum.pools import POOL_TOPICS, decode_pool_created
 from bip.config.settings import Settings
 from bip.contracts.provenance import Finality
 from bip.core.logging import get_logger
-from bip.db import schema
 from bip.db.observations import ObservationStore
 from bip.db.repository import Repository
 from bip.db.types import utcnow
+from bip.ingest.ethereum_events import EventFeeds, persist_transaction
 from bip.router.router import (
     BudgetExhaustedError,
     CallBudget,
@@ -54,11 +51,16 @@ log = get_logger("bip.collector")
 
 CURSOR_KEY = "collector:ethereum:last_block"
 LAST_RUN_KEY = "collector:ethereum:last_run"
-COLLECTOR_VERSION = "2"
+COLLECTOR_VERSION = "3"
+
+FEED_CALL_RESERVE = 60
+"""Provider requests kept back from the block loop so the event feeds always have budget."""
 
 NOT_COVERED = (
     "ordinary transactions below the value threshold (counted, not stored)",
-    "ERC-20/721 transfer events, internal transfers, liquidity/reserve and holder changes",
+    "ERC-721 transfers (counted, not stored) and internal transfers",
+    "ERC-20 transfers of tokens without a known pool are counted per token, not stored",
+    "v3-style pool reserves and liquidity (only v2-style Sync events are read)",
     "pools created by factories with an event layout other than Uniswap v2/v3-style",
     "blocks above the finalized tag",
     "Solana (no collector)",
@@ -71,6 +73,7 @@ class ChainCollector:
         self._repo = repo
         self._store = ObservationStore(repo)
         self._cfg = settings.collector
+        self._feeds = EventFeeds(repo, settings.collector)
 
     def status(self) -> dict[str, Any]:
         raw = self._repo.get_meta(LAST_RUN_KEY)
@@ -86,6 +89,9 @@ class ChainCollector:
                 "max_receipts_per_run": self._cfg.max_receipts_per_run,
                 "max_rpc_calls_per_run": self._cfg.max_rpc_calls_per_run,
                 "max_pools_per_run": self._cfg.max_pools_per_run,
+                "max_new_tokens_per_run": self._cfg.max_new_tokens_per_run,
+                "max_token_transfers_per_run": self._cfg.max_token_transfers_per_run,
+                "max_reserve_updates_per_run": self._cfg.max_reserve_updates_per_run,
             },
             "not_covered": list(NOT_COVERED),
         }
@@ -111,6 +117,20 @@ class ChainCollector:
             "pool_events_stored": 0,
             "pool_events_over_cap": 0,
             "pool_log_splits": 0,
+            "token_logs_found": 0,
+            "token_log_splits": 0,
+            "token_logs_undecodable": 0,
+            "tokens_seen": 0,
+            "new_tokens": 0,
+            "new_tokens_without_evidence_tx": 0,
+            "nft_transfers_skipped": 0,
+            "token_transfers_stored": 0,
+            "token_transfers_over_cap": 0,
+            "reserve_pools_watched": 0,
+            "reserve_log_splits": 0,
+            "reserve_updates_found": 0,
+            "reserve_updates_stored": 0,
+            "reserve_updates_over_cap": 0,
             "first_block": None,
             "last_block": None,
             "finalized_head": None,
@@ -139,11 +159,17 @@ class ChainCollector:
             if start > end:
                 m["message"] = "Up to date with the finalized head."
                 return self._finish(m, adapter)
-            self._scan_pools(adapter, start, end, m)
+            headers: dict[int, eth.BlockHeader] = {}
             for number in range(start, end + 1):
                 if receipts >= cfg.max_receipts_per_run:
                     m["status"] = "partial"
                     m["message"] = "Receipt cap reached; the rest resumes next run."
+                    break
+                if adapter.calls >= cfg.max_rpc_calls_per_run - FEED_CALL_RESERVE:
+                    m["status"] = "partial"
+                    m["message"] = (
+                        "Call budget kept for the event feeds; the rest resumes next run."
+                    )
                     break
                 pair = adapter.block_full(number)
                 if pair is None:
@@ -152,14 +178,19 @@ class ChainCollector:
                     break
                 header, txs, src = pair
                 receipts += self._scan_block(adapter, header, txs, src, min_wei, receipts, m)
-                self._repo.set_meta(CURSOR_KEY, str(number))
+                headers[number] = header
                 m["blocks_scanned"] += 1
                 m["first_block"] = m["first_block"] if m["first_block"] is not None else number
                 m["last_block"] = number
                 m["transactions_seen"] += len(txs)
+            if headers:
+                # Event feeds cover exactly the blocks read above. The cursor moves only after
+                # they finish, so a failure rescans the range (every store is idempotent).
+                self._feeds.run(adapter, min(headers), max(headers), headers, m)
+                self._repo.set_meta(CURSOR_KEY, str(max(headers)))
         except BudgetExhaustedError as exc:
             m["status"] = "partial"
-            m["message"] = f"Stopped early: {exc}. The unfinished block is retried next run."
+            m["message"] = f"Stopped early: {exc}. The unfinished range is retried next run."
         except NoEligibleProviderError as exc:
             m["status"] = "blocked"
             m["message"] = f"No eligible provider: {exc}"
@@ -175,7 +206,8 @@ class ChainCollector:
                 f"Scanned {m['blocks_scanned']} finalized block(s): "
                 f"{m['contract_creations_stored']} creation(s), "
                 f"{m['large_transfers_stored']} large transfer(s), "
-                f"{m['pool_events_stored']} new pool(s)."
+                f"{m['pool_events_stored']} new pool(s), {m['new_tokens']} new token(s), "
+                f"{m['reserve_updates_stored']} reserve update(s)."
             )
         return self._finish(m, adapter)
 
@@ -246,7 +278,7 @@ class ChainCollector:
                 m["rejected"] += 1  # receipt/tx disagree with the block just read
                 continue
             tx = parsed.tx
-            self._persist_tx(parsed)
+            persist_transaction(self._repo, parsed)
             if creation:
                 if tx.created_contract is not None:
                     m["contract_creations_stored"] += 1
@@ -262,114 +294,3 @@ class ChainCollector:
             ):
                 m["large_transfers_stored"] += 1
         return used
-
-    def _persist_tx(self, parsed: eth.ParsedTransaction) -> None:
-        tx = parsed.tx
-        self._repo.store_transaction(
-            tx,
-            extras={
-                "network": "mainnet",
-                "block_hash": tx.block_hash,
-                "finality": Finality.FINALIZED.value,
-                "parse_status": "complete",
-                "value_raw": str(parsed.value_wei),
-                "gas_used": str(parsed.gas_used) if parsed.gas_used is not None else None,
-                "fee_raw": str(parsed.gas_used * parsed.gas_price_wei)
-                if parsed.gas_used is not None and parsed.gas_price_wei is not None
-                else None,
-                "raw_ref": None,
-                "run_id": None,
-                "created_contract": tx.created_contract,
-            },
-        )
-
-    def _scan_pools(
-        self, adapter: EthereumAdapter, start: int, end: int, m: dict[str, Any]
-    ) -> None:
-        """Store pool-creation events found in ``start..end`` (idempotent), with their creating tx.
-
-        Runs before the blocks so a failure leaves the cursor untouched. Pools beyond
-        ``max_pools_per_run`` are counted as a gap and are not retried.
-        """
-        found, notes = adapter.pool_logs_adaptive(start, end, topics=POOL_TOPICS)
-        m["pool_log_splits"] = len(notes)
-        decoded: list[tuple[Any, Any]] = []
-        for raw, src in found:
-            try:
-                lg = eth.parse_log(raw, src, block_time=None, finality=Finality.FINALIZED)
-            except ParseError:
-                m["rejected"] += 1
-                continue
-            pool = decode_pool_created(lg)
-            if pool is not None:
-                decoded.append((lg, pool))
-        decoded.sort(key=lambda x: (x[0].block_number, x[0].log_index))
-        m["pool_events_found"] = len(decoded)
-        headers: dict[int, eth.BlockHeader | None] = {}
-        taken = 0
-        for lg, pool in decoded:
-            if self._pool_known(lg.tx_hash, lg.log_index):
-                continue
-            if taken >= self._cfg.max_pools_per_run:
-                m["pool_events_over_cap"] += 1
-                continue
-            taken += 1
-            if lg.block_number not in headers:
-                pair = adapter.block(lg.block_number)
-                headers[lg.block_number] = pair[0] if pair else None
-            header = headers[lg.block_number]
-            if header is None or header.hash != lg.block_hash:
-                m["rejected"] += 1  # block missing, or the log is from a different block hash
-                continue
-            raw_tx, _ = adapter.transaction(lg.tx_hash)
-            receipt, rsrc = adapter.receipt(lg.tx_hash)
-            if raw_tx is None or receipt is None:
-                m["receipt_missing"] += 1
-                continue
-            try:
-                parsed = eth.parse_transaction(
-                    raw_tx,
-                    receipt,
-                    block_time=header.timestamp,
-                    src=rsrc,
-                    finality=Finality.FINALIZED,
-                )
-            except ParseError:
-                m["rejected"] += 1
-                continue
-            if parsed.tx.block_hash != header.hash:
-                m["rejected"] += 1
-                continue
-            self._persist_tx(parsed)
-            with self._repo.transaction() as conn:
-                conn.execute(
-                    insert(schema.pool_events).values(
-                        chain="ethereum",
-                        protocol=pool.protocol,
-                        factory=pool.factory,
-                        pool=pool.pool,
-                        token0=pool.token0,
-                        token1=pool.token1,
-                        fee=pool.fee,
-                        tx_id=lg.tx_hash,
-                        log_index=lg.log_index,
-                        block_number=lg.block_number,
-                        block_hash=lg.block_hash,
-                        block_time=header.timestamp,
-                        finality=Finality.FINALIZED.value,
-                        stored_at=utcnow(),
-                    )
-                )
-            m["pool_events_stored"] += 1
-
-    def _pool_known(self, tx_id: str, log_index: int) -> bool:
-        pe = schema.pool_events
-        with self._repo.transaction() as conn:
-            return (
-                conn.execute(
-                    select(pe.c.id).where(
-                        pe.c.chain == "ethereum", pe.c.tx_id == tx_id, pe.c.log_index == log_index
-                    )
-                ).first()
-                is not None
-            )

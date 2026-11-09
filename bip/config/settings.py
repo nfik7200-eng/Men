@@ -140,8 +140,8 @@ class IngestSettings(BaseModel):
     """Ethereum transactions stored without a receipt that are re-fetched per wallet run."""
     repair_max_attempts: Annotated[int, Field(ge=1, le=20)] = 5
     """Failed fetches after which a placeholder or partial row is no longer retried."""
-    run_deadline_s: Annotated[float, Field(gt=0, le=300)] = 90.0
-    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=500)] = 150
+    run_deadline_s: Annotated[float, Field(gt=0, le=90)] = 90.0
+    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=150)] = 150
 
     @model_validator(mode="after")
     def _limits(self) -> Self:
@@ -240,12 +240,21 @@ class CollectorSettings(BaseModel):
     """Where the very first run starts, counted back from the finalized head."""
     min_native_value_eth: Annotated[int, Field(ge=1, le=1_000_000)] = 10
     """A top-level native transfer is stored when it moves at least this much ETH."""
-    max_receipts_per_run: Annotated[int, Field(ge=1, le=300)] = 60
+    max_receipts_per_run: Annotated[int, Field(ge=1, le=150)] = 40
     """Receipts fetched per run (creations and large transfers each need one)."""
-    max_pools_per_run: Annotated[int, Field(ge=0, le=100)] = 15
-    """New pool-creation events stored per run (each costs block, transaction and receipt calls)."""
-    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=500)] = 150
-    run_deadline_s: Annotated[float, Field(gt=0, le=300)] = 90.0
+    max_pools_per_run: Annotated[int, Field(ge=0, le=100)] = 10
+    """New pool-creation events stored per run (each costs transaction and receipt calls)."""
+    token_scan_enabled: bool = True
+    """Scan ERC-20 ``Transfer`` logs of the planned range (topic filter only, no address)."""
+    max_new_tokens_per_run: Annotated[int, Field(ge=0, le=100)] = 8
+    """New tokens whose first transaction is stored as evidence (transaction and receipt calls)."""
+    max_token_transfers_per_run: Annotated[int, Field(ge=0, le=5000)] = 500
+    """Transfers of tokens with a known pool stored per run (feeds whale and holder detectors)."""
+    max_reserve_pools: Annotated[int, Field(ge=0, le=200)] = 100
+    """Known v2-style pools whose ``Sync`` events are read per run (one address-filtered call)."""
+    max_reserve_updates_per_run: Annotated[int, Field(ge=0, le=2000)] = 500
+    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=150)] = 150
+    run_deadline_s: Annotated[float, Field(gt=0, le=90)] = 90.0
 
 
 class DiscoverySettings(BaseModel):
@@ -263,6 +272,14 @@ class DiscoverySettings(BaseModel):
     burst_min_count: Annotated[int, Field(ge=3, le=10_000)] = 10
     funding_min_recipients: Annotated[int, Field(ge=2, le=1000)] = 3
     funding_window_hours: Annotated[int, Field(ge=1, le=24 * 30)] = 24
+    new_token_min_transfers: Annotated[int, Field(ge=1, le=100_000)] = 3
+    """A newly seen token needs at least this many counted transfers to open a signal."""
+    reserve_change_threshold: Annotated[float, Field(gt=0.01, le=1.0)] = 0.2
+    """Relative change of a pool reserve between two stored updates that opens a signal."""
+    holder_min_transfers: Annotated[int, Field(ge=5, le=100_000)] = 30
+    holder_min_addresses: Annotated[int, Field(ge=3, le=10_000)] = 10
+    holder_concentration_share: Annotated[float, Field(gt=0.3, le=1.0)] = 0.6
+    """Share of positive net inflow held by the top three addresses that opens a signal."""
     cooldown_seconds: Annotated[int, Field(ge=0, le=7 * 86_400)] = 6 * 3600
     """New signals for the same detector and subject inside this window merge into the earlier
     one instead of opening a new candidate."""

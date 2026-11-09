@@ -21,6 +21,9 @@ relationships and analyses that rested on it are invalidated in the same databas
 | `dormant_reactivation` | wallet_activity | ethereum, solana | gap between a wallet's consecutive stored signed transactions | 0.5 |
 | `activity_burst` | abnormal_frequency | ethereum, solana | median/MAD of daily signed-transaction counts on active days | 0.8 |
 | `new_contract_deployment` | contracts | ethereum | `receipt.contractAddress` of stored creation transactions | 0.6 |
+| `new_token_activity` | tokens | ethereum | counts of finalized ERC-20 `Transfer` logs per token | 0.35 |
+| `pool_reserve_change` | liquidity | ethereum | change between stored v2-style `Sync` reserves, median/MAD when history allows | 0.5 |
+| `holder_concentration` | holders | ethereum | top-3 share of positive net inflow in stored transfers (observed flow, not balances) | 0.4 |
 | `new_liquidity_pool` | pools | ethereum | v2/v3-style `PairCreated`/`PoolCreated` factory logs from finalized blocks | 0.4 |
 | `common_funding_source` | related_wallets | ethereum, solana | one sender funding several recipients with no earlier stored activity | 0.5 |
 
@@ -89,3 +92,11 @@ nobody asked about, and `new_liquidity_pool` sees new pools. It does not feed an
 ERC-20 transfer events, internal transfers, liquidity or reserve changes or holder changes, and
 nothing for Solana. `GET /discovery/collector` reports the
 cursor, the limits and the last run's manifest, including how many transactions were skipped.
+
+The collector also counts ERC-20 `Transfer` logs per token (topic filter only; the window is split
+if a provider limit is hit), stores the transfers of tokens that have a known pool, and reads
+`Sync` events of known v2-style pools (one address-filtered call). Everything it stores is from
+finalized blocks and was checked against the canonical block hash. `holder_concentration` reports
+observed net inflow inside the stored window; it never claims balances, holdings or ownership.
+`pool_reserve_change` reports what a `Sync` event states, not price or value locked.
+

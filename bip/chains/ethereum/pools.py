@@ -18,6 +18,8 @@ from bip.contracts.events import EvmLog
 PAIR_CREATED_TOPIC = "0x0d3648bd0f6ba80134a33ba9275ac585d9d315f0ad8355cddefde31afa28d0e9"
 POOL_CREATED_TOPIC = "0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118"
 POOL_TOPICS: tuple[str, str] = (PAIR_CREATED_TOPIC, POOL_CREATED_TOPIC)
+SYNC_TOPIC = "0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1"
+"""``Sync(uint112 reserve0, uint112 reserve1)``, emitted by v2-style pairs after every change."""
 
 _WORD = 64  # hex characters per 32-byte word
 
@@ -49,3 +51,14 @@ def decode_pool_created(log: EvmLog) -> PoolCreated | None:
     if pool is None or token0 is None or token1 is None or (fee is not None and fee >= 2**24):
         return None
     return PoolCreated(protocol, log.address, pool, token0, token1, fee)
+
+
+def decode_sync(log: EvmLog) -> tuple[int, int] | None:
+    """The two reserves a v2-style ``Sync`` log states, or ``None`` if the shape is wrong."""
+    body = log.data[2:]
+    if log.removed or log.topics != (SYNC_TOPIC,) or len(body) != 2 * _WORD:
+        return None
+    reserve0, reserve1 = int(body[:_WORD], 16), int(body[_WORD:], 16)
+    if reserve0 >= 2**112 or reserve1 >= 2**112:
+        return None  # uint112: anything larger is not a Sync event
+    return reserve0, reserve1
