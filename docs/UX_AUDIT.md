@@ -74,3 +74,7 @@ the price line wraps, the facts grid is one column below 420 px, and the layout 
 
 Limits: this measures page-level scroll, not text reflow inside every component, and it does not test 200% text-size
 settings or any screen reader. Those remain unmeasured here.
+
+Approximation for 200% text size: the same check at a 640 CSS px viewport (what 200% text on a 1280 px screen gives)
+shows 0 px of page scroll on all 11 populated pages. This is a width proxy, not a real text-size test: it does not change
+font sizes, so text clipping inside components at 200% is still unmeasured.
