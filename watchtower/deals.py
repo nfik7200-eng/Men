@@ -245,7 +245,9 @@ def score_listing(s: Session, listing: Listing, ctx: PeerContext | None = None, 
     ds.confidence = "high" if has_history else ("medium" if n_peers >= need and med else "low")
     if is_stale(listing, now):
         ds.label, ds.confidence = "Stale data", "low"
-        ds.warnings.append(f"Last observed {listing.last_observed_at:%Y-%m-%d}: older than the source's freshness window.")
+        seen = f"{listing.last_observed_at:%Y-%m-%d}" if listing.last_observed_at else "never"  # a listing with no observation must not crash scoring
+        ds.warnings.append(f"Last observed {seen}: older than the source's freshness window." if listing.last_observed_at
+                           else "Never observed: there is no current price to judge.")
     elif listing.availability == "out_of_stock":
         ds.label = "Out of stock"
     elif has_history and hist_pts >= 10 and ds.score >= 40:

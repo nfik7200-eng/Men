@@ -16,7 +16,7 @@ MAX_RETRIES = int(os.getenv("WATCHTOWER_MAX_RETRIES", "3"))
 
 # Deal-scoring evidence thresholds (transparent, tunable).
 MIN_HISTORY_OBS = 3
-MIN_HISTORY_SPAN_DAYS = 7
+MIN_HISTORY_SPAN_DAYS = 8   # eight days: one collection-day less than this must never produce a Verified deal
 MIN_PEERS = 5
 MIN_OBS_GAP_HOURS = 6      # observations closer than this are one collection (burst/duplicates)
 MIN_REFERENCE_DAYS = 3     # the 'usual' price must have held this long to define a drop
