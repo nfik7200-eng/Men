@@ -1,6 +1,15 @@
 import type {
-  CoverageResponse, DealsResponse, EventsResponse, HistoryResponse, ListingPage,
-  Listing, MatchCandidatesResponse, ResearchResponse, SourcesResponse, WatchlistResponse,
+  CoverageResponse,
+  DealsResponse,
+  EventsResponse,
+  HistoryResponse,
+  ListingPage,
+  Listing,
+  MatchCandidatesResponse,
+  ResearchResponse,
+  SourcesResponse,
+  WatchlistResponse,
+  AdminSettingsResponse,
 } from './types';
 
 /** A failure the UI can show in words: what went wrong and what the person can do about it. */
@@ -109,4 +118,9 @@ export const api = {
   coverage: (signal?: AbortSignal) => getJson<CoverageResponse>('/api/v1/coverage', signal),
   research: (q: string, signal?: AbortSignal) =>
     getJson<ResearchResponse>(`/api/v1/research${qs({ q })}`, signal),
+  /** Admin only: the token or the signed admin session is required. */
+  adminSettings: (signal?: AbortSignal) => getJson<AdminSettingsResponse>('/api/v1/admin/settings', signal),
+  /** Admin only. enabled must be a real boolean; the server answers with the state it stored. */
+  setSourceEnabled: (key: string, enabled: boolean) =>
+    sendJson<{ key: string; enabled: boolean }>(`/api/v1/admin/sources/${encodeURIComponent(key)}/enabled`, 'POST', { enabled }),
 };

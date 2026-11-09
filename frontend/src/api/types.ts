@@ -202,3 +202,18 @@ export interface MatchCandidate {
 export interface MatchCandidatesResponse {
   items: MatchCandidate[];
 }
+
+/** One source as the admin settings API reports it (GET /api/v1/admin/settings). */
+export interface AdminSource {
+  key: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+  configured: boolean;
+  page_budget: number | null;
+}
+
+export interface AdminSettingsResponse {
+  sources: AdminSource[];
+  scheduler: { enabled: boolean; env: boolean; ceiling: number; error?: string };
+}
