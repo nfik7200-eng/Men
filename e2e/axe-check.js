@@ -1,6 +1,7 @@
 const { chromium, devices } = require('playwright');
 const fs = require('fs');
 // Usage: AXE_PATH=/path/to/axe.min.js E2E_BASE=http://127.0.0.1:8042 E2E_ADMIN_TOKEN=... node e2e/axe-check.js
+// NO_ISLANDS=1 audits the no-JavaScript fallback pages instead of the islands.
 // axe-core is NOT a project dependency: install it outside the repo (npm i axe-core@4.10.2 in a scratch folder).
 const AXE = process.env.AXE_PATH;
 if (!AXE) { console.error('set AXE_PATH to axe.min.js'); process.exit(2); }
@@ -18,6 +19,8 @@ const TOKEN = process.env.E2E_ADMIN_TOKEN || 'e2e-admin-token-0123456789-abc';
   for (const [label, opts] of [['desktop', { viewport: { width: 1280, height: 900 } }], ['mobile', { ...devices['Pixel 7'] }]]) {
     const ctx = await browser.newContext({ ...opts, bypassCSP: true });  // test harness only: lets axe be injected; the app's CSP is unchanged
     const page = await ctx.newPage();
+    // NO_ISLANDS=1 audits the server-rendered fallback: the island bundle is blocked, so no page script replaces the server copy.
+    if (process.env.NO_ISLANDS === '1') await page.route('**/static/app/assets/main.js', r => r.abort());
     const paths = pages.slice();
     await page.goto(BASE + '/admin/login');
     await page.fill('input[name=token]', TOKEN);

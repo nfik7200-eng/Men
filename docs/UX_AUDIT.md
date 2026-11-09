@@ -47,6 +47,12 @@ Limits, stated plainly: axe finds about a third to a half of accessibility probl
 announcements, focus order across the islands, reading order, colour-only meaning under user preferences, or
 behaviour with zoom at 200%. Those remain manual checks and are not measured here.
 
+A second run blocks the island bundle (`NO_ISLANDS=1`) to audit the server-rendered fallback pages, which the
+islands replace when they run. That run found one moderate finding (heading order on search results: an `h3`
+directly under the page `h1`); the card heading level is now a macro parameter, and search uses level 2. Both
+modes: 0 violations on 22 page/width combinations after the fix. The deal-radar fallback table had been missed
+by the first pass (a keyboard user at phone width could not scroll it); it is now focusable too.
+
 Reproduce (axe-core is not a project dependency; install it outside the repo):
 
 ```bash

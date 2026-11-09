@@ -14,11 +14,11 @@
 </div>
 {% endmacro %}
 
-{% macro card(x) %}
+{% macro card(x, level=3) %}
 {% set l = x.l %}
 <article class="card item">
   {% if l.image_url %}<img class="thumb" src="{{ l.image_url }}" alt="" loading="lazy">{% endif %}
-  <h3><a href="/listing/{{ l.id }}">{{ l.title }}</a></h3>
+  <h{{ level }}><a href="/listing/{{ l.id }}">{{ l.title }}</a></h{{ level }}>
   <div class="muted">{{ l.brand or '' }}{% if l.brand and l.category %} · {% endif %}{{ l.category or '' }} · {{ l.source.name }}</div>
   <div class="price">{{ l.price_minor | money(l.currency) }}{% if l.original_price_minor %}<s title="The shop's own claimed original price; not verified by our price history">{{ l.original_price_minor | money(l.currency) }}</s>{% endif %}</div>
   {{ status_badges(l, x.pstatus, x.fresh, x.deal) }}
