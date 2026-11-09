@@ -151,3 +151,10 @@ Commits after `2ce6adf`, on `claude/sweet-franklin-dsta71` (18 unpushed in total
 - Local Ollama: existing tests cover the optional path (off unless configured). No real model was tested.
 - Landed-cost duties and taxes remain labelled assumptions, because no verified rate source is configured.
 - Live collection and the live notifications migration stay off, pending the contact address, the legal review and your approval.
+
+### Watchtower completion goal: continuation (local, unpushed)
+Commits after `dd56639`: `f2fb5dc` interactive watchlist (save target, remove, signed-out state); `7512353` interactive match review on the admin page, and the admin session cookie now reaches the admin JSON it needs (scoped to three narrow paths). 21 commits unpushed at the time of writing.
+
+Verified on this round's code: pytest 519 passed, 4 skipped; ruff clean; pyright 78 (unchanged); vitest 74; typecheck clean; bundle fresh; browser journeys 62/62 on a fresh copy (populated watchlist and review queue included); automated UX audit 32 views with nothing flagged.
+
+Still not done: a dedicated product comparison page; splitting the route closure in `shopping/web/app.py`; Pyright's 78 errors; an admin status island (the server page already shows health and budgets); deployment-readiness documentation beyond what `docs/DEPLOYMENT.md` already records (no VPS access); a populated alerts browser journey; a contrast and screen-reader check; eBay live verification (no credentials here). Live collection and the live notifications migration remain off, pending the contact address, the legal review and approval.
