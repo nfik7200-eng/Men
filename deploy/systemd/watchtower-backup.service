@@ -1,0 +1,41 @@
+[Unit]
+Description=Watchtower verified database snapshot (WAL-safe, retention-pruned)
+Documentation=file:///opt/watchtower/current/docs/DEPLOYMENT.md
+ConditionPathExists=/etc/watchtower/watchtower.env
+
+[Service]
+Type=oneshot
+User=watchtower
+Group=watchtower
+WorkingDirectory=/opt/watchtower/current
+EnvironmentFile=/etc/watchtower/watchtower.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Prunes only old watchtower-<UTC>.db files in its own backup dir, keeping the newest 14 and anything under 30 days.
+ExecStart=/opt/watchtower/current/deploy/backup.sh --prune
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=1G
+TasksMax=64
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0027
+ReadWritePaths=/var/lib/watchtower

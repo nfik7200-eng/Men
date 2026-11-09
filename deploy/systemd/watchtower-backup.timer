@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Watchtower database snapshot
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=20min
+Persistent=true
+Unit=watchtower-backup.service
+
+[Install]
+WantedBy=timers.target

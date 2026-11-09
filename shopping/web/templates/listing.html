@@ -1,0 +1,108 @@
+{% extends "base.html" %}{% from "_macros.html" import status_badges %}
+{% block title %}{{ l.title }}{% endblock %}
+{% block body %}
+<p class="muted"><a class="cta-link" href="/search">← Browse</a></p>
+<h1>{{ l.title }}</h1>
+<div class="layout">
+<div>
+  <div class="card">
+    <div class="price">{{ l.price_minor | money(l.currency) }}{% if l.original_price_minor %}<s>{{ l.original_price_minor | money(l.currency) }}</s> <span class="badge warn">claimed original</span>{% endif %}</div>
+    {{ status_badges(l, pstatus, fresh, deal) }}
+    <p class="muted">{{ l.source.name }}{% if l.source.kind == 'demo' %} (demo catalogue){% elif l.source.kind == 'sandbox' %} (API sandbox){% endif %} · observed {{ l.last_observed_at | dt }} · first seen {{ l.first_seen_at | dt }}{% if not l.active %} · <b class="bad-t">no longer listed at source</b>{% endif %}</p>
+    {% if l.description %}<p>{{ l.description }}</p>{% endif %}
+    <p>
+      <a class="btn" href="/go/{{ l.id }}" rel="{{ 'sponsored ' if link.is_affiliate }}nofollow noopener" target="_blank">View at store ↗</a>
+      {% if link.is_affiliate %}<span class="badge warn" title="We may earn a commission">Affiliate link</span>{% endif %}
+    </p>
+  </div>
+
+  <h2>Price history</h2>
+  <div class="card">
+    {% if islands %}<div class="island-slot" data-island="listing-chart" data-listing-id="{{ l.id }}" hidden>
+      {% if chart %}{{ chart | safe }}{% else %}<p><b>{{ npts }} observation{{ '' if npts == 1 else 's' }} so far.</b> A chart needs at least 2. History grows each time this source is collected; nothing is back-filled or invented.</p>{% endif %}
+    </div>
+    {% elif chart %}{{ chart | safe }}
+    {% else %}<p><b>{{ npts }} observation{{ '' if npts == 1 else 's' }} so far.</b> A chart needs at least 2. History grows each time this source is collected; nothing is back-filled or invented.</p>{% endif %}
+    <div class="scroll" tabindex="0"><table><tr><th>Observed (UTC)</th><th>Price</th><th>Original</th><th>Stock</th><th class="hide-sm">Method</th><th class="hide-sm">HTTP</th></tr>
+    {% for o in obs | reverse %}<tr><td>{{ o.observed_at | dt }}</td><td>{{ o.price_minor | money(o.currency) }}</td><td>{{ o.original_price_minor | money(o.currency) if o.original_price_minor else '—' }}</td><td>{{ o.availability.replace('_', ' ') }}</td><td class="hide-sm muted">{{ {'jsonld': 'structured data (JSON-LD)', 'microdata': 'microdata', 'css': 'page markup', 'not_modified': 're-confirmed (page unchanged)'}.get(o.extraction_method, o.extraction_method or 'not recorded') }}</td><td class="hide-sm muted">{{ o.http_status or '—' }}</td></tr>{% endfor %}</table></div>
+  </div>
+
+  <h2>Where this data comes from</h2>
+  <div class="card">
+    <table>
+      <tr><th>Shop</th><td>{{ l.source.name }}{% if l.source.kind == 'demo' %} <span class="badge warn">Demo catalogue — not a real shop</span>{% elif l.source.kind == 'sandbox' %} <span class="badge warn">API sandbox — test data</span>{% endif %}</td></tr>
+      <tr><th>Page read</th><td style="word-break:break-all">{{ l.url }}</td></tr>
+      <tr><th>Read at</th><td>{{ l.last_observed_at | dt }} (first seen {{ l.first_seen_at | dt }})</td></tr>
+      {% if obs %}{% set last = obs[-1] %}<tr><th>Method</th><td>{{ {'jsonld': 'structured data (JSON-LD) published by the shop', 'microdata': 'microdata', 'css': 'page markup', 'not_modified': 're-confirmed, page unchanged'}.get(last.extraction_method, last.extraction_method or 'not recorded (collected before provenance was kept)') }}{% if last.http_status %} · HTTP {{ last.http_status }}{% endif %}</td></tr>{% endif %}
+      <tr><th>Stored</th><td>Facts only: title, price, stock, identifiers. No description text or images are kept for real shops.</td></tr>
+      {% if l.source.kind == 'live' %}<tr><th>Source policy</th><td>{% if policy %}<b>{{ policy.status }}</b>{% if policy.reviewed_at %}, reviewed {{ policy.reviewed_at.strftime('%Y-%m-%d') }}{% endif %}{% if policy.tos_url %} · <a href="{{ policy.tos_url }}" rel="noopener nofollow" target="_blank">terms</a>{% endif %}<div class="muted">“approved” means no prohibition on automated access was found when we read the terms and robots.txt. It is not legal permission.</div>{% else %}<span class="badge warn">no policy record</span>{% endif %}</td></tr>{% endif %}
+    </table>
+  </div>
+
+  <h2>Price statistics <span class="muted">(distinct collections, {{ l.currency }})</span></h2>
+  <div class="card">
+    {% if stats.minimum is not none %}
+    <div class="scroll" tabindex="0"><table>
+      <tr><th>Collections</th><td>{{ stats.n_collections }} over {{ '%.1f' % stats.span_days }} days</td><th>Changes</th><td>{{ stats.changes }}</td></tr>
+      <tr><th>Min</th><td>{{ stats.minimum | money(l.currency) }}</td><th>Max</th><td>{{ stats.maximum | money(l.currency) }}</td></tr>
+      <tr><th>Mean</th><td>{{ (stats.mean | round | int) | money(l.currency) }}</td><th>Median</th><td>{{ (stats.median | round | int) | money(l.currency) }}</td></tr>
+      <tr><th>Volatility</th><td>{{ (stats.volatility_pct ~ '%') if stats.volatility_pct is not none else 'needs 3+ collections' }}</td><th>Now vs min</th><td>{{ '%+.1f' % stats.current_vs_min_pct }}%</td></tr>
+    </table></div>
+    {% if stats.note %}<p class="warn-t">⚠ {{ stats.note }}</p>{% endif %}
+    {% else %}<p class="muted">No priced observations yet.</p>{% endif %}
+  </div>
+
+  <h2>Deal assessment <span class="badge">{{ deal.label }}</span> <span class="muted">confidence: {{ deal.confidence }}</span></h2>
+  <div class="card">
+    {% if deal.score is not none %}<p><b>Score {{ deal.score }}/100</b> — sum of the parts below. Each part says how it was derived.</p>
+    <div class="scroll" tabindex="0"><table><tr><th>Component</th><th>Points</th><th>Evidence</th><th>Detail</th></tr>
+    {% for c in deal.components %}<tr><td>{{ c.name.replace('_', ' ') }}</td><td>{{ c.points }} / {{ c.max_points }}</td>
+    <td><span class="badge {{ 'ok' if c.evidence == 'verified' else ('warn' if c.evidence == 'unverified' else '') }}">{{ c.evidence }}</span></td><td>{{ c.detail }}</td></tr>{% endfor %}</table></div>
+    {% else %}<p>No score: price unavailable.</p>{% endif %}
+    {% for w in deal.warnings %}<p class="warn-t">⚠ {{ w }}</p>{% endfor %}
+  </div>
+
+  {% if events %}<h2>Detected changes</h2><div class="card scroll" tabindex="0"><table>
+  {% for e in events %}<tr><td>{{ e.detected_at | dt }}</td><td>{{ e.kind.replace('_', ' ') }}{% if e.pct is not none %} ({{ '%+.1f' % e.pct }}%){% endif %}</td></tr>{% endfor %}</table></div>{% endif %}
+
+  <h2>Same product elsewhere {% if l.product_id and others %}<a class="muted" style="font-size:.85rem" href="/product/{{ l.product_id }}">compare all →</a>{% endif %}</h2>
+  <div class="card">
+    {% if others %}<div class="scroll" tabindex="0"><table><tr><th>Store</th><th>Price</th><th>Match</th></tr>
+    {% for o in others %}<tr><td><a href="/listing/{{ o.id }}">{{ o.source.name }}</a></td><td>{{ o.price_minor | money(o.currency) }}{% if o.currency != l.currency %} <span class="muted">(different currency — not converted)</span>{% endif %}</td>
+    <td>{{ o.match_status | match_label(o.match_confidence) }}</td></tr>{% endfor %}</table></div>
+    {% else %}<p class="muted">No confirmed matching listing in another store. We never merge products on weak evidence; uncertain candidates wait in the review queue.</p>{% endif %}
+    {% if l.match_reasons %}<p class="muted">Why matched: {{ l.match_reasons | join('; ') | plain_reason }}</p>{% endif %}
+  </div>
+</div>
+
+<aside>
+  <div class="card">
+    <h3 style="margin-top:0">Specs <span class="muted">(parsed from store text)</span></h3>
+    {% if l.specs %}<table>{% for k, v in l.specs.items() %}<tr><th>{{ k.replace('_', ' ') }}</th><td>{{ v }}</td></tr>{% endfor %}</table>
+    {% else %}<p class="muted">None stated.</p>{% endif %}
+    {% if l.rating %}<p class="muted">Store rating {{ l.rating }}/5{% if l.review_count %} from {{ l.review_count }} reviews{% endif %} (as shown by store)</p>{% endif %}
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3 style="margin-top:0">Watch this product</h3>
+    {% if watching %}<p>You are watching this.</p><form method="post" action="/watch/{{ l.id }}/remove"><button class="secondary">Stop watching</button></form>
+    {% else %}<form method="post" action="/watch/{{ l.id }}"><label>Alert me at or below ({{ l.currency }})<input name="target" type="number" step="0.01" min="0.01" placeholder="optional target price"></label><p><button>Watch</button></p></form>{% endif %}
+    <p class="muted">Alerts are shown in the watchlist; email/push delivery is not built yet.</p>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3 style="margin-top:0">Landed-cost estimate</h3>
+    <form method="get"><div class="row"><label>Destination (ISO, e.g. UG)<input name="dest" value="{{ dest }}" maxlength="2"></label><label>Shipping ({{ l.currency }})<input name="ship" type="number" step="0.01" min="0" value="{{ '' if ship is none else ship }}"></label></div>
+    <div class="row"><label>Insurance ({{ l.currency }})<input name="ins" type="number" step="0.01" min="0" value="{{ '' if ins is none else ins }}"></label><label>Handling/clearance ({{ l.currency }})<input name="hand" type="number" step="0.01" min="0" value="{{ '' if hand is none else hand }}"></label></div>
+    <label>Show total in (3-letter code, needs a recorded rate)<input name="to" value="{{ to }}" maxlength="3"></label>
+    <p><button class="secondary">Estimate</button></p></form>
+    {% if est %}{% if est.available %}
+      <div class="scroll" tabindex="0"><table>{% for x in est.lines %}<tr><td>{{ x.label }}<div class="muted">{{ x.basis }}</div></td><td>{{ x.amount_minor | money(est.currency) if x.amount_minor is not none else 'unknown' }}</td><td><span class="badge {{ 'ok' if x.evidence in ('verified','quoted','user-provided') else ('warn' if x.evidence == 'assumed' else 'bad') }}">{{ x.evidence }}</span></td></tr>{% endfor %}
+      <tr><th>Total{{ ' (lower bound)' if est.partial }}</th><th colspan="2">{{ est.total_minor | money(est.currency) }}</th></tr></table></div>
+      {% if est.missing_inputs %}<p class="warn-t">Missing inputs: {{ est.missing_inputs | join(', ') }}</p>{% endif %}
+      {% if est.converted %}<p>≈ {{ est.converted.total_minor | money(est.converted.currency) }} <span class="muted">at 1 {{ l.currency }} = {{ est.converted.rate }} {{ est.converted.currency }} · {{ est.converted.source }} · as of {{ est.converted.as_of.strftime('%Y-%m-%d') }}{{ ' · STALE' if est.converted.stale }}</span></p>{% endif %}
+      {% if est.fx_missing %}<p class="muted">{{ est.fx_missing }}</p>{% endif %}
+      <details><summary class="muted">Assumptions</summary><ul>{% for a in est.assumptions %}<li class="muted">{{ a }}</li>{% endfor %}{% for n in est.notes if n %}<li class="muted">{{ n }}</li>{% endfor %}</ul></details>
+    {% else %}<p>{{ est.reason }}</p>{% endif %}{% endif %}
+  </div>
+</aside>
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}{% from "_macros.html" import card, status_badges %}
+{% block title %}Home{% endblock %}
+{% block body %}
+<h1>Find the real price, not the advertised one.</h1>
+<p class="muted">Watchtower collects listings from permitted public sources, remembers every price it sees, and tells you how much evidence is behind each “deal”.</p>
+<form class="search" action="/search"><input name="q" placeholder="Search Raspberry Pi, Arduino, micro:bit, sensors…" aria-label="Search"><button>Search</button></form>
+<form class="search" action="/research" style="margin-top:10px"><input name="q" placeholder="Ask: cheapest Raspberry Pi Zero 2 W in stock…" aria-label="Ask the research assistant"><button class="secondary">Ask assistant</button></form>
+
+<h2>What we hold</h2>
+<div class="stats">
+  <div class="card stat"><b>{{ stats.real_listings }}</b>real-retailer listings</div>
+  <div class="card stat"><b>{{ stats.merchants }}</b>real merchants</div>
+  <div class="card stat"><b>{{ stats.compared_products }}</b>products compared across stores</div>
+  <div class="card stat"><b>{{ stats.observations }}</b>price observations</div>
+</div>
+<p class="muted">{{ stats.listings - stats.real_listings }} further listings come from demo catalogues or API sandboxes and are excluded from deals and default search once real data exists. {% if stats.multi_obs == 0 %}Every listing has a single observation, so no price movement can be shown yet.{% else %}{{ stats.multi_obs }} listings already have 2+ observations; a “verified” deal still needs {{ MIN_HISTORY_OBS }}+ collections over {{ MIN_HISTORY_SPAN_DAYS }}+ days.{% endif %}</p>
+
+{% if products %}<h2>Same product, different stores</h2>
+<div class="card scroll" tabindex="0"><table><tr><th>Product</th><th>Compare</th></tr>
+{% for p in products %}<tr><td>{{ p.title }}</td><td><a href="/product/{{ p.id }}">Compare merchants →</a></td></tr>{% endfor %}</table></div>{% endif %}
+
+<h2>Sources</h2>
+<div class="scroll" tabindex="0"><table><tr><th>Source</th><th>Data</th><th>Last success</th><th>Status</th></tr>
+{% for s in sources %}<tr><td>{{ s.name }}</td>
+<td>{% if s.kind == 'live' %}<span class="badge ok">Real retailer</span>{% elif s.kind == 'demo' %}<span class="badge warn">Demo catalogue</span>{% else %}<span class="badge warn">API sandbox</span>{% endif %}</td>
+<td>{{ s.last_success_at | dt }}</td>
+<td>{% if not s.last_success_at %}<span class="badge">never collected</span>{% elif stale[s.key] %}<span class="badge warn">stale</span>{% else %}<span class="badge ok">fresh</span>{% endif %} {{ s.last_status or '' }}</td></tr>{% endfor %}</table></div>
+
+<h2>{{ 'Lowest vs comparable listings' if live else 'Demo deals (test data)' }} <span class="muted">(estimates)</span></h2>
+{% if top %}<div class="grid">{% for l, d in top %}{{ card({'l': l, 'deal': d, 'pstatus': 'observed', 'fresh': 'fresh'}) }}{% endfor %}</div>
+<p><a class="cta-link" href="/deals">See how each score is built →</a></p>
+{% else %}<p class="muted">No scored listings yet{% if live %} — real listings need comparable peers before an estimate appears{% endif %}.</p>{% endif %}
+
+<h2>Recent changes detected</h2>
+{% if changes %}<div class="scroll" tabindex="0"><table><tr><th>When</th><th>Listing</th><th>Change</th></tr>
+{% for e in changes %}<tr><td>{{ e.detected_at | dt }}</td><td><a href="/listing/{{ e.listing_id }}">{{ e.listing.title }}</a></td>
+<td>{{ e.kind.replace('_',' ') }}{% if e.pct is not none %} ({{ '%+.1f' % e.pct }}%){% endif %}</td></tr>{% endfor %}</table></div>
+{% else %}<p class="muted">No price changes, restocks or removals have been observed yet.</p>{% endif %}
+{% endblock %}

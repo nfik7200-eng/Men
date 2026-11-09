@@ -1,0 +1,8 @@
+{
+ "_comment": "DISABLED BY DEFAULT. Nothing runs unless this file says enabled=true AND the environment sets WATCHTOWER_SCHEDULER_ENABLED=1, AND the source's policy gate passes (approved, current, robots-compliant, real WATCHTOWER_CONTACT). This file never installs a cron job or service; an operator may call `python -m watchtower.cli schedule run-due` from their own scheduler once they have approved doing so. See docs/SCHEDULING.md.",
+ "enabled": false,
+ "sources": {
+  "adafruit": {"min_interval_hours": 24, "max_pages": 60},
+  "sparkfun": {"min_interval_hours": 48, "max_pages": 40}
+ }
+}

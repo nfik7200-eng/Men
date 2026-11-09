@@ -1,0 +1,17 @@
+// Loading state: disable the submit button and say so, so slow pages (research, collection) are not double-submitted.
+document.addEventListener("submit", function (e) {
+  var f = e.target;
+  if (!(f instanceof HTMLFormElement)) return;
+  var sub = e.submitter;
+  if (sub && sub.dataset && sub.dataset.confirm && !window.confirm(sub.dataset.confirm)) { e.preventDefault(); return; }  // irreversible actions ask first
+  if (f.dataset.noBusy) return;
+  var b = sub || f.querySelector("button:not([type=button])");  // the button actually pressed, not the first one
+  if (b && !b.disabled) {
+    b.dataset.label = b.textContent;
+    setTimeout(function () { b.disabled = true; b.textContent = "Working…"; }, 0);
+  }
+});
+window.addEventListener("pageshow", function (e) {
+  if (!e.persisted) return;
+  document.querySelectorAll("button[data-label]").forEach(function (b) { b.disabled = false; b.textContent = b.dataset.label; });
+});

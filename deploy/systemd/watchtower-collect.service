@@ -1,0 +1,43 @@
+[Unit]
+Description=Watchtower scheduled collection (runs only if schedule.json AND WATCHTOWER_SCHEDULER_ENABLED=1 both opt in)
+Documentation=file:///opt/watchtower/current/docs/DEPLOYMENT.md
+ConditionPathExists=/etc/watchtower/watchtower.env
+
+[Service]
+Type=oneshot
+User=watchtower
+Group=watchtower
+WorkingDirectory=/opt/watchtower/current
+EnvironmentFile=/etc/watchtower/watchtower.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Gate 0: a real WATCHTOWER_CONTACT (the app's own contact_ok). A non-zero exit here SKIPS the run (unit not failed).
+ExecCondition=/opt/watchtower/current/.venv/bin/python -c "import sys; from watchtower import config; sys.exit(0 if config.contact_ok() else 1)"
+# Gates 1+2 are enforced inside run-due: data/schedule.json "enabled": true AND WATCHTOWER_SCHEDULER_ENABLED=1.
+# Every source additionally passes policy approval, robots.txt, budgets and rate limits inside the collector.
+ExecStart=/opt/watchtower/current/.venv/bin/python -m watchtower.cli schedule run-due --config /var/lib/watchtower/schedule.json
+TimeoutStartSec=6h
+Nice=10
+MemoryMax=1G
+TasksMax=64
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0027
+ReadWritePaths=/var/lib/watchtower

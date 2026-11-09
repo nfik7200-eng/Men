@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Deals{% endblock %}
+{% block body %}
+<h1>Deal radar</h1>
+{% if islands %}<div class="island-slot" data-island="deals" hidden><p class="state">Loading deals…</p></div>{% endif %}
+<div class="server-deals">
+{% if data in ('demo', 'all') or banner == 'demo' %}<div class="banner" role="note">This view includes demo/sandbox data. It is test data and is never mixed into the real-retailer ranking.</div>{% endif %}
+<p class="muted">Scores are explainable sums. A <b>Verified price drop</b> needs {{ MIN_HISTORY_OBS }}+ observations over {{ MIN_HISTORY_SPAN_DAYS }}+ days of our own history. Without that, the best we can say is “below typical price (estimate)” by comparing with similar listings — it is not proof of a discount.</p>
+<form class="search" style="grid-template-columns:1fr 1fr auto"><select name="data" aria-label="Data"><option value="" {{ 'selected' if not data }}>Default</option><option value="real" {{ 'selected' if data == 'real' }}>Real retailers</option><option value="demo" {{ 'selected' if data == 'demo' }}>Demo / sandbox</option><option value="all" {{ 'selected' if data == 'all' }}>Everything</option></select><select name="category" aria-label="Category"><option value="">All categories</option>{% for c, n in facets.categories %}<option value="{{ c }}" {{ 'selected' if category == c }}>{{ c }}</option>{% endfor %}</select><button>Filter</button></form>
+<div class="scroll card" tabindex="0" style="margin-top:14px"><table>
+<tr><th>Product</th><th>Price</th><th>Score</th><th>Label</th><th>Confidence</th><th>Why</th></tr>
+{% for l, d in top %}<tr><td><a href="/listing/{{ l.id }}">{{ l.title }}</a><div class="muted">{{ l.source.name }}</div></td>
+<td>{{ l.price_minor | money(l.currency) }}</td><td>{{ d.score }}</td><td>{{ d.label }}</td><td>{{ d.confidence }}</td>
+<td class="muted">{% for c in d.components if c.points > 0 %}{{ c.name.replace('_',' ') }} {{ c.points }} ({{ c.evidence }}): {{ c.detail }}<br>{% endfor %}</td></tr>
+{% else %}<tr><td colspan="6">No scored listings yet.</td></tr>{% endfor %}</table></div>
+</div>
+{% endblock %}

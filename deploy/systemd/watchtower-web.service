@@ -1,0 +1,53 @@
+[Unit]
+Description=Watchtower web app (uvicorn, 127.0.0.1 only; TLS terminates in nginx)
+Documentation=file:///opt/watchtower/current/docs/DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/watchtower/watchtower.env
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=watchtower
+Group=watchtower
+WorkingDirectory=/opt/watchtower/current
+EnvironmentFile=/etc/watchtower/watchtower.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+# Refuses to start while the env file has YOUR_* placeholders or a weak admin token.
+ExecStartPre=/opt/watchtower/current/deploy/check-env.sh
+# One worker on purpose: the rate limiter is in-process and the DB is SQLite. --no-proxy-headers: the app does its own
+# rightmost-X-Forwarded-For handling when WATCHTOWER_TRUST_PROXY=1 (single mechanism, no double rewriting).
+ExecStart=/opt/watchtower/current/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --no-proxy-headers --no-server-header
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=2G
+TasksMax=256
+LimitNOFILE=4096
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+UMask=0027
+ReadWritePaths=/var/lib/watchtower
+
+[Install]
+WantedBy=multi-user.target

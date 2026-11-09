@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Sources{% endblock %}
+{% block body %}
+<h1>Sources &amp; collection</h1>
+{% if msg %}<div class="banner" role="status">{{ msg }}</div>{% endif %}
+{% for k, why in collect_errors.items() %}<div class="banner" role="alert">Last manual collection of <b>{{ k }}</b> was refused or failed: {{ why }}</div>{% endfor %}
+<form method="post" action="/admin/logout" style="margin:0 0 12px"><button class="secondary">Sign out</button></form>
+{% if islands %}<div class="island-slot" data-island="admin-settings" hidden><p class="state">Loading source settings…</p></div>{% endif %}
+<div class="scroll card" tabindex="0"><table>
+<tr><th>Source</th><th>Kind</th><th>Enabled</th><th>Last success</th><th>Last status</th><th>Terms / robots note</th><th>Actions</th></tr>
+{% for s in sources %}<tr><td>{{ s.name }}<div class="muted">{{ s.key }}</div></td><td>{{ s.kind }}</td><td>{{ "yes" if s.enabled else "DISABLED" }}</td><td>{{ s.last_success_at | dt }}</td>
+<td>{% if not ready[s.key][0] %}<span class="badge warn">not configured: needs {{ ready[s.key][1] | join(', ') }}</span><br>{% endif %}{{ s.last_status or '—' }}{% if s.last_error %}<div class="bad-t muted">{{ s.last_error[:160] }}</div>{% endif %}</td><td class="muted">{{ s.terms_note }}</td>
+<td><div style="display:flex;gap:6px;flex-wrap:wrap"><form method="post" action="/admin/collect/{{ s.key }}"><button {{ 'disabled' if (s.key in running or not s.enabled or not ready[s.key][0]) }}>{{ 'Running…' if s.key in running else 'Collect now' }}</button></form>
+<form method="post" action="/admin/source/{{ s.key }}/{{ 'disable' if s.enabled else 'enable' }}" data-no-busy="1"><button class="secondary">{{ 'Disable' if s.enabled else 'Enable' }}</button></form></div></td></tr>{% endfor %}</table></div>
+
+<h2>Collection health &amp; compliance</h2>
+<div class="scroll card" tabindex="0"><table>
+<tr><th>Source</th><th>State</th><th>Last 10 runs</th><th>Throughput</th><th>Listings / obs</th><th>Policy</th></tr>
+{% for s in sources %}{% set h = health[s.key] %}{% set p = policies.get(s.key) %}<tr>
+<td>{{ s.name }}</td>
+<td><span class="badge {{ 'ok' if h.state == 'healthy' else ('bad' if h.state in ('blocked',) else 'warn') }}">{{ h.state }}</span>{% if h.hours_since_success is not none %}<div class="muted">{{ '%.1f' % h.hours_since_success }} h since success</div>{% endif %}</td>
+<td>{{ h.runs }} runs · ok {{ ('%d%%' % (h.ok_rate * 100)) if h.ok_rate is not none else '—' }} · failed {{ h.failed }} · blocked {{ h.blocked }}</td>
+<td>{{ ('%.1f pages/min' % h.pages_per_min) if h.pages_per_min else '—' }}<div class="muted">{{ ('%.0f items/run' % h.items_per_run) if h.items_per_run else '' }}{% if h.invalid_rate %} · invalid {{ '%.1f' % (h.invalid_rate * 100) }}%{% endif %}</div></td>
+<td>{{ h.listings }} / {{ h.observations }}</td>
+<td>{% if s.kind in ('demo', 'sandbox') %}<span class="muted">not required ({{ s.kind }})</span>{% elif p %}<span class="badge {{ 'ok' if p.status == 'approved' else 'bad' }}">{{ p.status }}</span><div class="muted">reviewed {{ p.reviewed_at | dt }}{% if p.crawl_delay_s %} · crawl-delay {{ p.crawl_delay_s | int }}s{% endif %}</div>{% else %}<span class="badge bad">no policy</span>{% endif %}</td>
+</tr>{% endfor %}</table></div>
+
+<h2>Recent runs</h2>
+<div class="scroll card" tabindex="0"><table><tr><th>#</th><th>Started</th><th>Status</th><th>Pages</th><th>Seen</th><th>New</th><th>Unchanged</th><th>Invalid</th><th>Price changes</th><th>Secs</th><th>Complete</th></tr>
+{% for r in runs %}<tr><td>{{ r.id }}</td><td>{{ r.started_at | dt }}</td><td>{{ r.status }}</td><td>{{ r.pages_fetched }}</td><td>{{ r.items_seen }}</td><td>{{ r.items_new }}</td><td>{{ r.pages_unchanged or 0 }}</td><td>{{ r.items_invalid }}</td><td>{{ r.price_changes }}</td><td>{{ r.duration_s or '—' }}</td><td>{{ 'yes' if r.complete else 'no (removals not inferred)' }}</td></tr>{% endfor %}</table></div>
+
+<h2>Budgets &amp; schedule</h2>
+<div class="card">
+  <p class="muted">Read-only: settings are changed in <code>data/schedule.json</code> and the environment, never from this page.</p>
+  <p>Scheduler: <span class="badge {{ 'ok' if scheduler.enabled and scheduler.env else 'warn' }}">{{ 'enabled' if scheduler.enabled and scheduler.env else 'disabled' }}</span>
+    <span class="muted">(<code>data/schedule.json</code> enabled = {{ scheduler.enabled }}; <code>WATCHTOWER_SCHEDULER_ENABLED</code> {{ 'set' if scheduler.env else 'not set' }}; both are required, and every run still passes the source policy gate)</span></p>
+  {% if scheduler.error %}<p class="bad-t">Schedule file problem: {{ scheduler.error }}</p>{% endif %}
+  <div class="scroll" tabindex="0"><table><tr><th>Source</th><th>Page budget per run</th><th>Scheduled interval</th><th>Policy review due</th></tr>
+  {% for b in budgets %}{% set sc = scheduler.sources.get(b.key) %}{% set p = policies.get(b.key) %}<tr><td>{{ b.name }}</td>
+    <td>{{ b.effective }} pages <span class="muted">(adapter default {{ b.default }}; ceiling {{ scheduler.ceiling }})</span></td>
+    <td>{% if sc %}at least every {{ sc.min_interval_hours | int }} h, up to {{ sc.max_pages }} pages{% else %}<span class="muted">not scheduled</span>{% endif %}</td>
+    <td>{% if p and p.review_due_at %}{{ p.review_due_at | dt }}{% else %}<span class="muted">—</span>{% endif %}</td></tr>{% endfor %}</table></div>
+</div>
+
+<h2>Match review queue</h2>
+{% if islands %}<div class="island-slot" data-island="match-review" hidden><p class="state">Loading the review queue…</p></div>{% endif %}
+<div class="server-match">
+{% for c in queue %}{% set sb = sidebyside[c.id] %}<div class="card" style="margin-bottom:10px">
+  <p class="muted">Confidence {{ '%.2f' % c.score }} · {{ c.reasons | join('; ') | plain_reason }}</p>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
+    <div><b>Candidate listing</b>
+      <div><a href="/listing/{{ c.listing.id }}">{{ c.listing.title }}</a></div>
+      <div class="muted">{{ c.listing.source.name }} · {{ c.listing.price_minor | money(c.listing.currency) }} · {{ c.listing.availability.replace('_', ' ') }}</div>
+      <div class="muted" style="word-break:break-all">{{ c.listing.url }}</div>
+      {% for k in sb.spec_keys %}<div class="{{ 'warn-t' if k in sb.differing }}">{{ k.replace('_', ' ') }}: {{ (c.listing.specs or {}).get(k, '—') }}</div>{% endfor %}</div>
+    <div><b>Possible counterpart</b>
+      {% for m in sb.members %}<div style="margin-bottom:8px"><div><a href="/listing/{{ m.id }}">{{ m.title }}</a></div>
+        <div class="muted">{{ m.source.name }} · {{ m.price_minor | money(m.currency) }} · {{ m.availability.replace('_', ' ') }}</div>
+        <div class="muted" style="word-break:break-all">{{ m.url }}</div>
+        {% for k in sb.spec_keys %}<div class="{{ 'warn-t' if k in sb.differing }}">{{ k.replace('_', ' ') }}: {{ (m.specs or {}).get(k, '—') }}</div>{% endfor %}</div>
+      {% else %}<div class="muted">{{ c.product.title }}</div>{% endfor %}</div>
+  </div>
+  {% if sb.differing %}<p class="warn-t">Different spec values: {{ sb.differing | join(', ') | replace('_', ' ') }}</p>{% endif %}
+  <form method="post" style="display:flex;gap:8px">
+    <button formaction="/admin/match/{{ c.id }}/accept" data-confirm="Merge these listings into one product? This changes how prices are compared.">Same product — merge</button>
+    <button class="secondary" formaction="/admin/match/{{ c.id }}/reject">Different products</button></form>
+</div>{% else %}<div class="card muted">No uncertain matches awaiting review.</div>{% endfor %}
+</div>
+<h2>Recently decided</h2>
+<div class="scroll card" tabindex="0"><table><tr><th>When</th><th>Decision</th><th>By</th><th>Listings compared</th></tr>
+{% for d in decided %}<tr><td>{{ d.decided_at | dt }}</td><td>{{ d.status }}</td><td>{{ d.decided_by or '—' }}</td>
+<td class="muted">{% if d.evidence %}{% for t in d.evidence.titles %}{{ t.title }} ({{ t.source }}){{ ' vs ' if not loop.last }}{% endfor %}{% else %}—{% endif %}{% if d.decision_note %}<div>{{ d.decision_note }}</div>{% endif %}</td></tr>
+{% else %}<tr><td colspan="4" class="muted">No review decisions recorded yet.</td></tr>{% endfor %}</table></div>
+<p class="muted">Affiliate clicks recorded: {{ clicks }}</p>
+{% endblock %}

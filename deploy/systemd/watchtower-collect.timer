@@ -1,0 +1,14 @@
+# SHIPPED DISABLED. install.sh never enables this timer. Enable it only after the checklist in docs/DEPLOYMENT.md:
+#   systemctl enable --now watchtower-collect.timer
+[Unit]
+Description=Watchtower scheduled collection trigger (disabled until the operator opts in)
+
+[Timer]
+OnCalendar=*-*-* 05:15:00
+RandomizedDelaySec=30min
+# Persistent=false on purpose: after downtime do not fire a catch-up run at the merchants.
+Persistent=false
+Unit=watchtower-collect.service
+
+[Install]
+WantedBy=timers.target

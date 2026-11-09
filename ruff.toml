@@ -1,0 +1,10 @@
+# Project lint gate: errors and pyflakes only (style opinions such as ambiguous names `l` are deliberate here).
+line-length = 160
+exclude = [".venv", ".venv-ml", "models", "data", "node_modules"]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E741", "E731", "E701", "E702"]  # short loop names / one-line lambdas and guards are the house style
+
+[lint.per-file-ignores]
+"tests/*" = ["F401", "F811", "E402"]  # pytest fixtures are imported from sibling test modules
