@@ -297,7 +297,9 @@ def _drop_product_if_empty(s: Session, pid: int | None, keep_listing_id: int) ->
         s.delete(p)
 
 
-def _members(s: Session, pid: int) -> list[Listing]:
+def _members(s: Session, pid: int | None) -> list[Listing]:
+    if pid is None:  # no product means no members; `product_id == None` would match every unmatched listing
+        return []
     return list(s.scalars(select(Listing).where(Listing.product_id == pid, Listing.active.is_(True))))
 
 
@@ -316,7 +318,9 @@ def _under_review(s: Session, l: Listing) -> bool:
                                                             MatchCandidate.listing_id != l.id)))
 
 
-def _queue(s: Session, listing: Listing, product_id: int, score: float, reasons: list[str]) -> None:
+def _queue(s: Session, listing: Listing, product_id: int | None, score: float | None, reasons: list[str]) -> None:
+    if product_id is None or score is None:  # a question needs a target product and a score; without them there is nothing to ask
+        return
     if s.scalar(select(MatchCandidate.id).where(MatchCandidate.listing_id == listing.id, MatchCandidate.product_id == product_id)):
         return
     if _reverse_pending(s, listing, product_id):
@@ -488,7 +492,7 @@ def revalidate_auto(s: Session) -> int:
 def rematch_all(s: Session) -> dict:
     """Re-run matching for every listing not yet matched or confirmed (after matcher/identifier changes). Rejected
     pairs are never re-queued or auto-merged (enforced inside attach_or_queue). Returns counts."""
-    out = {"revalidated_demoted": revalidate_auto(s), "checked": 0, "auto": 0, "review": 0, "demoted": 0}
+    out: dict = {"revalidated_demoted": revalidate_auto(s), "checked": 0, "auto": 0, "review": 0, "demoted": 0}  # counts + the nested prune summary
     out.update(prune_candidates(s))
     for l in s.scalars(select(Listing).where(Listing.match_status.in_(("self", "review")), Listing.active.is_(True)).order_by(Listing.id)).all():
         out["checked"] += 1
@@ -526,7 +530,8 @@ def prune_candidates(s: Session) -> dict:
         if (c.product_id, c.listing.product_id) in kept:  # exact mirror of a kept question
             s.delete(c); out["candidates_dropped"] += 1
         else:
-            kept.add((c.listing.product_id, c.product_id))
+            if c.listing.product_id is not None:
+                kept.add((c.listing.product_id, c.product_id))
     s.flush()
     for l in s.scalars(select(Listing).where(Listing.match_status == "review", Listing.active.is_(True))).all():
         if not _under_review(s, l):
