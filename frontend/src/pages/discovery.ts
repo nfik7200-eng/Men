@@ -119,6 +119,8 @@ function searchForm(p: Params, onSearch: (next: Params) => void): HTMLFormElemen
       h('option', { value: 'demo' }, 'Demo / sandbox'),
       h('option', { value: 'all' }, 'Everything')),
     h('select', { name: 'currency', 'aria-label': 'Currency' }, h('option', { value: '' }, 'Any currency')),
+    h('input', { type: 'number', name: 'min_price', min: '0', step: 'any', inputmode: 'decimal', placeholder: 'Min price', 'aria-label': 'Minimum price (needs a currency)' }),
+    h('input', { type: 'number', name: 'max_price', min: '0', step: 'any', inputmode: 'decimal', placeholder: 'Max price', 'aria-label': 'Maximum price (needs a currency)' }),
     h('label', { class: 'small' }, h('input', { type: 'checkbox', name: 'in_stock' }), ' In stock only'),
     h('button', { type: 'submit' }, 'Apply'),
   );
@@ -128,22 +130,39 @@ function searchForm(p: Params, onSearch: (next: Params) => void): HTMLFormElemen
     const d = new FormData(f);
     const data = String(d.get('data'));
     const currency = String(d.get('currency') ?? '');
-    // A price limit was set for one currency. Choosing a different one must not carry that number over to the other
-    // currency: it is dropped, and the page says so.
-    const limitSet = p.min_price !== undefined || p.max_price !== undefined;
-    const dropped = limitSet && currency !== (p.currency ?? '');
-    onSearch({
-      ...p,
-      notice: dropped ? 'That price limit was set for another currency and was not applied.' : undefined,
-      min_price: dropped ? undefined : p.min_price,
-      max_price: dropped ? undefined : p.max_price,
-      currency,
+    const typedMin = String(d.get('min_price') ?? '').trim();
+    const typedMax = String(d.get('max_price') ?? '').trim();
+    const hasLimit = typedMin !== '' || typedMax !== '';
+    // Prefilled fields hold the limit that is already applied. A value that differs from it was typed by the person now.
+    const typedNow = typedMin !== (f.dataset.prefillMin ?? '') || typedMax !== (f.dataset.prefillMax ?? '');
+    const base = {
       q: String(d.get('q') ?? '').trim(),
       sort: String(d.get('sort')),
-      data: data === 'demo' || data === 'all' ? data : 'real',
+      data: (data === 'demo' || data === 'all' ? data : 'real') as Params['data'],
       in_stock: d.get('in_stock') === 'on',
       page: 1,
-    });
+      currency,
+    };
+    const numeric = (text: string): number | undefined => (text === '' ? undefined : Number(text));
+    let next: Params;
+    let refused = false;
+    if (hasLimit && !currency) {
+      // A price limit compares amounts: it needs one currency. The typed values stay in the fields for the next try.
+      refused = true;
+      next = { ...base, notice: 'Choose a currency to use a price limit. The price limit was not applied.', min_price: undefined, max_price: undefined };
+    } else if (hasLimit && !typedNow && currency !== (f.dataset.limitCurrency ?? '')) {
+      // A limit that came from this page's own link belongs to its currency. Switching currency must not carry it over.
+      next = { ...base, notice: 'That price limit was set for another currency and was not applied.', min_price: undefined, max_price: undefined };
+    } else {
+      next = { ...base, min_price: numeric(typedMin), max_price: numeric(typedMax) };
+    }
+    onSearch(next);
+    fillForm(f, next);
+    if (refused) {
+      const min = f.elements.namedItem('min_price'), max = f.elements.namedItem('max_price');
+      if (min instanceof HTMLInputElement) min.value = typedMin;
+      if (max instanceof HTMLInputElement) max.value = typedMax;
+    }
   });
   return f;
 }
@@ -165,6 +184,11 @@ function fillForm(f: HTMLFormElement, p: Params): void {
   set('sort', p.sort ?? 'price_asc');
   set('data', p.data);
   set('currency', p.currency ?? '');
+  set('min_price', p.min_price === undefined ? '' : String(p.min_price));
+  set('max_price', p.max_price === undefined ? '' : String(p.max_price));
+  f.dataset.limitCurrency = p.currency ?? '';   // the currency the applied limit belongs to
+  f.dataset.prefillMin = p.min_price === undefined ? '' : String(p.min_price);
+  f.dataset.prefillMax = p.max_price === undefined ? '' : String(p.max_price);
   const stock = f.elements.namedItem('in_stock');
   if (stock instanceof HTMLInputElement) stock.checked = Boolean(p.in_stock);
 }

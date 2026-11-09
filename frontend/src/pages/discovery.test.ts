@@ -122,6 +122,27 @@ describe('browse listings island', () => {
     expect(f).toHaveBeenCalledTimes(1);                    // ... runs one search, not one per mount
   });
 
+  it('sends a typed price limit only with a chosen currency', async () => {
+    window.history.replaceState(null, '', '/search');
+    const f = vi.fn(async (_u: RequestInfo | URL) => ok({ total: 1, page: 1, items: [listing()], currencies: ['JPY', 'USD'] }));
+    vi.stubGlobal('fetch', f);
+    mountDiscovery(root);
+    await flush(); await flush();
+    const form = root.querySelector<HTMLFormElement>('form');
+    const max = form?.elements.namedItem('max_price') as HTMLInputElement | null;
+    const cur = form?.elements.namedItem('currency') as HTMLSelectElement | null;
+    if (max) max.value = '15';
+    form?.dispatchEvent(new Event('submit', { cancelable: true }));           // no currency chosen
+    await flush(); await flush();
+    expect(String(f.mock.calls.at(-1)?.[0])).not.toContain('max_price');
+    expect(root.textContent).toContain('Choose a currency to use a price limit.');
+    if (cur) cur.value = 'USD';
+    form?.dispatchEvent(new Event('submit', { cancelable: true }));           // now with a currency
+    await flush(); await flush();
+    expect(String(f.mock.calls.at(-1)?.[0])).toContain('currency=USD');
+    expect(String(f.mock.calls.at(-1)?.[0])).toContain('max_price=15');
+  });
+
   it('offers no next page beyond the last one', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok(page([listing()], 1))));
     mountDiscovery(root);
