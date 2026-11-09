@@ -13,6 +13,13 @@ EVIL = {"Origin": "https://evil.example"}
 SAME = {"Origin": "http://testserver"}
 
 
+def _empty_db():
+    from watchtower.db import Database
+    d = Database("sqlite:///:memory:")
+    d.init()
+    return d
+
+
 @pytest.fixture
 def token(monkeypatch):
     monkeypatch.setattr(config, "ADMIN_TOKEN", TOKEN)
@@ -94,3 +101,21 @@ def test_responses_carry_the_security_headers(web):
     assert r.headers["x-content-type-options"] == "nosniff"
     sign_in = client.get("/admin/login")
     assert sign_in.headers["cache-control"] == "no-store"  # the sign-in page must never be cached
+
+
+def test_the_admin_session_is_scoped_to_the_admin_pages_and_their_json_only(token):
+    client = TestClient(create_app(_empty_db()), base_url="http://testserver")
+    login = client.post("/admin/login", data={"token": TOKEN}, headers={"Origin": "http://testserver"}, follow_redirects=False)
+    cookies = [c for c in login.headers.get_list("set-cookie") if c.startswith("wt_admin=")]
+    import re
+    paths = {re.search(r"[Pp]ath=([^;]+)", c).group(1) for c in cookies}
+    assert paths == {"/admin", "/api/v1/match-candidates", "/api/v1/admin"}     # never the public pages
+    assert all("httponly" in c.lower() and "samesite=strict" in c.lower() for c in cookies)
+
+
+def test_the_admin_json_accepts_the_admin_session_cookie_from_the_same_site(token):
+    db = _empty_db()
+    client = TestClient(create_app(db), base_url="http://testserver")
+    assert client.post("/admin/login", data={"token": TOKEN}, headers={"Origin": "http://testserver"}, follow_redirects=False).status_code == 303
+    assert client.get("/api/v1/match-candidates", headers={"Origin": "http://testserver"}).status_code == 200
+    assert client.get("/api/v1/match-candidates").status_code == 200   # the cookie is sent on same-site requests

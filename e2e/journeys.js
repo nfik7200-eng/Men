@@ -103,7 +103,12 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
     await Promise.all([page.waitForNavigation(), page.click('button')]);
     body = await page.textContent('body');
     check(`${label}: admin shows budgets and disabled scheduler`, body.includes('Budgets') && body.includes('disabled'));
-    const mergeBtn = await page.$('button[data-confirm]');
+    // populated review queue: the interactive island shows the pending matches and hides the server queue
+    await page.waitForSelector('.match-card, .state', { timeout: 8000 }).catch(() => {});
+    check(`${label}: match-review island renders the pending questions`, (await page.$$('.match-card')).length > 0);
+    check(`${label}: server match queue is hidden once the island runs`, (await page.$eval('.server-match', e => e.hidden).catch(() => false)) === true);
+    check(`${label}: no horizontal overflow on the admin page`, (await overflow(page)) === 0);
+    const mergeBtn = await page.$('.match-card button:has-text("Same product"), button[data-confirm]:visible');
     if (mergeBtn) {
       let asked = null;
       page.once('dialog', d => { asked = d.message(); d.dismiss(); });

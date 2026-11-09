@@ -1,6 +1,6 @@
 import type {
   CoverageResponse, DealsResponse, EventsResponse, HistoryResponse, ListingPage,
-  Listing, ResearchResponse, SourcesResponse, WatchlistResponse,
+  Listing, MatchCandidatesResponse, ResearchResponse, SourcesResponse, WatchlistResponse,
 } from './types';
 
 /** A failure the UI can show in words: what went wrong and what the person can do about it. */
@@ -86,6 +86,9 @@ export interface ListingQuery {
 }
 
 export const api = {
+  matchCandidates: (signal?: AbortSignal) => getJson<MatchCandidatesResponse>('/api/v1/match-candidates', signal),
+  matchDecide: (candidateId: number, decision: 'accept' | 'reject') =>
+    sendJson<{ id: number; decision: string }>(`/api/v1/match-candidates/${encodeURIComponent(String(candidateId))}/decision`, 'POST', { decision }),
   watchlist: (signal?: AbortSignal) => getJson<WatchlistResponse>('/api/v1/watchlist', signal),
   /** targetPrice is in MAJOR units of the listing's currency, or null to clear it. */
   watchSet: (listingId: number, targetPrice: number | null) =>

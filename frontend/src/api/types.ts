@@ -177,3 +177,28 @@ export interface WatchlistResponse {
   limit: number;
   items: WatchItem[];
 }
+
+export interface MatchSide {
+  id: number;
+  title: string;
+  source: string;
+  currency: string;
+  price_minor: number | null;
+  availability: string;
+  specs: Record<string, unknown>;
+}
+
+/** A question for a person: is the listing the same product as these members? The score is evidence, not a decision. */
+export interface MatchCandidate {
+  id: number;
+  score: number;
+  reasons: string[];
+  listing: MatchSide;
+  members: MatchSide[];
+  spec_keys: string[];
+  differing: string[];
+}
+
+export interface MatchCandidatesResponse {
+  items: MatchCandidate[];
+}

@@ -42,6 +42,8 @@
 </div>
 
 <h2>Match review queue</h2>
+{% if islands %}<div class="island-slot" data-island="match-review" hidden><p class="state">Loading the review queue…</p></div>{% endif %}
+<div class="server-match">
 {% for c in queue %}{% set sb = sidebyside[c.id] %}<div class="card" style="margin-bottom:10px">
   <p class="muted">Confidence {{ '%.2f' % c.score }} · {{ c.reasons | join('; ') | plain_reason }}</p>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
@@ -62,7 +64,7 @@
     <button formaction="/admin/match/{{ c.id }}/accept" data-confirm="Merge these listings into one product? This changes how prices are compared.">Same product — merge</button>
     <button class="secondary" formaction="/admin/match/{{ c.id }}/reject">Different products</button></form>
 </div>{% else %}<div class="card muted">No uncertain matches awaiting review.</div>{% endfor %}
-
+</div>
 <h2>Recently decided</h2>
 <div class="scroll card"><table><tr><th>When</th><th>Decision</th><th>By</th><th>Listings compared</th></tr>
 {% for d in decided %}<tr><td>{{ d.decided_at | dt }}</td><td>{{ d.status }}</td><td>{{ d.decided_by or '—' }}</td>

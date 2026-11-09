@@ -100,3 +100,6 @@ Watchlists are keyed to a browser cookie, not an account. The API refuses writes
 
 ## One currency source
 `watchtower/currency_exponents.json` holds the zero- and three-decimal ISO 4217 codes. Python reads it (`watchtower/currency.py`). `scripts/gen_currency_table.py` generates `frontend/src/lib/currencyExponents.generated.ts` from it; `--check` fails when the committed file is stale, and a test runs that check. Edit the JSON, then regenerate.
+
+## Admin session cookie scope for the review island
+The admin session cookie was scoped to `/admin` only, so the admin JSON that the match-review island calls never received it, and every island request was refused. Sign-in now sets the same signed, HttpOnly, SameSite=strict cookie for three narrow paths: `/admin`, `/api/v1/match-candidates` and `/api/v1/admin`. Sign-out clears all three. The cookie is still never sent to public pages. Tests check the scope and that same-site admin JSON accepts it.

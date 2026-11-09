@@ -66,6 +66,10 @@ def plain_reason(text: str) -> str:
 COVERAGE_TTL_S = 30  # seconds the public coverage report is reused
 
 
+# Paths the admin session cookie is scoped to: the admin pages, and the admin JSON that the review island calls.
+ADMIN_COOKIE_PATHS = ("/admin", "/api/v1/match-candidates", "/api/v1/admin")
+
+
 def create_app(db: Database | None = None) -> FastAPI:
     db = db or Database()
     db.init()
@@ -360,14 +364,19 @@ def create_app(db: Database | None = None) -> FastAPI:
         if not security.token_ok(token):
             return RedirectResponse("/admin/login?err=1", status_code=303)
         r = RedirectResponse("/admin", status_code=303)
-        r.set_cookie(security.COOKIE_ADMIN, security.admin_cookie_value(config.ADMIN_TOKEN), max_age=8 * 3600, httponly=True,
-                     samesite="strict", path="/admin", secure=request.url.scheme == "https" or config.COOKIE_SECURE)
+        value = security.admin_cookie_value(config.ADMIN_TOKEN)
+        # The same signed session is sent to the admin pages and to the two admin JSON prefixes the review island uses.
+        # Each path is narrow: the cookie is still never sent to the public pages.
+        for path in ADMIN_COOKIE_PATHS:
+            r.set_cookie(security.COOKIE_ADMIN, value, max_age=8 * 3600, httponly=True, samesite="strict", path=path,
+                         secure=request.url.scheme == "https" or config.COOKIE_SECURE)
         return r
 
     @app.post("/admin/logout")
     def logout():
         r = RedirectResponse("/admin/login", status_code=303)
-        r.delete_cookie(security.COOKIE_ADMIN, path="/admin")
+        for path in ADMIN_COOKIE_PATHS:
+            r.delete_cookie(security.COOKIE_ADMIN, path=path)
         return r
 
     def queue_rows(s):
@@ -402,7 +411,7 @@ def create_app(db: Database | None = None) -> FastAPI:
                       runs=s.scalars(select(CollectionRun).order_by(CollectionRun.id.desc()).limit(10)).all(),
                       queue=queue_rows(s),
                       clicks=s.scalar(select(func.count()).select_from(AffiliateClick)), running=sorted(_running),
-                      msg=msg, collect_errors=dict(collect_errors), banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()},
+                      msg=msg, islands=True, collect_errors=dict(collect_errors), banner=banner(s), ready={k: a.configured() for k, a in ADAPTERS.items()},
                       health={x.key: source_health(s, x) for x in s.scalars(select(Source))},
                       policies={p.source.key: p for p in s.scalars(select(SourcePolicy).options(joinedload(SourcePolicy.source)))},
                       budgets=budget_rows(), scheduler=scheduler_status(), sidebyside={c.id: side_by_side(s, c) for c in queue_rows(s)},

@@ -33,3 +33,6 @@ and the earlier suites). No live system, no live merchant, no real database was 
 - Confirm `WATCHTOWER_TRUST_PROXY` and `WATCHTOWER_COOKIE_SECURE` in the real environment file (deployment step, owner approval).
 - Run a dependency audit (`pip-audit` against the lock file) on a machine with network access.
 - Test the nginx configuration on the real host.
+
+## Round addendum: the admin cookie is now sent to the admin JSON it needs
+The admin session cookie is scoped to three narrow paths (the admin pages, `/api/v1/match-candidates`, `/api/v1/admin`), up from one. It stays HttpOnly, SameSite=strict and HMAC-signed, and the admin JSON still requires it. Tests in `tests/test_security_review_round.py` pin the scope.
