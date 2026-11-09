@@ -94,3 +94,9 @@ The owner cookie is set on page visits, not on `/api/` responses. A watchlist wr
 
 ## Owner identity and the watchlist API
 Watchlists are keyed to a browser cookie, not an account. The API refuses writes without that cookie (401) and never accepts an owner id from the request body.
+
+## Verified deals need eight days of history
+`config.MIN_HISTORY_SPAN_DAYS` is 8 (was 7). The owner's requirement is eight days, so a drop observed over less time cannot be labelled verified. Regression tests use synthetic history. `CLAUDE.md` still says "7+ days": aligning that line is an owner decision and is not changed here.
+
+## One currency source
+`watchtower/currency_exponents.json` holds the zero- and three-decimal ISO 4217 codes. Python reads it (`watchtower/currency.py`). `scripts/gen_currency_table.py` generates `frontend/src/lib/currencyExponents.generated.ts` from it; `--check` fails when the committed file is stale, and a test runs that check. Edit the JSON, then regenerate.

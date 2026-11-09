@@ -2,11 +2,9 @@
 
 const CURRENCY_LOCALE = 'en-US';
 
-// Minor-unit exponents for ISO 4217 currencies that differ from the usual two decimals. Any other code is assumed to
-// have two; if that is wrong, the amount would be off by a power of ten, so the list covers the currencies we handle.
-// Same lists as watchtower/currency.py (keep them identical; a test on each side pins the values).
-const ZERO_DECIMAL = new Set(['BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']);
-const THREE_DECIMAL = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
+// Minor-unit exponents come from the single source (watchtower/currency_exponents.json), generated into this module.
+// Any other code is assumed to have two decimals.
+import { ZERO_DECIMAL, THREE_DECIMAL } from './currencyExponents.generated';
 
 export function minorUnitDigits(currency: string): number {
   if (ZERO_DECIMAL.has(currency)) return 0;

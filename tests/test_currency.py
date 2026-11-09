@@ -103,3 +103,12 @@ def test_a_third_decimal_is_kept_for_three_decimal_currencies():
 def test_more_precision_than_the_currency_has_is_refused_not_rounded():
     assert parse_money("USD 12.345") is None             # two-decimal currency: refuse rather than invent a digit
     assert parse_money("JPY 1000.5") is None             # zero-decimal currency: a fraction is not a price
+
+
+def test_the_frontend_currency_module_is_generated_from_the_single_source():
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    r = subprocess.run([sys.executable, str(root / "scripts" / "gen_currency_table.py"), "--check"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr  # a hand-edited or stale generated file fails here
