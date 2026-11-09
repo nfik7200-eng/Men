@@ -19,6 +19,9 @@ The server pages stay complete and usable without JavaScript.
 | `coverage` | `/coverage` | `GET /api/v1/coverage` | discovered ≠ collected; unknown rates shown as unknown, never 0% |
 | `deals` | `/deals` | `GET /api/v1/deals` | server score, label and evidence shown as sent; a missing price is "Price not stated"; unscored is "Not scored" |
 | `discovery` | `/search` | `GET /api/v1/listings` with `data=real\|demo\|all` | real retailers by default; demo rows labelled and shown only when asked; URL holds the search state; prices never converted |
+| `watchlist` | `/watchlist` | `GET`/`POST`/`DELETE /api/v1/watchlist` | owner-cookie scoped; targets in major units of the listing's currency; a failed save says so |
+| `match-review` | `/admin` | `GET /api/v1/match-candidates`, `POST .../decision` | admin token or session; a merge asks first; signed-out visitors are told to sign in |
+| `admin-settings` | `/admin` (beside the server table) | `GET /api/v1/admin/settings`, `POST /api/v1/admin/sources/{key}/enabled` | strict boolean switch; the state shown is the one the server stored; scheduled collection is read-only; the server table keeps the collection actions |
 
 The JSON listings endpoint takes `data`. Omitting it keeps the old behaviour (every source), so existing API callers
 are unchanged. The island always sends it, so a real-data view never shows demo or sandbox rows.
@@ -28,10 +31,8 @@ Each needs backend work first. None is faked with fixtures.
 
 | Interface | Needed backend | Why it is blocked today |
 |---|---|---|
-| Watchlists (create/manage, changes) | Server page `/watchlist` exists (HTML forms). **JSON endpoints also exist:** `GET /api/v1/watchlist`, `POST /api/v1/watchlist` (`listing_id`, `target_price` in the listing's currency), `DELETE /api/v1/watchlist/{listing_id}`. They need the browser's owner cookie (open any page first; otherwise 401). Origin-checked for writes. | Island not built (server page works) |
-| Product matching review (approve/reject) | Server queue on `/admin` exists (HTML forms). **JSON endpoints also exist:** `GET /api/v1/match-candidates`, `POST /api/v1/match-candidates/{id}/decision` (`accept` or `reject`). Admin token required. | Island not built (server page works) |
-| Admin settings / source status | Server page `/admin` exists. **JSON endpoints exist:** `GET /api/v1/admin/status` (sources, recent runs, review backlog; read-only) and `GET /api/v1/admin/settings` (sources with enabled flag, configured state and page budget; scheduler reported, never changed). `POST /api/v1/admin/sources/{key}/enabled` with `{"enabled": true\|false}` (strict boolean) switches one source. Admin token or admin session; Origin-checked. | Island not built (server page works). There is no JSON route for the scheduler: it stays disabled unless enabled on the server. |
-| Merchant comparison as its own page | none for data (`GET /api/v1/listings?...` + product grouping); needs a product endpoint | product page is server-rendered and already works |
+| Merchant comparison as its own page | none for data (`GET /api/v1/listings?...` + product grouping); needs a product endpoint | not built on purpose: the product page is server-rendered, populated-state tested, and already works |
+| Admin source status panel (read-only) | `GET /api/v1/admin/status` exists (sources, recent runs, review backlog) | not built on purpose: the server table on `/admin` already shows the same facts; add an island only if the page needs live refresh |
 
 ## Design decisions
 - **No React.** The brief lists React; the existing app is server-rendered and the islands are small. Adding React would

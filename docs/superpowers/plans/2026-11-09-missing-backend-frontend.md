@@ -28,6 +28,11 @@
 4. Two admins toggling the same source: the island must show the state the server stored, not the local click (Task 2).
 5. A source key the server does not know must not create rows or change state (already pinned by `tests/test_admin_settings_api.py::test_unknown_and_not_yet_registered_sources_are_refused`; Task 3 keeps it passing).
 
+## Deviations recorded during execution
+
+- **Task 3 (server table kept):** the plan said the island hides the server sources table. It does not: that table holds the Collect actions and run history, which the island does not replace. Hiding it removed those controls whenever JavaScript ran. Commit `99ab8fd` keeps the table; the plan's "server table hidden" check is replaced by "server table kept" in Task 6.
+- **Task 5 (additive JSON keys):** the notifications JSON gained `unread_total`, `listed` and `more`; the existing `unread` key is kept with the full count.
+
 ## Scope decisions (not tasks)
 
 - **Not planned, owner decision:** the `create_app()` no-argument default database (`main.py` relies on it). Options are recorded in `docs/PROJECT_PROGRESS.md`.

@@ -125,6 +125,20 @@ async function overflow(page) { return page.evaluate(() => document.documentElem
       await page.waitForTimeout(300);
       check(`${label}: merge asks for confirmation (and dismissing does nothing)`, !!asked && asked.includes('Merge'));
     }
+    // admin source switches: the island renders one row per source, the server table is kept, and a switch round trip
+    // changes the stored state and restores it (disposable copy only)
+    await page.waitForSelector('[data-source]', { timeout: 8000 }).catch(() => {});
+    check(`${label}: settings island renders one row per source`, (await page.$$('[data-source]')).length >= 2);
+    check(`${label}: server sources table is kept beside the island`, (await page.$$('.scroll.card table')).length > 0);
+    const beforeRow = await page.locator('[data-source]').first().textContent();
+    await page.locator('[data-source]').first().locator('button').click();
+    await page.waitForTimeout(600);
+    const afterRow = await page.locator('[data-source]').first().textContent();
+    check(`${label}: a source switch changes the stored state`, beforeRow !== afterRow);
+    await page.locator('[data-source]').first().locator('button').click();
+    await page.waitForTimeout(600);
+    const restoredRow = await page.locator('[data-source]').first().textContent();
+    check(`${label}: and the switch restores the original state`, restoredRow === beforeRow);
     await page.screenshot({ path: `${OUT}/${label}_admin.png`, fullPage: false });
     check(`${label}: no 5xx responses during the journey`, serverErrors.length === 0, serverErrors.join(', '));
     await ctx.close();
