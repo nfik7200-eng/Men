@@ -63,7 +63,8 @@ def test_admin_header_token_for_api_clients(client, token):
 
 def test_admin_collect_respects_disabled_and_runs_in_background(client, token, monkeypatch):
     calls = []
-    monkeypatch.setattr(app_module, "run_source", lambda db, key, **k: calls.append(key))
+    from shopping.web import routes_admin  # the collect route moved here; the patch must target the module that calls it
+    monkeypatch.setattr(routes_admin, "run_source", lambda db, key, **k: calls.append(key))
     client.post("/admin/login", data={"token": TOKEN})
     client.post("/admin/source/books_toscrape/disable")
     r = client.post("/admin/collect/books_toscrape", follow_redirects=False)
