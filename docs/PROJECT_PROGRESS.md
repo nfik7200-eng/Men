@@ -180,11 +180,13 @@ Verified on the latest code: pyright watchtower shopping reports **0 errors** (7
 
 Real defects found and fixed along the way: `_members(None)` matched every unmatched listing; `_queue` could write a question with no product; a listing with no observation time crashed deal scoring; the admin session cookie never reached the admin JSON.
 
-Still open:
+Still open (status as of the latest pass):
 - Route split: five modules moved out of `create_app` (`routes_alerts.py`, `routes_compare.py`, `routes_watchlist.py`, `routes_admin.py`, `routes_catalog.py` for search, listing, product and deal radar; shared query types in `params.py`). The home page, coverage, research, the redirect and the listing JSON API remain in the closure.
-- E2E runner: `e2e/run.sh` now runs the migration on its copy with the override unset, so the live-database guard compares against the real path; and its cleanup trap no longer signals the process group when the server never started. Verified: 68/68 journey checks on a fresh migrated copy.
-- eBay: no credentials are available; the adapter stays mock-tested.
-- Ollama: no local model is configured or reachable here; existing tests cover the optional path.
+- Accessibility: automated axe-core pass (`e2e/axe-check.js`, docs/UX_AUDIT.md) finds 0 violations on 22 page/width combinations after the fixes. Screen-reader and zoom checks are not measured here.
+- Monitoring and backups: `deploy/healthcheck.sh` verified end to end against a scratch copy (HTTP ok, disk ok, fresh snapshot verified; a wrong port fails). Covered by tests: backup, restore and rollback scripts (tests/test_deploy_scripts.py, tests/test_snapshot.py). The health script itself has no automated test; run it with `WT_APP_DIR`, `WT_PORT`, `WT_STATE`, `WT_BACKUP_DIR` set to a scratch prefix.
+- eBay: production use is refused by the acquisition gate without a reviewed policy (tests/test_acquisition_gate.py); the sandbox path is mock-tested (tests/test_ebay_adapter.py). No credentials exist, so the live path has never run.
+- Ollama: no local model is configured or reachable here. The optional path is tested with a mocked transport, including discarding model output that contains numbers the facts did not contain (tests/test_audit_assistant.py).
+- Landed cost: rules shipped as placeholders are shown as assumed, never verified; missing inputs stay missing, not zero (tests/test_international.py).
+- Forecasting: stays disabled; tests/test_forecasting_disabled.py pins that no route, template or frontend module offers a forecast.
 - Deployment: rehearsed in a temporary prefix only; no VPS access.
 - Admin status: server-rendered and read-only (the page already shows health and budgets).
-- Screen-reader behaviour is not measured here; contrast is (see docs/UX_AUDIT.md).
