@@ -113,3 +113,6 @@ button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;filter:g
 .island-search label{justify-self:stretch;width:auto;justify-content:flex-start;white-space:normal}
 table a,.card h2 a,.card h3 a,.deal-title a,.cta-link{display:inline-block;min-height:24px;line-height:24px}
 .island-search input[type=checkbox]{width:24px;height:24px;min-height:24px;padding:0;flex:none;margin:0}
+
+/* Unread-alert badge in the navigation */
+.nav-badge{display:inline-block;min-width:1.4em;padding:0 .4em;border-radius:999px;background:var(--accent,#2563eb);color:#fff;font-size:.8em;line-height:1.5;text-align:center}

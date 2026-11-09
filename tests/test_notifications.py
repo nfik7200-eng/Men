@@ -300,3 +300,25 @@ def test_a_failed_commit_is_not_reported_as_success(db):
     assert r.status_code >= 500, "a write that did not commit must not be reported as success"
     with db.session() as s:
         assert notes.unread_count(s, client.cookies.get("wt_owner")) == 1
+
+
+def test_the_navigation_shows_the_unread_alert_count_and_hides_it_at_zero(db):
+    _migrated(db)
+    lid = _listing(db, price=800)
+    client = TestClient(create_app(db), base_url="http://testserver")
+    assert client.get("/").status_code == 200
+    assert "nav-badge" not in client.get("/search").text            # no alerts yet: no badge
+    with db.session() as s:
+        monitor.add_watch(s, lid, client.cookies.get("wt_owner"), target_price_minor=900)
+        s.commit()
+    client.get("/notifications")                                     # records the alert
+    page = client.get("/search").text
+    assert 'class="nav-badge"' in page and 'aria-label="1 unread alerts"' in page
+    client.post("/notifications/read-all", headers={"Origin": "http://testserver"}, follow_redirects=False)
+    assert "nav-badge" not in client.get("/search").text            # read: badge gone
+
+
+def test_the_badge_never_breaks_a_page_when_alerts_are_not_migrated(db):
+    client = TestClient(create_app(db), base_url="http://testserver")
+    assert client.get("/").status_code == 200
+    assert client.get("/search").status_code == 200                  # no alerts table: the page still renders

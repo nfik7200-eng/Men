@@ -79,6 +79,19 @@ def create_app(db: Database | None = None) -> FastAPI:
     tpl.env.filters["match_label"] = match_label
     tpl.env.filters["plain_reason"] = plain_reason
     tpl.env.filters["dt"] = lambda d: d.strftime("%Y-%m-%d %H:%M UTC") if d else "never"
+
+    def alerts_unread_for(request: Request) -> int:
+        """Unread alerts for the browser making this request, for the navigation badge. 0 without a valid owner cookie or
+        before the alerts table exists: a page must never fail or slow down because of the badge."""
+        if not security.valid_owner(request.cookies.get(security.COOKIE_OWNER, "")):
+            return 0
+        try:
+            with db.session() as s:
+                return notes.unread_count(s, owner_of(request)) if notes.available(s) else 0
+        except Exception:  # the badge is decoration: a database hiccup must not break the page
+            return 0
+
+    tpl.env.globals["alerts_unread"] = alerts_unread_for
     tpl.env.globals.update(SORTS=SORTS, fmt_money=fmt_money)
 
     def active_disclosures():
