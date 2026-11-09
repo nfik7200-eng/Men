@@ -112,3 +112,14 @@ slots, slots given up after repeated failures and ranges jumped when the cursor 
 are all counted or recorded as coverage gaps. Not recognised: other pool programs (including Orca
 `initialize_pool_v2`, Raydium CPMM/CLMM, Meteora, pump.fun), SPL transfers, holders and reserves.
 
+## Attribution and reviewed labels
+
+Every signal carries an `attribution` block. It lists labels only when a person approved them
+(`/entities/labels`): a label attributes an address to an organisation or protocol, never to a
+person. A proposal can come from an analyst, a signal or the local model, and none of them can
+approve it. Approval needs a human reviewer, a review note of at least ten characters and at least
+one evidence item a person added (`url`, stored `transaction` or stored `signal`); evidence the
+model cited does not count alone. With authentication required the proposer cannot be the
+reviewer. Transaction and signal evidence must exist in BIP's database. An empty `labels` object
+means "unattributed", not "not an exchange". No labels ship with BIP and none are inferred.
+

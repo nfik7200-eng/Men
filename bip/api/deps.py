@@ -12,6 +12,7 @@ from bip.config.settings import Settings
 from bip.db.repository import Repository
 from bip.discovery.service import DiscoveryService
 from bip.entities.cases import CaseService
+from bip.entities.labels import EntityLabelService
 from bip.entities.relationships import RelationshipService
 from bip.ingest.collector import ChainCollector
 from bip.ingest.solana_collector import SolanaCollector
@@ -72,6 +73,7 @@ class AppContext:
     relationships: RelationshipService
     collector: ChainCollector
     solana_collector: SolanaCollector
+    entity_labels: EntityLabelService
     cases: CaseService
     scheduler: Scheduler | None
 

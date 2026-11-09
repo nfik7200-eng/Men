@@ -49,6 +49,7 @@ from bip.db.errors import DatabaseError
 from bip.db.repository import Repository
 from bip.discovery.service import DiscoveryService
 from bip.entities.cases import CaseService
+from bip.entities.labels import EntityLabelService
 from bip.entities.relationships import RelationshipService
 from bip.ingest.collector import ChainCollector
 from bip.ingest.solana_collector import SolanaCollector
@@ -166,6 +167,7 @@ def create_app(
             relationships=RelationshipService(repo, cfg),
             collector=ChainCollector(router, repo, cfg),
             solana_collector=SolanaCollector(router, repo, cfg),
+            entity_labels=EntityLabelService(repo, separate_reviewer=cfg.auth.mode == "required"),
             cases=CaseService(repo),
             scheduler=None,
         )

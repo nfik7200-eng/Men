@@ -29,6 +29,34 @@ class NoteCreate(Body):
     body: Annotated[str, Query(min_length=1, max_length=4000)]
 
 
+class EvidenceIn(Body):
+    kind: Literal["url", "transaction", "signal", "note"]
+    ref: Annotated[str, Query(min_length=1, max_length=300)]
+    description: Annotated[str, Query(max_length=300)] = ""
+
+
+class LabelPropose(Body):
+    chain: Annotated[str, Query(min_length=1, max_length=32)]
+    ref: Annotated[str, Query(min_length=3, max_length=100)]
+    entity_kind: Literal["wallet", "contract", "token", "pool", "program"]
+    category: Literal["exchange", "protocol", "bridge", "market_maker", "treasury", "team", "other"]
+    name: Annotated[str, Query(min_length=1, max_length=80)]
+    evidence: Annotated[list[EvidenceIn], Query(max_length=10)] = []  # noqa: RUF012
+    note: Annotated[str | None, Query(max_length=500)] = None
+
+
+class LabelReview(Body):
+    decision: Literal["approve", "reject"]
+    note: Annotated[str, Query(min_length=10, max_length=500)]
+    evidence: Annotated[list[EvidenceIn], Query(max_length=10)] = []  # noqa: RUF012
+
+
+class LabelSuggest(Body):
+    chain: Annotated[str, Query(min_length=1, max_length=32)]
+    ref: Annotated[str, Query(min_length=3, max_length=100)]
+    entity_kind: Literal["wallet", "contract", "token", "pool", "program"]
+
+
 @router.get("/search")
 def search(
     ctx: Context,
@@ -120,3 +148,76 @@ def list_notes(
 @router.get("/investigations/{investigation_id}/timeline")
 def timeline(ctx: Context, investigation_id: Id) -> dict[str, Any]:
     return ctx.cases.timeline(investigation_id)
+
+
+# ------------------------------------------------------------------------------- labels
+
+
+@router.post("/entities/labels", status_code=status.HTTP_201_CREATED)
+def propose_label(request: Request, ctx: WritableContext, body: LabelPropose) -> dict[str, Any]:
+    """Propose an attribution to an organisation or protocol. It stays a proposal until reviewed."""
+    _require_chain(ctx, body.chain)
+    return ctx.entity_labels.propose(
+        chain=body.chain,
+        ref=body.ref,
+        entity_kind=body.entity_kind,
+        category=body.category,
+        name=body.name,
+        evidence=[e.model_dump() for e in body.evidence],
+        actor=_author(request),
+        note=body.note,
+    )
+
+
+@router.get("/entities/labels")
+def list_labels(
+    ctx: Context,
+    status: Literal["proposed", "approved", "rejected"] | None = None,
+    chain: Annotated[str | None, Query(max_length=32)] = None,
+    ref: Annotated[str | None, Query(max_length=100)] = None,
+    category: Literal["exchange", "protocol", "bridge", "market_maker", "treasury", "team", "other"]
+    | None = None,
+    limit: Limit = 50,
+    offset: Offset = 0,
+) -> dict[str, Any]:
+    return ctx.entity_labels.list(
+        status=status, chain=chain, ref=ref, category=category, limit=limit, offset=offset
+    )
+
+
+@router.post("/entities/labels/{label_id}/review")
+def review_label(
+    request: Request, ctx: WritableContext, label_id: Id, body: LabelReview
+) -> dict[str, Any]:
+    """A person approves or rejects a proposal. Approval needs human-added evidence and a note."""
+    return ctx.entity_labels.review(
+        label_id,
+        decision=body.decision,
+        reviewer=_author(request),
+        note=body.note,
+        evidence=[e.model_dump() for e in body.evidence],
+    )
+
+
+@router.post("/entities/labels/suggest", status_code=status.HTTP_201_CREATED)
+def suggest_labels(request: Request, ctx: WritableContext, body: LabelSuggest) -> dict[str, Any]:
+    """Ask the configured local model for label proposals grounded in stored signals.
+
+    Never contacts a chain provider. With no model configured it answers ``available: false``.
+    Results are proposals only.
+    """
+    _require_chain(ctx, body.chain)
+    return ctx.entity_labels.suggest(
+        ctx.research.provider,
+        chain=body.chain,
+        ref=body.ref,
+        entity_kind=body.entity_kind,
+        actor=_author(request),
+        timeout_s=ctx.settings.ai.request_timeout_s,
+    )
+
+
+@router.get("/entities/{chain}/{ref}/labels")
+def entity_labels(ctx: Context, chain: ChainP, ref: Ref) -> dict[str, Any]:
+    _require_chain(ctx, chain)
+    return ctx.entity_labels.for_entity(chain, ref)

@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-132 routes in 15 groups.
+137 routes in 15 groups.
 
 ### auth
 
@@ -250,6 +250,11 @@ Body (`*` required): `target` *: `watchlist` | `investigation`; `watchlist_id`: 
 | Method | Path | Role | Summary |
 |---|---|---|---|
 | GET | `/api/v1/contracts/{chain}/{address}` | viewer | Contract |
+| GET | `/api/v1/entities/labels` | viewer | List Labels |
+| POST | `/api/v1/entities/labels` | analyst | Propose Label: Propose an attribution to an organisation or protocol. It stays a proposal until reviewed. |
+| POST | `/api/v1/entities/labels/suggest` | analyst | Suggest Labels: Ask the configured local model for label proposals grounded in stored signals. |
+| POST | `/api/v1/entities/labels/{label_id}/review` | analyst | Review Label: A person approves or rejects a proposal. Approval needs human-added evidence and a note. |
+| GET | `/api/v1/entities/{chain}/{ref}/labels` | viewer | Entity Labels |
 | GET | `/api/v1/entities/{chain}/{ref}/relationships` | viewer | Relationships |
 | GET | `/api/v1/investigations/{investigation_id}/notes` | viewer | List Notes |
 | POST | `/api/v1/investigations/{investigation_id}/notes` | analyst | Add Note |
@@ -263,6 +268,38 @@ Body (`*` required): `target` *: `watchlist` | `investigation`; `watchlist_id`: 
 <details><summary><code>GET /api/v1/contracts/{chain}/{address}</code></summary>
 
 Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=3, len<=100)
+
+</details>
+
+<details><summary><code>GET /api/v1/entities/labels</code></summary>
+
+Parameters: `status` (query): `proposed` | `approved` | `rejected` or null; `chain` (query): null or string (len<=32); `ref` (query): null or string (len<=100); `category` (query): `exchange` | `protocol` | `bridge` | `market_maker` | `treasury` | `team` | `other` or null; `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000)
+
+</details>
+
+<details><summary><code>POST /api/v1/entities/labels</code></summary>
+
+Body (`*` required): `chain` *: string (len>=1, len<=32); `ref` *: string (len>=3, len<=100); `entity_kind` *: `wallet` | `contract` | `token` | `pool` | `program`; `category` *: `exchange` | `protocol` | `bridge` | `market_maker` | `treasury` | `team` | `other`; `name` *: string (len>=1, len<=80); `evidence`: list of EvidenceIn; `note`: null or string (len<=500)
+
+</details>
+
+<details><summary><code>POST /api/v1/entities/labels/suggest</code></summary>
+
+Body (`*` required): `chain` *: string (len>=1, len<=32); `ref` *: string (len>=3, len<=100); `entity_kind` *: `wallet` | `contract` | `token` | `pool` | `program`
+
+</details>
+
+<details><summary><code>POST /api/v1/entities/labels/{label_id}/review</code></summary>
+
+Parameters: `label_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `decision` *: `approve` | `reject`; `note` *: string (len>=10, len<=500); `evidence`: list of EvidenceIn
+
+</details>
+
+<details><summary><code>GET /api/v1/entities/{chain}/{ref}/labels</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `ref` (path, required): string (len>=3, len<=100)
 
 </details>
 

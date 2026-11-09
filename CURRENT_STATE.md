@@ -11,7 +11,7 @@ _Last updated: 2026-11-08 (backend completion pass implemented and tested offlin
 - **Operations**: detailed health and RPC usage, API metrics, verified backups, an in-process scheduler (off by default), retention.
 - **ML**: feature drift monitoring and detector review statistics. Models are still only rules plus a synthetic-trained demo model; no real reviewed labels exist.
 - **API reference** generated from OpenAPI and guarded by a test: `docs/API_REFERENCE.md`.
-- Migrations v7 to v13 (additive; v11 `pool_events`, v12 `token_stats` and `pool_reserves`, v13 `solana_discoveries`). ADR-032 to ADR-038 (all Proposed).
+- Migrations v7 to v14 (additive; v11 `pool_events`, v12 `token_stats` and `pool_reserves`, v13 `solana_discoveries`, v14 `entity_labels`). ADR-032 to ADR-038 (all Proposed).
 
 Earlier in this pass: **Stage 1 ingestion correctness (2026-11-08)**
 - Solana transaction versions legacy, 0 and 1 are requested and parsed. Previously, v1 transactions (live on mainnet since 2026-09-15) produced placeholder rows.
@@ -112,6 +112,7 @@ Statuses:
 | Entity relationships, search, transaction/token/contract detail, case notes and timeline (migration v10) | Implemented and tested | `tests/entities/` |
 | Authentication, sessions, CSRF, roles, throttling, audit log (migration v8) | Implemented and tested. **No frontend sign-in yet** | `tests/security/` |
 | Health, usage, metrics, backups, scheduler, retention (migration v9) | Implemented and tested. Not measured on the VPS | `tests/ops/`, `docs/OPERATIONS.md` |
+| Reviewed entity labels (migration v14, `/entities/labels*`, attribution on signals) | Implemented and tested offline with synthetic data | `tests/entities/test_labels.py` |
 | Solana finalized-slot collector (migration v13, detector `solana_new_entities`, `POST /discovery/collect/solana`, job `solana_scan` off by default) | Implemented and tested offline with synthetic fixtures | `tests/collector/test_solana.py` |
 | Collector feeds (migration v12: `token_stats`, `pool_reserves`; detectors `new_token_activity`, `pool_reserve_change`, `holder_concentration`) | Implemented and tested offline with synthetic fixtures | `tests/collector/test_events.py` |
 | Bounded Ethereum block collector: contract creations, large native transfers and Uniswap v2/v3-style pool-creation events (migration v11, detector `new_liquidity_pool`) from finalized blocks, no supplied address needed. **Off by default; never run live**, tested against fakes only | Implemented and tested offline | `tests/collector/`, ADR-038 |
@@ -130,10 +131,10 @@ Nothing below is claimed as working. Each needs an owner decision; none was atte
 | ERC-20 transfers chain-wide, new-token discovery | **Built (Ethereum, bounded)**: one topic-filtered `eth_getLogs` per collected range, counted per token; transfers of pooled tokens stored. **Not measured live**: a correction, earlier notes said volume exceeded provider limits, which was never measured | Live measurement of log volume per block on a free endpoint | None; verify live |
 | Event streams (WebSocket/gRPC) | **Not built** | Provider-specific, may be paid | Provider choice |
 | Liquidity/reserve changes, holder concentration | **Partial**: v2-style `Sync` reserves of known pools; holder concentration as observed net inflow of stored transfers (not balances). v3 pools and true balances not covered | `eth_call balanceOf`/indexer for real holdings | Data source for balances |
-| Exchange / entity attribution | **Not built** | Needs reviewed labels | Reviewed label source |
+| Exchange / entity attribution | **Mechanism built**: reviewed entity labels (proposal, evidence, person-only approval, separate reviewer when auth is required), shown on signals only once approved. **No labels exist**: none were invented, so every entity is unattributed until a person approves one | Real labels and sources, supplied by analysts | Supply labels |
 | Frontend sign-in and CSRF handling | **Not built** | Goal forbids frontend rebuild | Approve frontend work |
 | Classifier on real labels | **Not trained** | No reviewed labels exist | Supply labels |
-| Live LLM synthesis | **Not exercised** | Ollama host not contacted | Supply endpoint |
+| Live LLM synthesis / AI label proposals | **Built, not exercised**: `POST /entities/labels/suggest` grounds proposals in stored signals and drops anything uncited. Checked 2026-11-09: `BIP_AI__PROVIDER=none` and nothing listens on 127.0.0.1:11434, so no model was contacted | A reachable local Ollama and an installed model tag | Configure Ollama (optional) |
 | Second-provider orphan confirmation | **Not built** | Needs a second approved provider | Provider choice |
 | Commit, push, PR | **Not done** | Goal requires approval | Authorize |
 

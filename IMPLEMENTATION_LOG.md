@@ -713,3 +713,9 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not done.** Never run live (block size and latency on a free endpoint unmeasured); Orca `initialize_pool_v2`, Raydium CPMM/CLMM and other pool programs unrecognised; no SPL transfers, holders or reserves for Solana.
 
+## 2026-11-09 — Reviewed entity labels and attribution (migration v14)
+
+**Built.** `bip/entities/labels.py` (`EntityLabelService`), table `entity_labels`, routes `POST/GET /entities/labels`, `POST /entities/labels/{id}/review`, `POST /entities/labels/suggest`, `GET /entities/{chain}/{ref}/labels`, role policy (propose/review = analyst), `attribution` on every signal, ADR-040. Ollama check: provider `none`, port 11434 refused; no model contacted.
+
+**Verification.** `tests/entities/test_labels.py` 6 passed (evidence rules, human-only approval, separate reviewer, attribution only after approval, ungrounded AI suggestions dropped, unconfigured model reported). ruff and pyright clean.
+

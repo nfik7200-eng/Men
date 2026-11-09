@@ -382,3 +382,14 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - Unverified pool programs are deliberately not recognised.
 - Decision basis: the owner delegated ADR decisions in the master goal; this ADR stays Proposed until the owner reviews it.
 
+## ADR-040 Reviewed entity labels and attribution (Proposed; implemented by delegation of the owner's master goal)
+**Context.**
+- Exchange and entity attribution must be traceable and reviewed (CLAUDE.md principle 11). The existing label store covers wallet classification, not attribution of an address to an organisation.
+
+**Decision.**
+- `entity_labels` (migration v14) holds proposals and decisions with an evidence list. Only approved labels appear as attribution. Approval needs a human, a note and human-added evidence; the model's citations alone never suffice; stored transactions and signals cited as evidence must exist; the proposer cannot self-approve when authentication is required. The local model may propose, grounded in stored signals, through `POST /entities/labels/suggest`.
+
+**Consequences.**
+- No labels ship with BIP and none are inferred. Until people approve labels every signal is unattributed. The categories describe organisations and protocols, never people.
+- Ollama was neither configured nor reachable on 2026-11-09, so the suggestion path is tested with a synthetic provider only.
+

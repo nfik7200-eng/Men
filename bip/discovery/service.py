@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.engine import Connection, RowMapping
@@ -56,6 +56,7 @@ from bip.discovery.notify import (
     unavailable_channels,
 )
 from bip.discovery.scoring import HIGH_SCORE, MEDIUM_SCORE, Score, score_signal
+from bip.entities.labels import approved_for
 
 log = get_logger("bip.discovery")
 
@@ -647,8 +648,26 @@ class DiscoveryService:
 
     # ------------------------------------------------------------------ signals API
 
+    def _signal(self, x: Row) -> dict[str, Any]:
+        out = self._signal_core(x)
+        refs = {str(x["subject_ref"])}
+        observed: Any = out["explanation"].get("observed")
+        values: list[Any] = (
+            list(cast("dict[str, Any]", observed).values()) if isinstance(observed, dict) else []
+        )
+        refs.update(str(v) for v in values if isinstance(v, str) and 20 < len(v) <= 100)
+        found = approved_for(self._repo, str(x["chain"]), refs)
+        out["attribution"] = {
+            "labels": found,
+            "note": (
+                "Only labels a person approved with evidence are shown. No label means "
+                "unattributed, not 'not an exchange'."
+            ),
+        }
+        return out
+
     @staticmethod
-    def _signal(x: Row) -> dict[str, Any]:
+    def _signal_core(x: Row) -> dict[str, Any]:
         return {
             "id": x["id"],
             "key": x["signal_key"],

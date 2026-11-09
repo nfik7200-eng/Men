@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 metadata = MetaData(
     naming_convention={
@@ -1338,3 +1338,45 @@ program or pool account; the row records the first announcement the collector sa
 launch. Pools come only from the two AMM layouts in ``bip.chains.solana.programs``."""
 
 V13_TABLES = (solana_discoveries,)
+
+
+# ------------------------------------------------- v14: reviewed entity labels
+
+entity_labels = Table(
+    "entity_labels",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("ref", String(100), nullable=False),
+    Column("entity_kind", String(12), nullable=False),
+    Column("category", String(16), nullable=False),
+    Column("name", String(80), nullable=False),
+    Column("status", String(10), nullable=False),
+    Column("source", String(10), nullable=False),
+    Column("proposed_by", String(80), nullable=False),
+    Column("evidence_json", Text, nullable=False),
+    Column("note", String(500), nullable=True),
+    Column("reviewed_by", String(80), nullable=True),
+    Column("review_note", String(500), nullable=True),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("reviewed_at", UTCDateTime, nullable=True),
+    UniqueConstraint("chain", "ref", "category", "name"),
+    CheckConstraint("status IN ('proposed', 'approved', 'rejected')", name="entity_label_status"),
+    CheckConstraint("source IN ('analyst', 'ai', 'signal')", name="entity_label_source"),
+    CheckConstraint(
+        "entity_kind IN ('wallet', 'contract', 'token', 'pool', 'program')",
+        name="entity_label_kind",
+    ),
+    CheckConstraint(
+        "category IN ('exchange', 'protocol', 'bridge', 'market_maker', 'treasury', 'team',"
+        " 'other')",
+        name="entity_label_category",
+    ),
+    Index(None, "chain", "ref"),
+    Index(None, "status"),
+)
+"""Attribution of an address to an exchange, protocol or similar *organisation*, never to a person.
+A label is ``proposed`` until a human approves it with traceable evidence; only approved labels are
+ever shown as attribution. AI and signal proposals stay proposals."""
+
+V14_TABLES = (entity_labels,)
