@@ -420,6 +420,17 @@ try {
   check("[offline fixture] navigation lists Signals, Alerts, Coverage, Attribution and System",
     ["Signals", "Alerts", "Coverage", "Attribution", "System"].every((n) => navNames.includes(n)), navNames.join(","));
 
+  // signals: a discovery pass runs on demand over stored data only (no provider is contacted)
+  await page.goto(`${WEB}/signals`);
+  await page.getByText("No open signals").first().waitFor();
+  const providerPostsBefore = collectPosts;
+  await page.getByRole("button", { name: "Run discovery now" }).click();
+  await page.getByText(/Pass (succeeded|partial): \d+ new, \d+ merged/).waitFor();
+  check("[offline fixture] signals: Run discovery now runs a pass over stored data and reports it",
+    (await page.getByText(/Pass succeeded/).count()) > 0);
+  check("[offline fixture] signals: a discovery pass contacts no provider (no collector request)",
+    collectPosts === providerPostsBefore, `before=${providerPostsBefore} after=${collectPosts}`);
+
   // coverage: nothing runs by itself; the confirm dialog says what Run once does
   await page.goto(`${WEB}/coverage`);
   await page.getByText("Not started: the cursor is not set").first().waitFor();

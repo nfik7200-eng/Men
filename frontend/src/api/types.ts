@@ -1000,6 +1000,17 @@ export type EntityLabel = {
 };
 
 /** No limit/offset and no data_origin in this response. */
+export type DiscoveryRunResult = {
+  data_origin?: DataOrigin;
+  run_id: number;
+  status: string;
+  chains: string[];
+  detectors: Record<string, { created: number; merged: number; refreshed?: number; suppressed?: number }>;
+  errors: string[];
+  expired: number;
+  alerts_created: number;
+};
+
 export type EntityLabelPage = {
   total: number;
   items: EntityLabel[];

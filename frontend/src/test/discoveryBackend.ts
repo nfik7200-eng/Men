@@ -24,6 +24,7 @@ export const SYNTHETIC_SOL = "So11111111111111111111111111111111111111112";
 export type DiscoveryCall = { method: string; path: string; body: Record<string, unknown> };
 
 export type DiscoveryState = {
+  discoveryRuns?: number;
   origin: "stored_observations" | "offline_fixture";
   signals: Signal[];
   alerts: Alert[];
@@ -198,6 +199,14 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
     const failure = state.failures[`${method} ${path}`];
     if (failure) return err(failure.status, failure.code, failure.message);
 
+    if (path === "/discovery/run" && method === "POST") {
+      state.discoveryRuns = (state.discoveryRuns ?? 0) + 1;
+      return json(200, {
+        ...env(), run_id: state.discoveryRuns, status: "succeeded", chains: ["ethereum"],
+        detectors: { "large_transfer_mad:ethereum": { created: 2, merged: 1 }, "new_contract_deployment:ethereum": { created: 1, merged: 0 } },
+        errors: [], expired: 0, alerts_created: 1,
+      });
+    }
     if (path === "/discovery/feed") {
       const open = state.signals.filter((s) => s.status === "open").sort((a, b) => b.score - a.score);
       return json(200, { ...env(), ...page(open, q), freshness: state.freshness, scope: "SYNTHETIC scope: candidates over stored data, not findings." });

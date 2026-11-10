@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { Link } from "react-router-dom";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { DiscoveryFeed, Freshness, Severity, Signal, SignalPage, SignalQuery, SignalStatus } from "../api/types";
 import { Address } from "../components/Address";
 import { DataTable } from "../components/DataTable";
@@ -104,6 +106,43 @@ export function SubjectCell({ signal }: { signal: Pick<Signal, "chain" | "subjec
   );
 }
 
+function RunDiscovery({ onDone }: { onDone: () => void }) {
+  const can = useCan("POST", "/discovery/run");
+  const [state, setState] = useState<{ busy: boolean; result?: string; error?: string }>({ busy: false });
+  const run = async () => {
+    setState({ busy: true });
+    try {
+      const r = await api.runDiscovery();
+      const sum = (key: "created" | "merged") => Object.values(r.detectors).reduce((n, d) => n + d[key], 0);
+      setState({
+        busy: false,
+        result: `Pass ${r.status}: ${sum("created")} new, ${sum("merged")} merged, ${r.expired} expired, ${r.alerts_created} alert(s).`,
+      });
+      onDone();
+    } catch (err) {
+      setState({ busy: false, error: err instanceof ApiError ? err.message : "The discovery pass could not run." });
+    }
+  };
+  return (
+    <Panel title="Run discovery">
+      <p className="note">
+        Runs every detector once over data BIP already stored. It reads the database only: no provider is contacted and
+        nothing is collected.
+      </p>
+      <div className="row">
+        <button type="button" className="btn" disabled={!can.allowed || state.busy} title={can.reason} onClick={() => void run()}>
+          {state.busy ? "Running…" : "Run discovery now"}
+        </button>
+        <RoleHint can={can} />
+      </div>
+      <div role="status" aria-live="polite">
+        {state.result ? <p>{state.result}</p> : null}
+        {state.error ? <p className="field-error">{state.error}</p> : null}
+      </div>
+    </Panel>
+  );
+}
+
 export default function Signals() {
   const [filters, setFilters] = useState<Filters>(DEFAULTS);
   const [offset, setOffset] = useState(0);
@@ -128,6 +167,7 @@ export default function Signals() {
       {data.status === "ready" ? <DataOriginBanner origin={data.data.page.data_origin} /> : null}
       <div className="stack disc">
         {data.status === "ready" ? <FreshnessPanel freshness={data.data.freshness} scope={data.data.scope} /> : null}
+        <RunDiscovery onDone={data.reload} />
         <Panel title="Filters">
           <form className="row filters" onSubmit={(e) => e.preventDefault()} aria-label="Signal filters">
             <Filter label="Status" value={filters.status} onChange={(v) => change({ status: v as SignalStatus })}>

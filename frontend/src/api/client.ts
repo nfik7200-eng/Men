@@ -1,5 +1,5 @@
 import { csrfToken, sessionEnded } from "../auth/session";
-import type {
+import type { DiscoveryRunResult,
   AuthMe,
   AuthStatus,
   LoginResult,
@@ -353,6 +353,7 @@ export const api = {
   ethereumCollector: () => request<CollectorStatus>("/discovery/collector"),
   solanaCollector: () => request<CollectorStatus>("/discovery/collector/solana"),
   // These two CONTACT a public RPC provider (admin only, server-bounded). Never call them automatically.
+  runDiscovery: () => request<DiscoveryRunResult>("/discovery/run", { method: "POST", ...json({}) }),
   collectEthereum: () => request<DiscoveryEnvelope & CollectorManifest>("/discovery/collect/ethereum", { method: "POST" }),
   collectSolana: () => request<DiscoveryEnvelope & CollectorManifest>("/discovery/collect/solana", { method: "POST" }),
   // ---- attribution (entity labels)

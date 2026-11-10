@@ -775,3 +775,11 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Verification.** `pytest` 829 passed; frontend `tsc`, `eslint`, build, `vitest` 242 passed, `npm run e2e` 219/219. `systemd-analyze verify` on the three unit files reports only that `python` and `rsync` are not installed on this machine (no unknown directives).
 
+## 2026-11-10 — "Run discovery now" and readable record lists
+
+**Built.** Signals page: an analyst-gated "Run discovery now" that calls `POST /discovery/run` (reads the database only; reports new, merged and expired counts and alerts; refreshes the list). Signal detail: a list of records (for example the top addresses of a concentration signal) renders as rows with explorer links instead of raw JSON.
+
+**Defect caught by its own test.** The first version of the button used `!can` on the object `useCan` returns, so it was never disabled for a viewer. The viewer test failed; fixed to `can.allowed`, with the reason as the button title.
+
+**Verification.** `tsc` and `eslint` clean, `vitest` 245 passed, build ok, `npm run e2e` 221/221 (adds a check that a pass runs against the offline backend and sends no collector request). CI on the four previous head commits (80a255f, 13ad93c, b39e492, 851f0a9) reported complete with nothing failing.
+

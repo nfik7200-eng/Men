@@ -25,6 +25,37 @@ import { useApi } from "../../lib/useApi";
 
 const message = (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback);
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+function Scalar({ value, chain }: { value: unknown; chain: string }) {
+  return typeof value === "string" && addressUrl(chain, value) !== null ? (
+    <ExplorerRef kind="address" chain={chain} id={value} />
+  ) : (
+    <span className="wrap-any">{valueText(value)}</span>
+  );
+}
+
+/** A list of records (for example the top addresses of a concentration signal) as readable rows. */
+function RecordList({ items, chain }: { items: Record<string, unknown>[]; chain: string }) {
+  return (
+    <ul className="plain">
+      {items.map((item, i) => (
+        <li key={i}>
+          {Object.entries(item).map(([k, v], j) => (
+            <span key={k}>
+              {j > 0 ? " · " : ""}
+              {isAddressKey(k, v, chain) ? null : <span className="muted">{humanLabel(k)} </span>}
+              <Scalar value={v} chain={chain} />
+            </span>
+          ))}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const isAddressKey = (_k: string, v: unknown, chain: string) => typeof v === "string" && addressUrl(chain, v) !== null;
+
 function KeyValues({ values, chain }: { values: Record<string, unknown>; chain: string }) {
   const entries = Object.entries(values);
   if (entries.length === 0) return <p className="muted">Nothing recorded.</p>;
@@ -32,7 +63,7 @@ function KeyValues({ values, chain }: { values: Record<string, unknown>; chain: 
     <dl className="kv">
       {entries.map(([k, v]) => (
         <Pair key={k} label={humanLabel(k)}>
-          {typeof v === "string" && addressUrl(chain, v) !== null ? <ExplorerRef kind="address" chain={chain} id={v} /> : <span className="wrap-any">{valueText(v)}</span>}
+          {Array.isArray(v) && v.length > 0 && v.every(isRecord) ? <RecordList items={v} chain={chain} /> : <Scalar value={v} chain={chain} />}
         </Pair>
       ))}
     </dl>

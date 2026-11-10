@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { SYNTHETIC_ADDR, SYNTHETIC_ADDR_2, SYNTHETIC_TX, makeLabel, makeSignal } from "../test/discoveryBackend";
@@ -15,6 +15,23 @@ describe("signals feed", () => {
     expect(screen.getByText(/Discovery has not run on this database/)).toBeInTheDocument();
     expect(screen.getByText("No pass has run yet")).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("lets an analyst run a discovery pass, says it reads the database only, and refreshes the list", async () => {
+    const backend = renderDiscovery("/signals", {}, "analyst");
+    await heading("Signals");
+    const button = await screen.findByRole("button", { name: "Run discovery now" });
+    expect(screen.getByText(/reads the database only: no provider is contacted/)).toBeInTheDocument();
+    await userEvent.click(button);
+    expect(await screen.findByText(/Pass succeeded: 3 new, 1 merged, 0 expired, 1 alert\(s\)\./)).toBeInTheDocument();
+    expect(backend.fetchMock.mock.calls.some(([u, i]) => String(u).endsWith("/discovery/run") && (i as RequestInit | undefined)?.method === "POST")).toBe(true);
+  });
+
+  it("disables the discovery button for a viewer and says why", async () => {
+    renderDiscovery("/signals", {}, "viewer");
+    await heading("Signals");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run discovery now" })).toBeDisabled()); // the session resolves after first paint
+    expect(screen.getAllByText(/analyst role/i).length).toBeGreaterThan(0);
   });
 
   it("says the data is demo data when the backend reports offline fixtures", async () => {
@@ -120,6 +137,27 @@ describe("signal detail", () => {
     expect(screen.getByText("large_transfer:ethereum:synthetic:1")).toBeInTheDocument();
     // nested observed values are text, not markup
     expect(screen.getByText('{"a":1}')).toBeInTheDocument();
+  });
+
+  it("shows a list of records as readable rows with address links, not as raw JSON", async () => {
+    const base = makeSignal();
+    renderDiscovery("/signals/1", {
+      signals: [
+        makeSignal({
+          explanation: {
+            ...base.explanation,
+            observed: { top_addresses: [{ address: SYNTHETIC_ADDR, net_inflow_raw: "900" }, { address: SYNTHETIC_ADDR_2, net_inflow_raw: "120" }] },
+          },
+        }),
+      ],
+    });
+    await heading("SYNTHETIC unusually large transfer");
+    expect(screen.queryByText(/\[\{"address"/)).toBeNull();
+    const rows = screen.getAllByRole("listitem").filter((li) => /net inflow raw/i.test(li.textContent ?? ""));
+    expect(rows).toHaveLength(2);
+    const first = rows[0] as HTMLElement;
+    expect(first).toHaveTextContent(/net inflow raw 900/i);
+    expect(within(first).getByRole("link")).toHaveAttribute("href", expect.stringContaining(SYNTHETIC_ADDR));
   });
 
   it("links evidence and addresses to the explorer for well formed identifiers only", async () => {
