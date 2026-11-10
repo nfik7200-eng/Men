@@ -5,8 +5,8 @@ BIP was never run on the target VPS. Sizes and timings for that host are unknown
 there. Every file is an example to copy and adapt.
 
 BIP is one Python process (API plus an optional background scheduler) with SQLite in WAL mode. A
-reverse proxy terminates HTTPS, serves the built frontend, and forwards `/api/*` to the process on
-loopback. There is no queue, cache or second database.
+reverse proxy terminates HTTPS, serves the built frontend, and forwards `/api/*` to the process over a
+Unix socket. There is no queue, cache or second database.
 
 ## What you need
 
@@ -109,12 +109,13 @@ The pre-flight check reports an enabled collection job as a WARN so it is never 
 
 ## Known limits
 
-* **Client address behind the proxy.** The HTTP server rewrites the peer address from
-  `X-Forwarded-For` for any caller on loopback, whatever `BIP_AUTH__TRUST_PROXY_HEADERS` says. On a
-  host shared with other software, a local process can therefore spoof the address BIP uses for
-  throttling and in the audit log. Login brute force is still bounded by the per-account lockout.
-  Remedies: do not run untrusted software on the host, or reach the API through a Unix socket
-  (not wired up in this kit).
+* **Client address behind the proxy.** The API listens on a Unix socket (`/run/bip/api.sock`, mode
+  0660, group `bip`), not on a TCP port, so only the proxy can reach it and its `X-Forwarded-For`
+  can be trusted. Add the proxy's user to group `bip` (`sudo usermod -aG bip caddy`, or `www-data`
+  for nginx) and restart the proxy. uvicorn would `chmod` its own socket to 0666, so BIP binds the
+  socket itself. A TCP listener (`BIP_API__HOST`/`BIP_API__PORT`) still works for local
+  development, but on a shared host any local process could connect to it and spoof the address
+  (login brute force is still bounded by the per-account lockout).
 * **Pool and token coverage rests on factories someone verified.** Only Uniswap v2/v3 factories
   with a documented address feed token transfers and reserve watching; add others after verifying
   them with `BIP_COLLECTOR__EXTRA_FACTORIES`.

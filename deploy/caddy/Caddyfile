@@ -8,10 +8,11 @@ bip.example.org {
 	root * /srv/bip/web
 	file_server
 
-	# API: loopback only. Caddy sets X-Forwarded-For, which BIP trusts only because the API is
-	# bound to 127.0.0.1 (BIP_AUTH__TRUST_PROXY_HEADERS=true).
+	# API over the Unix socket. Caddy's user must be in group bip. Caddy sets X-Forwarded-For,
+	# which BIP trusts because only this proxy can open the socket
+	# (BIP_AUTH__TRUST_PROXY_HEADERS=true).
 	handle /api/* {
-		reverse_proxy 127.0.0.1:8000 {
+		reverse_proxy unix//run/bip/api.sock {
 			header_up X-Forwarded-For {remote_host}
 		}
 	}

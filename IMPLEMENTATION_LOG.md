@@ -797,3 +797,13 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Conclusion.** The SPL mint layout is verified live. Program deployments and pool initialisations are still verified only against official sources and synthetic fixtures.
 
+## 2026-11-10 — Unix-socket listener (closes the proxy-header limit from the security review)
+
+**Why.** A TCP listener on loopback lets any local process on a shared host connect and spoof the client address used for throttling and audit (the uvicorn proxy-header rewrite plus BIP's own trust flag).
+
+**Built.** `BIP_API__UNIX_SOCKET` (absolute path); `python -m bip.api` serves on it with `proxy_headers=False`; `bind_unix_socket` binds under umask 0117 and clears only a stale *socket* (a regular file is never removed). Found by a test, not assumed: uvicorn `chmod`s its own Unix sockets to 0666, so BIP binds the socket itself and passes it in. The exposure guard accepts a socket listener, `preflight` treats it as a pass, the production env template, systemd unit (`RuntimeDirectory=bip`, mode 0750), Caddy and nginx examples and the README use it.
+
+**Verification.** `tests/unit/test_unix_socket.py` 5 passed (config shape; a real server answering over a real socket with mode exactly 0660; stale-socket handling; a regular file refused; guard and preflight). `pytest` 836 passed; ruff and pyright clean; `systemd-analyze verify` on the edited unit reports only that `python` is not installed here.
+
+**Not verified.** Proxy-to-socket access with a real Caddy or nginx (neither is installed here).
+

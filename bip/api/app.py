@@ -88,7 +88,8 @@ def require_safe_exposure(cfg: Settings) -> None:
     who can connect.
     """
     if (
-        cfg.api.host not in _LOOPBACK_HOSTS
+        cfg.api.unix_socket is None  # a socket has no network address: filesystem modes decide
+        and cfg.api.host not in _LOOPBACK_HOSTS
         and cfg.auth.mode != "required"
         and not cfg.auth.allow_insecure_bind
     ):

@@ -104,11 +104,13 @@ def run_checks(settings: Settings, *, env_file: Path | None = None) -> list[Chec
         "session cookie is Secure (HTTPS only)",
         "BIP_AUTH__COOKIE_SECURE is off: the session cookie would travel over plain HTTP",
     )
-    loopback = s.api.host in LOOPBACK
+    loopback = s.api.host in LOOPBACK or s.api.unix_socket is not None
     add(
         "bind_address",
         loopback,
-        "API binds to loopback; only the reverse proxy can reach it",
+        "API listens on a Unix socket; only the reverse proxy's group can reach it"
+        if s.api.unix_socket is not None
+        else "API binds to loopback; only the reverse proxy can reach it",
         f"BIP_API__HOST is {s.api.host!r}: reachable without the proxy's TLS; prefer 127.0.0.1",
         "WARN",
     )
@@ -129,8 +131,9 @@ def run_checks(settings: Settings, *, env_file: Path | None = None) -> list[Chec
                 "proxy headers trusted behind a loopback bind"
                 if s.auth.trust_proxy_headers
                 else "BIP_AUTH__TRUST_PROXY_HEADERS is off: BIP then ignores X-Forwarded-For in "
-                "its own throttling and audit log (the HTTP server may still rewrite the peer "
-                "address for loopback callers; see deploy/README.md, known limits)",
+                "its own throttling and audit log (a TCP listener's peer address can be "
+                "rewritten by any local process; prefer BIP_API__UNIX_SOCKET, see "
+                "deploy/README.md)",
             )
         )
     bad_origins = [

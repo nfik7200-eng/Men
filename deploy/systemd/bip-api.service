@@ -23,6 +23,9 @@ TimeoutStopSec=30
 
 # Confinement
 UMask=0077
+# /run/bip holds the API socket; group bip (the proxy user joins it) may enter, nobody else.
+RuntimeDirectory=bip
+RuntimeDirectoryMode=0750
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

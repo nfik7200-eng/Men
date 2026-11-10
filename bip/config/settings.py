@@ -67,12 +67,25 @@ class ApiSettings(BaseModel):
     host: str = "127.0.0.1"
     """Bind address. Defaults to loopback; there is no authentication yet (see docs)."""
     port: Annotated[int, Field(ge=1, le=65535)] = 8000
+    unix_socket: Path | None = None
+    """Serve on this Unix socket instead of a TCP address (``host`` and ``port`` are then unused).
+
+    Only processes allowed to open the socket file can reach the API, so a reverse proxy on the
+    same host is the only client, and the client address can be trusted from its
+    ``X-Forwarded-For``. A TCP listener on loopback cannot promise that on a shared host."""
     cors_origins: Annotated[tuple[str, ...], NoDecode] = (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     )
     """Exact origins allowed by CORS. Comma-separated in the environment. ``*`` is rejected."""
     max_request_bytes: Annotated[int, Field(ge=1024, le=10 * 1024 * 1024)] = 64 * 1024
+
+    @field_validator("unix_socket")
+    @classmethod
+    def _absolute_socket(cls, value: Path | None) -> Path | None:
+        if value is not None and (not value.is_absolute() or "\0" in str(value)):
+            raise ValueError("unix_socket must be an absolute path")
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

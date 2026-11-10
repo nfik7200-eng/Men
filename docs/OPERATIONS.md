@@ -118,7 +118,9 @@ job that contacts providers is on. It prints names and reasons, never values.
 
 The API refuses to start on a non-loopback address unless `BIP_AUTH__MODE=required` (or
 `BIP_AUTH__ALLOW_INSECURE_BIND=true`, which must never be used on a reachable host). Recommended for
-phone access: keep BIP bound to `127.0.0.1`, reach it over a private network (Tailscale or
+phone access: serve on a Unix socket (`BIP_API__UNIX_SOCKET`, mode 0660, so only the proxy can
+reach it and its `X-Forwarded-For` can be trusted; uvicorn would otherwise `chmod` its own socket
+to 0666, so BIP binds it itself) or at least keep BIP bound to `127.0.0.1`, reach it over a private network (Tailscale or
 WireGuard) through a TLS-terminating reverse proxy you control, set `BIP_AUTH__MODE=required`, keep
 `BIP_AUTH__COOKIE_SECURE=true`, and set `BIP_AUTH__TRUST_PROXY_HEADERS=true` only behind that proxy.
 Create the first administrator with `python -m bip.tools.users create <name> --role admin`.
