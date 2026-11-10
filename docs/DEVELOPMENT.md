@@ -92,6 +92,20 @@ The end-to-end test needs a Chromium that `require("playwright")` can find, so i
 
 Only the live smoke test, or a passing health check in the app, is evidence that a provider works.
 
+## Populated preview (SYNTHETIC data)
+
+```bash
+make preview          # backend on :8000, sign-in required, invented data near "now"
+make web              # Vite dev server on :5173 (proxies /api to :8000)
+```
+
+`tests/preview/serve_preview.py` builds a throwaway database, inserts invented wallets, tokens,
+pools and Solana discoveries, runs the real detectors over them, adds two SYNTHETIC entity labels
+(one approved, one waiting in the review queue) and serves the real app wired to the offline fake
+nodes. It prints a SYNTHETIC password for the users `viewer`, `analyst` and `admin`. The database is
+marked `offline_fixture`, so every page shows its "Demo data" banner. Nothing in it is blockchain
+data and no provider is contacted; "Run once" on the Coverage page reaches only the fake nodes.
+
 ## Package structure
 
 ```

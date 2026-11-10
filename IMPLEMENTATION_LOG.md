@@ -761,3 +761,9 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Gaps.** No signal-creating API exists and the offline fake nodes' timestamps fall outside the detector lookback windows, so the browser suite shows empty states for signals and alerts; populated paths are unit-tested with SYNTHETIC data. No "Run discovery" control yet. The unit tests, not real collected data, are the only evidence the pages render real signals correctly.
 
+## 2026-11-10 — Populated SYNTHETIC preview and small contract fixes
+
+**Built.** `tests/preview/serve_preview.py` (`make preview`): throwaway database, invented data near "now", real detectors (13 signals from 9 of 10 detectors), two SYNTHETIC labels, three SYNTHETIC users with a one-off password, `offline_fixture` marker so every page shows "Demo data". Checked in a real browser: sign-in, Signals at 390 px wide (13 rows, no overflow, banner and role badge visible). The Ethereum collector's `not_covered` no longer says Solana has no collector, and its `limits` include `run_deadline_s`.
+
+**Not done.** The preview shows invented data, so it proves the pages work, not that real collected data looks like this. No "Run discovery" button in the UI yet.
+

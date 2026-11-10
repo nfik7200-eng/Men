@@ -1,5 +1,5 @@
 # Developer shortcuts. Everything runs locally; `install` downloads dependencies once.
-.PHONY: install install-backend install-frontend lint format typecheck test check \
+.PHONY: preview install install-backend install-frontend lint format typecheck test check \
         api web web-build web-lint web-typecheck web-test e2e check-all precommit live-smoke probe
 
 install: install-backend install-frontend
@@ -26,6 +26,9 @@ test:
 	uv run pytest
 
 check: lint typecheck test
+
+preview:  ## SYNTHETIC populated demo on :8000 with sign-in (open the Vite server from `make web`)
+	uv run python -m tests.preview.serve_preview --auth --port 8000
 
 api:  ## Run the API on http://127.0.0.1:8000 (data under BIP_DATA_ROOT, default ./var/data)
 	uv run python -m bip.api

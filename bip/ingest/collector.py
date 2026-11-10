@@ -67,7 +67,7 @@ NOT_COVERED = (
     "v3-style pool reserves and liquidity (only v2-style Sync events are read)",
     "pools created by factories with an event layout other than Uniswap v2/v3-style",
     "blocks above the finalized tag",
-    "Solana (no collector)",
+    "other chains (Solana has its own collector)",
 )
 
 
@@ -92,6 +92,7 @@ class ChainCollector:
                 "min_native_value_eth": self._cfg.min_native_value_eth,
                 "max_receipts_per_run": self._cfg.max_receipts_per_run,
                 "max_rpc_calls_per_run": self._cfg.max_rpc_calls_per_run,
+                "run_deadline_s": self._cfg.run_deadline_s,
                 "max_pools_per_run": self._cfg.max_pools_per_run,
                 "max_new_tokens_per_run": self._cfg.max_new_tokens_per_run,
                 "max_token_transfers_per_run": self._cfg.max_token_transfers_per_run,
