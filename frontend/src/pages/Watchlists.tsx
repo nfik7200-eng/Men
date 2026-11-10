@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type { Watchlist } from "../api/types";
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { Address } from "../components/Address";
 import { DataTable } from "../components/DataTable";
 import { EmptyState, ErrorState, FieldError, Loading, PageHeader, Panel, Pill } from "../components/ui";
@@ -16,9 +18,11 @@ function AddEntry({ watchlist, onChange }: { watchlist: Watchlist; onChange: () 
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const can = useCan("POST", "/watchlists");
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!can.allowed) return;
     const problem = validateAddress(chain, address);
     if (problem) return setError(problem);
     setBusy(true);
@@ -53,7 +57,8 @@ function AddEntry({ watchlist, onChange }: { watchlist: Watchlist; onChange: () 
         <span>Note (optional)</span>
         <input id="entry-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
       </label>
-      <button type="submit" className="btn btn-primary" disabled={busy}>Add</button>
+      <button type="submit" className="btn btn-primary" disabled={busy || !can.allowed} title={can.reason}>Add</button>
+      <RoleHint can={can} />
       <FieldError id="entry-error" message={error} />
     </form>
   );
@@ -66,6 +71,8 @@ function WatchlistDetail({ id, onDeleted, onChanged }: { id: number; onDeleted: 
   const [filter, setFilter] = useState("");
   const [analysis, setAnalysis] = useState<Awaited<ReturnType<typeof api.analyzeWatchlist>> | null>(null);
   const [analysing, setAnalysing] = useState(false);
+  const canEdit = useCan("DELETE", "/watchlists/1");
+  const canAnalyse = useCan("POST", "/intelligence/watchlists/1/analyze");
   const analyse = async () => {
     setAnalysing(true);
     setError(null);
@@ -112,11 +119,11 @@ function WatchlistDetail({ id, onDeleted, onChanged }: { id: number; onDeleted: 
         confirming ? (
           <span className="row">
             <span className="muted">Delete this list and its {w.entry_count} entries?</span>
-            <button type="button" className="btn btn-danger" onClick={() => void destroy()}>Delete</button>
+            <button type="button" className="btn btn-danger" onClick={() => void destroy()} disabled={!canEdit.allowed}>Delete</button>
             <button type="button" className="btn" onClick={() => setConfirming(false)}>Cancel</button>
           </span>
         ) : (
-          <button type="button" className="btn" onClick={() => setConfirming(true)}>Delete list</button>
+          <button type="button" className="btn" onClick={() => setConfirming(true)} disabled={!canEdit.allowed} title={canEdit.reason}>Delete list</button>
         )
       }
     >
@@ -132,9 +139,10 @@ function WatchlistDetail({ id, onDeleted, onChanged }: { id: number; onDeleted: 
               Filter entries
               <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Address or note" />
             </label>
-            <button type="button" className="btn" disabled={analysing} onClick={() => void analyse()}>
+            <button type="button" className="btn" disabled={analysing || !canAnalyse.allowed} title={canAnalyse.reason} onClick={() => void analyse()}>
               {analysing ? "Analysing…" : "Analyse watchlist"}
             </button>
+            <RoleHint can={canAnalyse} />
           </div>
           <p className="muted">{shown.length} of {w.entries.length} shown</p>
           {analysis ? (
@@ -165,7 +173,7 @@ function WatchlistDetail({ id, onDeleted, onChanged }: { id: number; onDeleted: 
               { key: "added", header: "Added", priority: 3, render: (e) => fmtTime(e.added_at) },
               {
                 key: "rm", header: "", priority: 2, render: (e) => (
-                  <button type="button" className="btn btn-small" onClick={() => void remove(e.id)} aria-label={`Remove ${e.address}`}>
+                  <button type="button" className="btn btn-small" onClick={() => void remove(e.id)} aria-label={`Remove ${e.address}`} disabled={!canEdit.allowed} title={canEdit.reason}>
                     Remove
                   </button>
                 ),
@@ -184,9 +192,11 @@ export default function Watchlists() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const canCreate = useCan("POST", "/watchlists");
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
+    if (!canCreate.allowed) return;
     if (!name.trim()) return setError("Give the watchlist a name.");
     setError(null);
     try {
@@ -218,7 +228,8 @@ export default function Watchlists() {
                 <input id="wl-description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} />
               </label>
               <FieldError id="wl-error" message={error} />
-              <button type="submit" className="btn btn-primary">Create watchlist</button>
+              <RoleHint can={canCreate} />
+              <button type="submit" className="btn btn-primary" disabled={!canCreate.allowed} title={canCreate.reason}>Create watchlist</button>
             </form>
           </Panel>
           <Panel title="Lists">

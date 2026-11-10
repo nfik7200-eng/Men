@@ -1,3 +1,5 @@
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api/client";
@@ -115,6 +117,7 @@ export function IngestPanel({ chain, address, onDone }: { chain: string; address
   const [job, setJob] = useState<IngestionJob | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const history = useApi(() => api.jobs(chain, address), [chain, address]);
+  const can = useCan("POST", `/ingestion/wallet/${chain}/${address}`);
 
   const run = async () => {
     setBusy(true);
@@ -149,9 +152,10 @@ export function IngestPanel({ chain, address, onDone }: { chain: string; address
             ))}
           </select>
         </label>
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void run()}>
+        <button type="button" className="btn btn-primary" disabled={busy || !can.allowed} title={can.reason} onClick={() => void run()}>
           {busy ? "Retrieving… (may take up to a minute)" : "Retrieve recent activity"}
         </button>
+        <RoleHint can={can} />
       </div>
       {error ? <ErrorState error={error} /> : null}
       {latest ? (

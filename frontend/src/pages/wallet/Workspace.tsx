@@ -1,3 +1,5 @@
+import { RoleHint } from "../../auth/RoleHint";
+import { useCan } from "../../auth/useAuth";
 import { useId, useState, type FormEvent } from "react";
 import { Link, NavLink, useParams } from "react-router-dom";
 import { ApiError, api } from "../../api/client";
@@ -261,6 +263,7 @@ function CasesTab({ s, onChange }: { s: WalletStatus; onChange: () => void }) {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
+  const can = useCan("POST", "/watchlists");
   const fail = (e: unknown) => {
     setError(e instanceof ApiError ? e : new ApiError(0, "unknown", "Request failed."));
     setBusy(false);
@@ -298,14 +301,15 @@ function CasesTab({ s, onChange }: { s: WalletStatus; onChange: () => void }) {
           {lists.status === "ready" && lists.data.length === 0 ? (
             <p className="note">No watchlists yet. <Link to="/watchlists">Create one</Link>.</p>
           ) : null}
-          <button type="submit" className="btn" disabled={busy || !listId}>Add to watchlist</button>
+          <button type="submit" className="btn" disabled={busy || !listId || !can.allowed} title={can.reason}>Add to watchlist</button>
         </form>
         <form className="form" onSubmit={openCase}>
           <label className="field">
             Case title
             <input value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </label>
-          <button type="submit" className="btn" disabled={busy || !title.trim()}>Open case</button>
+          <button type="submit" className="btn" disabled={busy || !title.trim() || !can.allowed} title={can.reason}>Open case</button>
+          <RoleHint can={can} />
         </form>
       </Panel>
     </div>

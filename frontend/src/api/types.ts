@@ -738,3 +738,23 @@ export type CaseResearchLink = {
 };
 
 export type TaxonomyLabel = { id: string; dimension: string; chains: string[]; description: string; rule_detectable: boolean; sensitive: boolean };
+
+// ---- authentication (bip/api/routes/auth.py)
+export type AuthUserPublic = {
+  id: number;
+  username: string;
+  role: "viewer" | "analyst" | "admin";
+  enabled: boolean;
+  created_at: string;
+  last_login_at: string | null;
+};
+export type AuthStatus = {
+  mode: "disabled" | "required";
+  setup_required?: boolean;
+  authenticated?: boolean;
+  user: AuthUserPublic | null;
+  /** Not sent by the current backend; read from /auth/me when missing. */
+  csrf_token?: string | null;
+};
+export type AuthMe = { mode: "disabled" | "required"; user: AuthUserPublic | null; csrf_token: string | null };
+export type LoginResult = { user: AuthUserPublic; csrf_token: string; expires_at: string };

@@ -122,5 +122,4 @@ phone access: keep BIP bound to `127.0.0.1`, reach it over a private network (Ta
 WireGuard) through a TLS-terminating reverse proxy you control, set `BIP_AUTH__MODE=required`, keep
 `BIP_AUTH__COOKIE_SECURE=true`, and set `BIP_AUTH__TRUST_PROXY_HEADERS=true` only behind that proxy.
 Create the first administrator with `python -m bip.tools.users create <name> --role admin`.
-The bundled frontend has no sign-in screen yet: it works with `mode=disabled` on loopback, and needs
-a login page and CSRF header support before it can be used with `mode=required`.
+The bundled frontend has a sign-in screen: with `mode=required` nothing but the sign-in form renders until a session exists, the CSRF token lives in memory only and is recovered from `GET /api/v1/auth/me` after a reload, and controls the signed-in role cannot use are disabled with the reason (the server stays authoritative). With `mode=disabled` the UI is unchanged. A locked account answers the same 401 as a wrong password, so the UI cannot tell them apart.

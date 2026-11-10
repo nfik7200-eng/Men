@@ -1,3 +1,5 @@
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { useState } from "react";
 import { ApiError, api } from "../api/client";
 import type { HealthCheck, Lifecycle, Provider } from "../api/types";
@@ -34,6 +36,7 @@ function ProviderRow({ p, onChange }: { p: Provider; onChange: () => void }) {
   const [check, setCheck] = useState<HealthCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const can = useCan("POST", `/providers/${p.id}/health-check`);
   const checkable = p.adapter_available && p.enabled && ["untested", "healthy", "degraded", "unavailable"].includes(p.lifecycle);
 
   const runCheck = async () => {
@@ -81,7 +84,7 @@ function ProviderRow({ p, onChange }: { p: Provider; onChange: () => void }) {
         <td>
           <div className="row">
             {checkable ? (
-              <button type="button" className="btn btn-small" disabled={busy} onClick={() => void runCheck()}>
+              <button type="button" className="btn btn-small" disabled={busy || !can.allowed} title={can.reason} onClick={() => void runCheck()}>
                 {busy ? "Checking…" : "Health check"}
               </button>
             ) : null}
@@ -132,9 +135,10 @@ function ProviderRow({ p, onChange }: { p: Provider; onChange: () => void }) {
                   <div className="row">
                     <a href={p.docs_url} target="_blank" rel="noopener noreferrer">Documentation</a>
                     <a href={p.terms_url} target="_blank" rel="noopener noreferrer">Terms</a>
-                    <button type="button" className="btn btn-small" onClick={() => void toggle()}>
+                    <button type="button" className="btn btn-small" onClick={() => void toggle()} disabled={!can.allowed} title={can.reason}>
                       {p.enabled ? "Disable" : "Enable"}
                     </button>
+                    <RoleHint can={can} />
                   </div>
                 </div>
               </div>

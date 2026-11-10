@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, api } from "../api/client";
 import type { InvestigationStatus } from "../api/types";
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { EmptyState, ErrorState, FieldError, Loading, Mono, PageHeader, Panel, Pill } from "../components/ui";
 import { CHAINS, chainLabel, validateAddress } from "../lib/address";
 import { fmtTime, humanize } from "../lib/format";
@@ -17,9 +19,11 @@ function CreateInvestigation({ onCreated }: { onCreated: () => void }) {
   const [address, setAddress] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const can = useCan("POST", "/investigations");
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!can.allowed) return;
     if (!title.trim()) return setError("Give the investigation a title.");
     if (chain && validateAddress(chain, address)) return setError(validateAddress(chain, address));
     if (!chain && address.trim()) return setError("Choose the chain for the subject address.");
@@ -70,7 +74,8 @@ function CreateInvestigation({ onCreated }: { onCreated: () => void }) {
         </label>
       </div>
       <FieldError id="inv-error" message={error} />
-      <button type="submit" className="btn btn-primary" disabled={busy}>
+      <RoleHint can={can} />
+      <button type="submit" className="btn btn-primary" disabled={busy || !can.allowed} title={can.reason}>
         {busy ? "Creating…" : "Create investigation"}
       </button>
     </form>
@@ -122,6 +127,7 @@ export function InvestigationDetail() {
   const id = Number(useParams().id);
   const inv = useApi(() => api.investigation(id), [id]);
   const [error, setError] = useState<string | null>(null);
+  const can = useCan("PATCH", "/investigations/1");
 
   const setStatus = async (status: InvestigationStatus) => {
     setError(null);
@@ -165,12 +171,14 @@ export function InvestigationDetail() {
                   type="button"
                   className="btn"
                   aria-pressed={inv.data.status === s}
-                  disabled={inv.data.status === s}
+                  disabled={inv.data.status === s || !can.allowed}
+                  title={can.reason}
                   onClick={() => void setStatus(s)}
                 >
                   {humanize(s)}
                 </button>
               ))}
+              <RoleHint can={can} />
             </div>
             <FieldError id="status-error" message={error} />
           </Panel>
@@ -199,6 +207,7 @@ export function InvestigationDetail() {
 
 function CaseResearch({ id }: { id: number }) {
   const links = useApi(() => api.caseResearchRuns(id), [id]);
+  const can = useCan("DELETE", "/investigations/1/research-runs/x");
   return (
     <section className="panel" aria-label="Research runs">
       <div className="panel-head"><h2>Research runs</h2></div>
@@ -214,7 +223,7 @@ function CaseResearch({ id }: { id: number }) {
               <Link to={`/research/runs/${encodeURIComponent(l.run_id)}`}>{l.question}</Link>
               <Pill tone={l.state.startsWith("completed") ? "ok" : l.state === "failed" ? "bad" : "info"}>{humanize(l.state)}</Pill>
               {l.note ? <span>{l.note}</span> : null}
-              <button type="button" className="btn btn-small" onClick={() => { api.unlinkResearchRun(id, l.run_id).then(links.reload, links.reload); }}>
+              <button type="button" className="btn btn-small" disabled={!can.allowed} title={can.reason} onClick={() => { api.unlinkResearchRun(id, l.run_id).then(links.reload, links.reload); }}>
                 Unlink
               </button>
             </li>

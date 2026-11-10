@@ -1,3 +1,5 @@
+import { RoleHint } from "../../auth/RoleHint";
+import { useCan } from "../../auth/useAuth";
 import { useEffect, useId, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../../api/client";
@@ -87,6 +89,7 @@ function RunActions({ run }: { run: ResearchRun }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
+  const can = useCan("POST", "/research/runs/x/cancel");
   const done = TERMINAL.has(run.state);
   const fail = (e: unknown) => {
     setError(e instanceof ApiError ? e : new ApiError(0, "unknown", "Request failed."));
@@ -107,11 +110,11 @@ function RunActions({ run }: { run: ResearchRun }) {
     <Panel title="Actions">
       <div className="row">
         {!done ? (
-          <button type="button" className="btn btn-danger" onClick={() => { api.researchCancel(run.run_id).catch(fail); }}>
+          <button type="button" className="btn btn-danger" disabled={!can.allowed} title={can.reason} onClick={() => { api.researchCancel(run.run_id).catch(fail); }}>
             Cancel
           </button>
         ) : null}
-        <button type="button" className="btn" disabled={busy || !done} onClick={() => {
+        <button type="button" className="btn" disabled={busy || !done || !can.allowed} title={can.reason} onClick={() => {
           setBusy(true);
           api.researchRerun(run.run_id).then((n) => navigate(`/research/runs/${encodeURIComponent(n.run_id)}`), fail);
         }}>
@@ -124,9 +127,10 @@ function RunActions({ run }: { run: ResearchRun }) {
             {cases.status === "ready" ? cases.data.map((c) => <option key={c.id} value={c.id}>{c.title}</option>) : null}
           </select>
         </div>
-        <button type="button" className="btn" disabled={busy || !caseId} onClick={addToCase}>
+        <button type="button" className="btn" disabled={busy || !caseId || !can.allowed} title={can.reason} onClick={addToCase}>
           Add to case
         </button>
+        <RoleHint can={can} />
       </div>
       {msg ? <p role="status">{msg}</p> : null}
       {error ? <ErrorState error={error} /> : null}

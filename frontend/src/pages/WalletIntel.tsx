@@ -1,3 +1,5 @@
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../api/client";
@@ -29,6 +31,7 @@ function AnalysisPanel({ chain, address, profile, onDone }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const can = useCan("POST", "/intelligence/analyze/x/y");
   const run = profile.latest_analysis;
   const analyze = () => {
     setBusy(true);
@@ -48,7 +51,7 @@ function AnalysisPanel({ chain, address, profile, onDone }: {
   return (
     <Panel
       title="Analysis"
-      aside={<button type="button" className="btn btn-primary" onClick={analyze} disabled={busy}>{busy ? "Analysing…" : "Run analysis"}</button>}
+      aside={<span className="row"><RoleHint can={can} /><button type="button" className="btn btn-primary" onClick={analyze} disabled={busy || !can.allowed} title={can.reason}>{busy ? "Analysing…" : "Run analysis"}</button></span>}
     >
       <ScopeNote scope={profile.scope} />
       {run ? (
@@ -110,6 +113,7 @@ function VerificationPanel({ chain, address, profile, onDone }: {
   const [results, setResults] = useState<Record<string, VerifyResult>>({});
   const [error, setError] = useState<ApiError | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
+  const can = useCan("POST", "/intelligence/verification/x/y");
   const fail = (e: unknown) => {
     setError(e instanceof ApiError ? e : new ApiError(0, "unknown", "Verification failed."));
     setBusy(null);
@@ -136,7 +140,7 @@ function VerificationPanel({ chain, address, profile, onDone }: {
   return (
     <Panel
       title="Evidence verification"
-      aside={<button type="button" className="btn" onClick={verifyRecent} disabled={busy !== null}>{busy === "wallet" ? "Checking…" : "Corroborate recent"}</button>}
+      aside={<span className="row"><RoleHint can={can} /><button type="button" className="btn" onClick={verifyRecent} disabled={busy !== null || !can.allowed} title={can.reason}>{busy === "wallet" ? "Checking…" : "Corroborate recent"}</button></span>}
     >
       <p>
         <VerificationLine v={profile.verification} />
@@ -166,7 +170,7 @@ function VerificationPanel({ chain, address, profile, onDone }: {
                       {r?.note ? <div className="muted">{r.note}</div> : null}
                     </td>
                     <td>
-                      <button type="button" className="btn btn-small" onClick={() => verifyOne(e.tx_id)} disabled={busy !== null}>
+                      <button type="button" className="btn btn-small" onClick={() => verifyOne(e.tx_id)} disabled={busy !== null || !can.allowed} title={can.reason}>
                         {busy === e.tx_id ? "…" : "Verify"}
                       </button>
                     </td>
@@ -187,6 +191,7 @@ function AttachFinding({ findingId }: { findingId: string }) {
   const [caseId, setCaseId] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const can = useCan("POST", "/intelligence/findings/x/attach");
   const attach = () => {
     const id = Number(caseId);
     if (!id) return;
@@ -205,7 +210,8 @@ function AttachFinding({ findingId }: { findingId: string }) {
           {cases.status === "ready" ? cases.data.map((c) => <option key={c.id} value={c.id}>{c.title}</option>) : null}
         </select>
       </div>
-      <button type="button" className="btn" disabled={!caseId} onClick={attach}>Attach to case</button>
+      <button type="button" className="btn" disabled={!caseId || !can.allowed} title={can.reason} onClick={attach}>Attach to case</button>
+      <RoleHint can={can} />
       {msg ? <span role="status">{msg}</span> : null}
       {error ? <ErrorState error={error} /> : null}
     </div>

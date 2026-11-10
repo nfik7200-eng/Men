@@ -10,7 +10,8 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "e2e": "node e2e/smoke.mjs"
+    "e2e": "node e2e/smoke.mjs",
+    "e2e:auth": "node e2e/auth.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

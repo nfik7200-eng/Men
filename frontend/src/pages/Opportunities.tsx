@@ -1,3 +1,5 @@
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { useState } from "react";
 import { ApiError, api } from "../api/client";
 import type { Opportunity, OpportunityRefresh } from "../api/types";
@@ -57,6 +59,7 @@ export default function Opportunities() {
   const [busy, setBusy] = useState<string | null>(null);
   const [last, setLast] = useState<OpportunityRefresh | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const can = useCan("POST", "/intelligence/opportunities/refresh/x");
   const refresh = (chain: string) => {
     setBusy(chain);
     setError(null);
@@ -73,10 +76,11 @@ export default function Opportunities() {
         actions={
           <>
             {["ethereum", "solana"].map((c) => (
-              <button key={c} type="button" className="btn" disabled={busy !== null} onClick={() => refresh(c)}>
+              <button key={c} type="button" className="btn" disabled={busy !== null || !can.allowed} title={can.reason} onClick={() => refresh(c)}>
                 {busy === c ? "Evaluating…" : `Evaluate ${chainLabel(c)}`}
               </button>
             ))}
+            <RoleHint can={can} />
           </>
         }
       />

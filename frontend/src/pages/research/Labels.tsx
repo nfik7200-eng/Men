@@ -1,3 +1,5 @@
+import { RoleHint } from "../../auth/RoleHint";
+import { useCan } from "../../auth/useAuth";
 import { useState, type FormEvent } from "react";
 import { ApiError, api } from "../../api/client";
 import type { LabelStatus } from "../../api/types";
@@ -58,9 +60,11 @@ function AddLabel({ labels, onAdded }: { labels: { id: string; chains: string[];
   const [observed, setObserved] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const can = useCan("POST", "/ml/labels");
   const options = labels.filter((l) => l.chains.includes(chain));
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    if (!can.allowed) return;
     const bad = validateAddress(chain, address) ?? (!label ? "Choose a label." : source.trim().length < 2 ? "Name the source of this label." : null);
     if (bad) return setError(bad);
     setBusy(true);
@@ -110,7 +114,7 @@ function AddLabel({ labels, onAdded }: { labels: { id: string; chains: string[];
         </div>
         {error ? <p className="field-error" role="alert">{error}</p> : null}
         <p className="note">Only label what an independent source supports. Do not record identities of people.</p>
-        <div><button type="submit" className="btn btn-primary" disabled={busy}>Add label</button></div>
+        <div className="row"><button type="submit" className="btn btn-primary" disabled={busy || !can.allowed} title={can.reason}>Add label</button><RoleHint can={can} /></div>
       </form>
     </Panel>
   );
@@ -119,6 +123,7 @@ function AddLabel({ labels, onAdded }: { labels: { id: string; chains: string[];
 function LabelTable({ rows, onReviewed }: { rows: import("../../api/types").LabelRow[]; onReviewed: () => void }) {
   const [reviewer, setReviewer] = useState("");
   const [error, setError] = useState<ApiError | null>(null);
+  const can = useCan("POST", "/ml/labels/1/reviews");
   const review = (id: number, decision: "accepted" | "rejected" | "needs_evidence") => {
     if (!reviewer.trim()) return setError(new ApiError(422, "invalid_input", "Enter a reviewer name first."));
     setError(null);
@@ -128,6 +133,7 @@ function LabelTable({ rows, onReviewed }: { rows: import("../../api/types").Labe
   };
   return (
     <>
+      <RoleHint can={can} />
       <label className="field">Reviewer
         <input value={reviewer} maxLength={80} onChange={(e) => setReviewer(e.target.value)} />
       </label>
@@ -147,8 +153,8 @@ function LabelTable({ rows, onReviewed }: { rows: import("../../api/types").Labe
           {
             key: "act", header: "Decision", priority: 2, render: (r) => (
               <span className="row">
-                <button type="button" className="btn btn-small" onClick={() => review(r.id, "accepted")}>Accept</button>
-                <button type="button" className="btn btn-small" onClick={() => review(r.id, "rejected")}>Reject</button>
+                <button type="button" className="btn btn-small" disabled={!can.allowed} title={can.reason} onClick={() => review(r.id, "accepted")}>Accept</button>
+                <button type="button" className="btn btn-small" disabled={!can.allowed} title={can.reason} onClick={() => review(r.id, "rejected")}>Reject</button>
               </span>
             ),
           },

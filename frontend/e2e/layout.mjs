@@ -53,6 +53,39 @@ async function seed(baseUrl) {
   }
 }
 
+/** Measure the page that is currently open: horizontal overflow, undersized tap targets, header height. */
+export async function measurePage(page, minTarget) {
+  return page.evaluate((minTarget) => {
+    const vw = window.innerWidth;
+    const visible = (e) => {
+      const r = e.getBoundingClientRect();
+      const s = getComputedStyle(e);
+      return r.width > 0 && r.height > 0 && s.visibility !== "hidden";
+    };
+    const targets = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, textarea, summary")]
+      .filter(visible)
+      .filter((e) => !e.closest(".graph-svg"))
+      // WCAG 2.5.8 exempts links inside a sentence or block of text
+      .filter((e) => !(e.tagName === "A" && getComputedStyle(e).display === "inline" && (e.parentElement?.textContent ?? "").trim().length > (e.textContent ?? "").trim().length + 3))
+      .map((e) => {
+        // a checkbox or radio inside a label counts by its label's box
+        const box = (e.matches("input[type=checkbox], input[type=radio]") && e.closest("label")) || e;
+        const r = box.getBoundingClientRect();
+        return { h: r.height, w: r.width, text: (e.textContent || e.getAttribute("aria-label") || e.tagName).trim().slice(0, 30) };
+      })
+      .filter((t) => t.h < minTarget - 0.5);
+    const header = document.querySelector(".sidebar");
+    const h2 = [...document.querySelectorAll("main h2")].filter((e) => getComputedStyle(e).textTransform === "uppercase");
+    return {
+      overflow: document.documentElement.scrollWidth - vw,
+      small: targets.slice(0, 5),
+      smallCount: targets.length,
+      headerHeight: header ? Math.round(header.getBoundingClientRect().height) : 0,
+      uppercaseH2: h2.length,
+    };
+  }, minTarget);
+}
+
 export async function checkLayout(browser, baseUrl, { screenshotDir } = {}) {
   const failures = [];
   await seed(baseUrl);
@@ -62,35 +95,7 @@ export async function checkLayout(browser, baseUrl, { screenshotDir } = {}) {
     for (const route of ROUTES) {
       await page.goto(baseUrl + route);
       await page.waitForLoadState("networkidle");
-      const m = await page.evaluate((minTarget) => {
-        const vw = window.innerWidth;
-        const visible = (e) => {
-          const r = e.getBoundingClientRect();
-          const s = getComputedStyle(e);
-          return r.width > 0 && r.height > 0 && s.visibility !== "hidden";
-        };
-        const targets = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, textarea, summary")]
-          .filter(visible)
-          .filter((e) => !e.closest(".graph-svg"))
-          // WCAG 2.5.8 exempts links inside a sentence or block of text
-          .filter((e) => !(e.tagName === "A" && getComputedStyle(e).display === "inline" && (e.parentElement?.textContent ?? "").trim().length > (e.textContent ?? "").trim().length + 3))
-          .map((e) => {
-            // a checkbox or radio inside a label counts by its label's box
-            const box = (e.matches("input[type=checkbox], input[type=radio]") && e.closest("label")) || e;
-            const r = box.getBoundingClientRect();
-            return { h: r.height, w: r.width, text: (e.textContent || e.getAttribute("aria-label") || e.tagName).trim().slice(0, 30) };
-          })
-          .filter((t) => t.h < minTarget - 0.5);
-        const header = document.querySelector(".sidebar");
-        const h2 = [...document.querySelectorAll("main h2")].filter((e) => getComputedStyle(e).textTransform === "uppercase");
-        return {
-          overflow: document.documentElement.scrollWidth - vw,
-          small: targets.slice(0, 5),
-          smallCount: targets.length,
-          headerHeight: header ? Math.round(header.getBoundingClientRect().height) : 0,
-          uppercaseH2: h2.length,
-        };
-      }, vp.minTarget);
+      const m = await measurePage(page, vp.minTarget);
       const where = `${vp.name} ${route.slice(0, 32)}`;
       if (m.overflow > 0) failures.push(`${where}: horizontal overflow ${m.overflow}px`);
       if (m.smallCount > 0) failures.push(`${where}: ${m.smallCount} tap targets < ${vp.minTarget}px, e.g. ${JSON.stringify(m.small)}`);

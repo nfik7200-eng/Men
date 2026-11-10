@@ -1,3 +1,5 @@
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { useState } from "react";
 import { ApiError, api } from "../api/client";
 import type { ChainStatus } from "../api/types";
@@ -12,6 +14,7 @@ const yes = (v: boolean) => <Pill tone={v ? "ok" : "idle"}>{v ? "Yes" : "No"}</P
 function ChainPanel({ c, onChange }: { c: ChainStatus; onChange: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const can = useCan("POST", `/chains/${c.chain}/latest-block`);
   const obs = c.latest_observation;
   const unit = c.position_kind === "block" ? "block" : "slot";
 
@@ -61,9 +64,10 @@ function ChainPanel({ c, onChange }: { c: ChainStatus; onChange: () => void }) {
       </dl>
       <p className="note">{c.status_note}</p>
       <div className="row">
-        <button type="button" className="btn btn-primary" disabled={busy || c.usable_providers.length === 0} onClick={() => void fetchHead()}>
+        <button type="button" className="btn btn-primary" disabled={busy || c.usable_providers.length === 0 || !can.allowed} title={can.reason} onClick={() => void fetchHead()}>
           {busy ? "Fetching…" : `Fetch latest ${unit}`}
         </button>
+        <RoleHint can={can} />
       </div>
       <FieldError id={`chain-error-${c.chain}`} message={error} />
     </Panel>

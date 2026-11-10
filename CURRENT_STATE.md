@@ -110,7 +110,7 @@ Statuses:
 | Orphan handling: marking, exclusion from intelligence, invalidation of analyses, signals and relationships | Implemented and tested offline. Trusts one provider's canonical hash at a finalized height | `tests/stage2/test_stage1_review.py`, `tests/discovery/test_pipeline.py`, `tests/entities/test_relationships.py` |
 | Discovery: 10 detectors, scoring, dedupe, cooldown, expiry, alerts, promotion, review statistics (migration v7) | Implemented and tested. Works over stored data only; **no chain-wide collector** | `tests/discovery/` |
 | Entity relationships, search, transaction/token/contract detail, case notes and timeline (migration v10) | Implemented and tested | `tests/entities/` |
-| Authentication, sessions, CSRF, roles, throttling, audit log (migration v8) | Implemented and tested. **No frontend sign-in yet** | `tests/security/` |
+| Authentication, sessions, CSRF, roles, throttling, audit log (migration v8) | Implemented and tested, **including the frontend sign-in** (in-memory CSRF token, role-aware controls, 116 browser checks at phone, tablet and desktop sizes) | `tests/security/` |
 | Health, usage, metrics, backups, scheduler, retention (migration v9) | Implemented and tested. Not measured on the VPS | `tests/ops/`, `docs/OPERATIONS.md` |
 | VPS deployment kit (`deploy/`, `python -m bip.tools.preflight`): not applied to any host | Implemented; pre-flight tested; the kit itself is unexercised on a real host | `tests/unit/test_preflight.py` |
 | Reviewed entity labels (migration v14, `/entities/labels*`, attribution on signals) | Implemented and tested offline with synthetic data | `tests/entities/test_labels.py` |
@@ -133,7 +133,7 @@ Nothing below is claimed as working. Each needs an owner decision; none was atte
 | Event streams (WebSocket/gRPC) | **Not built** | Provider-specific, may be paid | Provider choice |
 | Liquidity/reserve changes, holder concentration | **Partial**: v2-style `Sync` reserves of known pools; holder concentration as observed net inflow of stored transfers (not balances). v3 pools and true balances not covered | `eth_call balanceOf`/indexer for real holdings | Data source for balances |
 | Exchange / entity attribution | **Mechanism built**: reviewed entity labels (proposal, evidence, person-only approval, separate reviewer when auth is required), shown on signals only once approved. **No labels exist**: none were invented, so every entity is unattributed until a person approves one | Real labels and sources, supplied by analysts | Supply labels |
-| Frontend sign-in and CSRF handling | **Not built** | Goal forbids frontend rebuild | Approve frontend work |
+| Frontend sign-in and CSRF handling | **Built and verified**: sign-in gate, session restore after reload, CSRF on writes, 401/403/429 messages, role-aware controls, change password; e2e in `required` mode at three viewport sizes | Not deployed anywhere; lockout is indistinguishable from a wrong password in the UI (the API returns the same 401) | None |
 | Classifier on real labels | **Not trained** | No reviewed labels exist | Supply labels |
 | Live LLM synthesis / AI label proposals | **Built, not exercised**: `POST /entities/labels/suggest` grounds proposals in stored signals and drops anything uncited. Checked 2026-11-09: `BIP_AI__PROVIDER=none` and nothing listens on 127.0.0.1:11434, so no model was contacted | A reachable local Ollama and an installed model tag | Configure Ollama (optional) |
 | Second-provider orphan confirmation | **Not built** | Needs a second approved provider | Provider choice |
@@ -142,7 +142,6 @@ Nothing below is claimed as working. Each needs an owner decision; none was atte
 ## Blockers
 000. **Partly built, rest BLOCKED:** discovery without supplied addresses now exists for one slice only: Ethereum contract creations and large native transfers read from finalized blocks (`ChainCollector`, admin endpoint `POST /discovery/collect/ethereum`, optional `chain_scan` job, off). New pools are now observed from factory events (event layout only; not proof of a DEX). **BLOCKED, needs an owner decision on data source, cost and storage:** a Solana collector, ERC-20 transfer activity chain-wide, liquidity/reserve changes, holder concentration and exchange flows. The collector is not a chain index and has not touched a live provider.
 000. **Not built, needs a provider decision:** event streams (WebSocket/gRPC), Solana program deployment, liquidity/reserve detection. **BLOCKED.**
-000. **Frontend sign-in screen** and CSRF header handling. Until built, authentication cannot be enabled for the bundled UI.
 000. **Real reviewed labels** are still needed before any real classifier is trained; the LLM provider (Ollama) was not contacted.
 00. **Real labelled wallets** (verified, corroborated or analyst-reviewed, with provenance) are needed before any real model can be trained. A local Ollama model is needed for AI synthesis, and must not change the owner's existing models.
 0. **Live provider capability evidence** needs `make probe` from a machine (or environment) whose network allows the RPC hosts.
@@ -169,7 +168,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 8. Remote LLM providers allowed, or local Ollama only.
 9. UI: self-hosted IBM Plex fonts or system fonts (default); confirm transaction-hash search stays out of scope (`docs/FRONTEND_ARCHITECTURE.md` §12). Note: `/search` now matches stored transaction ids; confirm that is wanted.
 10. ADR-032 to ADR-037 (all Proposed; implemented provisionally).
-11. Switching to `BIP_AUTH__MODE=required` (needs the frontend sign-in work first), the reverse-proxy/VPN choice, and the first administrator.
+11. Switching to `BIP_AUTH__MODE=required` the reverse-proxy/VPN choice, and the first administrator.
 12. Running the block collector against a live provider (`POST /discovery/collect/ethereum` or `BIP_WORKERS__COLLECTOR_ENABLED`): it spends provider quota (about one full-block call per block plus one receipt per candidate; default 20 blocks and 60 receipts per run). Enabling the scheduler (`BIP_WORKERS__ENABLED`), backups, and above all `watchlist_refresh`, which spends provider quota.
 13. Whether to confirm an orphaned block with a second provider before orphaning, and whether to build a chain-wide collector (with its data source and cost).
 14. A live check of Solana v1 handling, token-account discovery and `getTokenAccountsByOwner` support on a real provider.

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { api } from "../api/client";
+import { useAuth } from "../auth/useAuth";
 import type { Health } from "../api/types";
 import { useApi, type ApiState } from "../lib/useApi";
 import { Pill } from "./ui";
@@ -110,6 +111,7 @@ export function Sidebar({ search }: { search?: ReactNode }) {
   const menuRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const health = useHealth();
+  const { mode } = useAuth();
   if (location.pathname !== lastPath) {
     setLastPath(location.pathname);
     setOpen(false);
@@ -178,7 +180,9 @@ export function Sidebar({ search }: { search?: ReactNode }) {
         <span className="muted">
           {health.status === "ready" ? `BIP ${health.data.version} · ${health.data.environment}` : "BIP"}
         </span>
-        <span className="muted">Local prototype · no authentication</span>
+        <span className="muted">
+          {mode === "required" ? "Sign-in required · protected session" : "Local prototype · no authentication"}
+        </span>
       </div>
     </aside>
   );

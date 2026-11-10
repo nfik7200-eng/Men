@@ -735,3 +735,11 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not done.** Scheduled collection stays off. Nothing was run against a paid or keyed endpoint.
 
+## 2026-11-10 — Frontend sign-in (delegated to a subagent owning `frontend/`, verified independently)
+
+**Built.** `frontend/src/auth/` (in-memory session store, actions, provider, sign-in form with `Retry-After` countdown, user menu, change-password dialog, role gating via a TypeScript port of `bip/api/access.py`), API client changes (credentials, `X-CSRF-Token` on writes, 401 returns to sign-in, 403/429 messages), `frontend/e2e/auth.mjs` (real backend in `required` mode on a throwaway data root with four SYNTHETIC users).
+
+**Verification (run by the integrating session, not taken from the report).** `tsc` clean, `eslint` clean, `vitest` 179 passed (was 96), `npm run build` ok, `npm run e2e` 165/165 (was 49): the 116 new checks cover anonymous gate, wrong password, login, cookie flags, reload, CSRF-protected write, missing-token 403, role 403, sign-out, viewer controls disabled, and no overflow with 44 px touch targets at phone, tablet and desktop sizes. No backend change was needed.
+
+**Notes.** `GET /auth/status` returns no CSRF token (the UI uses `/auth/me`). A locked account and a wrong password both return 401 `invalid_credentials`. `/auth/password` accepts a new password of any length from 1 to 256 in the schema while user creation requires 12; the dialog enforces 12 locally. Not exercised: a real deployment behind HTTPS.
+

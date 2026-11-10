@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { runAuthJourneys } from "./auth.mjs";
 import { checkLayout } from "./layout.mjs";
 import { join, resolve } from "node:path";
 
@@ -390,8 +391,12 @@ try {
   const layoutFailures = await checkLayout(browser, WEB, { screenshotDir: dataRoot });
   check("[offline fixture] layout: no overflow, tap targets >= 44px touch / 32px desktop, compact header",
     layoutFailures.length === 0, layoutFailures.slice(0, 3).join(" | "));
-  void preview2;
-  void fixtureAgain;
+
+  // ---------- Sign-in journeys: a second backend with BIP_AUTH__MODE=required (throwaway data root) ----------
+  await stop(preview2);
+  await stop(fixtureAgain);
+  await waitForPortFree(WEB);
+  await runAuthJourneys(browser, check);
   await browser.close();
 } catch (err) {
   check("e2e run completed", false, String(err));

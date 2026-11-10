@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
+import { UserMenu } from "./auth/UserMenu";
 import { BackendBanner, HealthProvider, Sidebar, useHealth } from "./components/shell";
 import { WalletSearch } from "./components/WalletSearch";
 import CapitalFlows from "./pages/CapitalFlows";
@@ -61,6 +62,7 @@ function Shell() {
       <main className="main" id="content" tabIndex={-1}>
         <div className="topbar">
           <WalletSearch compact />
+          <UserMenu />
         </div>
         <BackendBanner />
         <Routes key={generation}>

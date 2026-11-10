@@ -288,10 +288,10 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - Per-client rate limiting (stricter on login). `X-Forwarded-For` is ignored unless `BIP_AUTH__TRUST_PROXY_HEADERS=true`.
 
 **Consequences.**
-- Migration v8 (users, sessions, audit_log). The bundled frontend has no login screen, so it works only in `disabled` mode until one is built.
+- Migration v8 (users, sessions, audit_log). The bundled frontend gained a sign-in screen (see implementation evidence); it still works unchanged in `disabled` mode.
 - Remote access should use a private network plus a TLS reverse proxy; see `docs/OPERATIONS.md`.
 
-**Implementation evidence (2026-11-10).** `tests/security/` covers login, lockout, CSRF, origin, roles, throttling and audit over HTTP; every provider-contacting route (collectors included) resolves to admin through the fail-closed table, and a test per new route family checks an analyst gets 403. `python -m bip.tools.preflight` refuses an unsafe configuration (authentication off, non-Secure cookie, proxy headers trusted on a reachable bind). The bundled frontend sign-in is being built under the owner's master goal; until it lands the UI works only in `disabled` mode. Decision basis: implemented under the owner's delegation; still Proposed for owner review.
+**Implementation evidence (2026-11-10).** `tests/security/` covers login, lockout, CSRF, origin, roles, throttling and audit over HTTP; every provider-contacting route (collectors included) resolves to admin through the fail-closed table, and a test per new route family checks an analyst gets 403. `python -m bip.tools.preflight` refuses an unsafe configuration (authentication off, non-Secure cookie, proxy headers trusted on a reachable bind). The frontend sign-in was built and verified on 2026-11-10: in-memory CSRF token, session restore via `/auth/me`, a TypeScript port of the policy table kept in sync by a test generated from `required_role`, and 116 browser checks in `required` mode at 390x844, 820x1180 and 1366x850 (165/165 with the original 49). Decision basis: implemented under the owner's delegation; still Proposed for owner review.
 
 ## ADR-033 Discovery as detectors over stored canonical data (Proposed)
 **Context.**

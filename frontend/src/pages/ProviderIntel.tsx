@@ -1,3 +1,5 @@
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { Fragment, useState } from "react";
 import { ApiError, api } from "../api/client";
 import type {
@@ -235,6 +237,7 @@ export function ProbeConsole({ profiles, onDone }: { profiles: ProviderProfile[]
   const [run, setRun] = useState<ProbeRun | null>(null);
   const [busy, setBusy] = useState<"preview" | "run" | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const can = useCan("POST", "/providers/probe-runs");
   const fail = (e: unknown) => {
     setError(e instanceof ApiError ? e : new ApiError(0, "unknown", "Request failed."));
     setBusy(null);
@@ -278,9 +281,10 @@ export function ProbeConsole({ profiles, onDone }: { profiles: ProviderProfile[]
         <button type="button" className="btn" onClick={doPreview} disabled={busy !== null || eligible.length === 0}>
           {busy === "preview" ? "Preparing…" : "Preview budget"}
         </button>
-        <button type="button" className="btn btn-primary" onClick={doRun} disabled={busy !== null || !preview}>
+        <button type="button" className="btn btn-primary" onClick={doRun} disabled={busy !== null || !preview || !can.allowed} title={can.reason}>
           {busy === "run" ? "Running bounded check…" : "Run bounded provider check"}
         </button>
+        <RoleHint can={can} />
       </div>
       {!preview && eligible.length ? <p className="muted">Preview the budget before running.</p> : null}
       {error ? <ErrorState error={error} /> : null}

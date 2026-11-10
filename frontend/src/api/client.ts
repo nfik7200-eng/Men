@@ -1,4 +1,8 @@
+import { csrfToken, sessionEnded } from "../auth/session";
 import type {
+  AuthMe,
+  AuthStatus,
+  LoginResult,
   AnalysisRun,
   Classification,
   MLModel,
@@ -58,13 +62,22 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly details: { field: string; message: string }[];
+  /** Seconds to wait before retrying, from a 429 response's Retry-After header. */
+  readonly retryAfter: number | null;
 
-  constructor(status: number, code: string, message: string, details: ApiError["details"] = []) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details: ApiError["details"] = [],
+    retryAfter: number | null = null,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.details = details;
+    this.retryAfter = retryAfter;
   }
 
   /** True when the backend itself could not be reached (network failure, or a proxy gateway error). */
@@ -76,16 +89,47 @@ export class ApiError extends Error {
 const UNREACHABLE = "Cannot reach the BIP backend. Is it running?";
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** Clear, user-facing wording for the authentication and authorization failures. */
+function accessMessage(status: number, code: string, serverMessage: string, retryAfter: number | null): string | null {
+  if (status === 429) {
+    return retryAfter !== null
+      ? `Too many requests. Try again in ${retryAfter} second${retryAfter === 1 ? "" : "s"}.`
+      : "Too many requests. Wait a moment and try again.";
+  }
+  if (status === 403 && code === "csrf_failed")
+    return "Your session's security token is missing or out of date. Reload the page and try again.";
+  if (status === 403 && code === "origin_denied")
+    return "This page's address is not allowed to make changes. Open BIP from its usual address and try again.";
+  if (status === 403 && code === "forbidden") return `Your role does not allow this. ${serverMessage}`;
+  return null;
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.ceil(n) : null;
+}
+
 type ErrorEnvelope = {
   error?: { code?: unknown; message?: unknown; details?: unknown };
 };
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
+  const csrf = csrfToken();
+  const unsafe = !SAFE_METHODS.has((init.method ?? "GET").toUpperCase());
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...init,
-      headers: { Accept: "application/json", ...(init.body ? { "Content-Type": "application/json" } : {}) },
+      // same-origin cookies carry the session; the CSRF token (memory only) goes on every unsafe call
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(unsafe && csrf ? { "X-CSRF-Token": csrf } : {}),
+      },
     });
   } catch {
     throw new ApiError(0, "connection_failed", UNREACHABLE);
@@ -112,7 +156,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const details = Array.isArray(env.error?.details)
       ? (env.error.details as ApiError["details"])
       : [];
-    throw new ApiError(response.status, code, message, details);
+    const retryAfter = response.status === 429 ? parseRetryAfter(response.headers.get("Retry-After")) : null;
+    // a wrong password at sign-in is a 401 too, but it is not an ended session
+    if (response.status === 401 && path !== "/auth/login") sessionEnded();
+    const friendly = accessMessage(response.status, code, message, retryAfter);
+    throw new ApiError(response.status, code, friendly ?? message, details, retryAfter);
   }
   return payload as T;
 }
@@ -121,6 +169,17 @@ const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
 const enc = encodeURIComponent;
 
 export const api = {
+  // ---- authentication
+  authStatus: () => request<AuthStatus>("/auth/status"),
+  authMe: () => request<AuthMe>("/auth/me"),
+  login: (username: string, password: string) =>
+    request<LoginResult>("/auth/login", { method: "POST", ...json({ username, password }) }),
+  logout: () => request<undefined>("/auth/logout", { method: "POST" }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<undefined>("/auth/password", {
+      method: "POST",
+      ...json({ current_password: currentPassword, new_password: newPassword }),
+    }),
   health: () => request<Health>("/health"),
   chains: () => request<ChainStatus[]>("/chains"),
   summary: () => request<DashboardSummary>("/dashboard/summary"),

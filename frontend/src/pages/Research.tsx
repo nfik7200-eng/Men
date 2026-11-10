@@ -1,3 +1,5 @@
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { LabelsPanel } from "./research/Labels";
@@ -145,6 +147,7 @@ export function Investigation({ chain, address }: { chain: string; address: stri
   const [run, setRun] = useState<ResearchRun | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
+  const can = useCan("POST", "/research/runs");
   const body = () => ({ chain, address, question, ...(focus.length ? { focus } : {}) });
   const fail = (e: unknown) => { setError(e instanceof ApiError ? e : new ApiError(0, "unknown", "Request failed.")); setBusy(false); };
 
@@ -170,16 +173,17 @@ export function Investigation({ chain, address }: { chain: string; address: stri
         ))}
       </fieldset>
       <div className="row">
-        <button type="button" className="btn" disabled={busy || question.trim().length < 3} onClick={() => { setBusy(true); setError(null); api.researchPreview(body()).then((p) => { setPreview(p); setBusy(false); }, fail); }}>
+        <button type="button" className="btn" disabled={busy || question.trim().length < 3 || !can.allowed} title={can.reason} onClick={() => { setBusy(true); setError(null); api.researchPreview(body()).then((p) => { setPreview(p); setBusy(false); }, fail); }}>
           Preview research plan
         </button>
-        <button type="button" className="btn btn-primary" disabled={busy || !preview || (run !== null && !TERMINAL.has(run.state))}
+        <button type="button" className="btn btn-primary" disabled={busy || !preview || !can.allowed || (run !== null && !TERMINAL.has(run.state))} title={can.reason}
           onClick={() => { setBusy(true); setError(null); api.researchStart(body()).then((r) => { setRun(r); setBusy(false); }, fail); }}>
           Start investigation
         </button>
         {run && !TERMINAL.has(run.state) ? (
-          <button type="button" className="btn btn-danger" onClick={() => { api.researchCancel(run.run_id).then(() => api.researchRun(run.run_id).then(setRun), fail); }}>Cancel</button>
+          <button type="button" className="btn btn-danger" disabled={!can.allowed} title={can.reason} onClick={() => { api.researchCancel(run.run_id).then(() => api.researchRun(run.run_id).then(setRun), fail); }}>Cancel</button>
         ) : null}
+        <RoleHint can={can} />
       </div>
       {error ? <ErrorState error={error} /> : null}
       {preview ? (
@@ -212,6 +216,7 @@ export function ClassificationPanel({ chain, address }: { chain: string; address
   const [result, setResult] = useState<Classification | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [busy, setBusy] = useState(false);
+  const can = useCan("POST", "/ml/classify/x/y");
   const history = useApi(() => api.classifications(chain, address), [chain, address, result?.classification_id ?? ""]);
   const classify = () => {
     setBusy(true);
@@ -224,7 +229,7 @@ export function ClassificationPanel({ chain, address }: { chain: string; address
   return (
     <>
       <Panel title={`Wallet classification · ${chainLabel(chain)} ${shortId(address)}`}
-        aside={<button type="button" className="btn btn-primary" onClick={classify} disabled={busy}>{busy ? "Classifying…" : "Classify wallet"}</button>}>
+        aside={<span className="row"><RoleHint can={can} /><button type="button" className="btn btn-primary" onClick={classify} disabled={busy || !can.allowed} title={can.reason}>{busy ? "Classifying…" : "Classify wallet"}</button></span>}>
         <p className="note">Rules always run on stored evidence. A trained model adds predictions only with validated thresholds; scores are model outputs, not certainty. No LLM is involved.</p>
         {error ? <ErrorState error={error} /> : null}
         {result ? <ClassificationView c={result} /> : <p className="muted">Not classified in this session yet.</p>}
@@ -262,6 +267,7 @@ function ModelsPanel() {
   const [selected, setSelected] = useState<MLModel | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const can = useCan("POST", "/ml/training-runs");
   const train = (chain: string, source: "stored_labels" | "synthetic") => {
     setMsg(null);
     setError(null);
@@ -282,8 +288,9 @@ function ModelsPanel() {
       </Panel>
       <Panel title="Model registry" aside={
         <div className="row">
-          <button type="button" className="btn" onClick={() => train("ethereum", "stored_labels")}>Train Ethereum on reviewed labels</button>
-          <button type="button" className="btn" onClick={() => train("ethereum", "synthetic")}>Train synthetic demo (Ethereum)</button>
+          <RoleHint can={can} />
+          <button type="button" className="btn" disabled={!can.allowed} title={can.reason} onClick={() => train("ethereum", "stored_labels")}>Train Ethereum on reviewed labels</button>
+          <button type="button" className="btn" disabled={!can.allowed} title={can.reason} onClick={() => train("ethereum", "synthetic")}>Train synthetic demo (Ethereum)</button>
         </div>}>
         {msg ? <p role="status">{msg}</p> : null}
         {error ? <ErrorState error={error} /> : null}
