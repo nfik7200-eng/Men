@@ -291,6 +291,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - Migration v8 (users, sessions, audit_log). The bundled frontend has no login screen, so it works only in `disabled` mode until one is built.
 - Remote access should use a private network plus a TLS reverse proxy; see `docs/OPERATIONS.md`.
 
+**Implementation evidence (2026-11-10).** `tests/security/` covers login, lockout, CSRF, origin, roles, throttling and audit over HTTP; every provider-contacting route (collectors included) resolves to admin through the fail-closed table, and a test per new route family checks an analyst gets 403. `python -m bip.tools.preflight` refuses an unsafe configuration (authentication off, non-Secure cookie, proxy headers trusted on a reachable bind). The bundled frontend sign-in is being built under the owner's master goal; until it lands the UI works only in `disabled` mode. Decision basis: implemented under the owner's delegation; still Proposed for owner review.
+
 ## ADR-033 Discovery as detectors over stored canonical data (Proposed)
 **Context.**
 - Discovery must work without a supplied address, within a zero-cost budget and without claiming more than the data supports. Whole-chain indexing needs a data-source and cost decision that has not been made (ADR-012 excludes self-hosted nodes).
@@ -305,6 +307,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - Migration v7 (signals, signal_evidence, discovery_runs, alert_rules, alerts).
 - Discovery covers only what ingestion already stored. A chain-wide collector is **not built** and needs an approved source, cost estimate and storage target.
 
+**Implementation evidence (2026-11-10).** The catalogue now has ten detectors (large transfers, dormant reactivation, activity burst, new contract, common funding, new pool, new token activity, pool reserve change, holder concentration, Solana new entities), each declaring coverage, limitations, cost and a confidence cap below 1; `RawCandidate.evidence_finalized` lets collector-fed evidence count as finalized without a stored transaction row. Every signal carries an `attribution` block that lists approved labels only. Tests: `tests/discovery/`, `tests/collector/`. Decision basis: implemented under the owner's delegation; still Proposed.
+
 ## ADR-034 Evidence-backed relationships and case notes (Proposed)
 **Context.**
 - The relationship graph was computed on demand; there was no persisted, typed relationship with evidence, and no place for analyst notes or hypotheses.
@@ -317,6 +321,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 
 **Consequences.**
 - Migration v10. Relationships rest on stored data only, so their coverage equals ingestion coverage.
+
+**Implementation evidence (2026-11-10).** `tests/entities/` exercises relationship rebuilds, reorg invalidation and case notes. Relationships remain observed/hypothesis only (the schema refuses 'verified'); attribution to organisations moved to the separate reviewed-label workflow (ADR-040) instead of widening this table. Decision basis: implemented under the owner's delegation; still Proposed.
 
 ## ADR-035 In-process scheduler, backups and retention (Proposed)
 **Context.**
@@ -331,6 +337,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 **Consequences.**
 - Migration v9. Enabling `watchlist_refresh` is an owner decision about provider usage.
 
+**Implementation evidence (2026-11-10).** Two provider-contacting jobs now exist, `chain_scan` and `solana_scan`, both off by default, both through the single-run ingestion lock and disk guard, and both capped by validators at 150 requests and 90 s. `deploy/` adds a hardened systemd unit that runs the pre-flight check before every start and an off-disk backup timer. Backups, retention and the scheduler are tested in `tests/ops/`. Decision basis: implemented under the owner's delegation; still Proposed.
+
 ## ADR-036 Finality upgrade and orphan handling (Proposed)
 **Context.**
 - Finality labels were written once and never revisited, orphaned data could reach intelligence, and a hash mismatch was only reported.
@@ -343,6 +351,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 **Consequences.**
 - No schema change. A second-provider confirmation before orphaning is a possible hardening.
 
+**Implementation evidence (2026-11-10).** Finalized-only reading is now shared by both collectors: Ethereum reads at or below the `finalized` tag and rejects any log or receipt whose block hash differs from the header it just read; Solana reads at finalized commitment and checks blockhash continuity. In the live runs of 2026-11-09 nothing was rejected and no continuity break occurred. Orphan invalidation of analyses, signals and relationships is covered by `tests/stage2/test_stage1_*.py`. A second provider to confirm an orphaning was not built. Decision basis: implemented under the owner's delegation; still Proposed.
+
 ## ADR-037 Solana v1 transactions and token-account coverage (Proposed)
 **Context.**
 - Solana transaction v1 has been live on mainnet since 2026-09-15, and `maxSupportedTransactionVersion` 0 fails on it. A wallet's signature history omits transfers that only reference its token accounts.
@@ -352,6 +362,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 
 **Consequences.**
 - Token-account coverage is bounded (default 5 accounts), and incoming transfers beyond the cap are reported as not covered.
+
+**Implementation evidence (2026-11-10).** Live, on solana-public: version 1 transactions were about 30% of one 25-slot sample (legacy 2,296, v0 2,419, v1 2,012) and the collector's instruction decoder handled all of them (the 59 undecoded were zero-instruction version-1 no-ops). The wallet parser accepts versions legacy, 0 and 1 and token-account discovery is tested offline; neither was exercised on a live wallet. Decision basis: implemented under the owner's delegation; still Proposed.
 
 ## ADR-038 Bounded Ethereum block collector (Proposed)
 **Context.**
@@ -369,6 +381,8 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 - A pool is an observation that a contract emitted a known event layout; BIP does not verify a DEX, liquidity, price or token legitimacy. Pools beyond `max_pools_per_run` are a disclosed gap.
 - Rollback: the code can be reverted; `pool_events` stays unused and nothing is dropped.
 - Needs owner approval before it is run against any provider.
+
+**Implementation evidence (2026-11-10).** Live, on publicnode-eth (throwaway database, 110 requests for 20 blocks): about 285 to 750 ERC-20 Transfer logs per block, so the earlier claim that volume exceeds provider limits was wrong. The provider refuses an address-less `eth_getLogs` over several blocks, so the adapter goes block by block and the feed reserve scales with the block count. Contract creations (8) and large native transfers (25) were found; no pool creation or `Sync` event occurred in the window, so those decoders rest on sources and synthetic data. Decision basis: implemented under the owner's delegation; still Proposed.
 
 ## ADR-039 Solana finalized-slot collector (Proposed; implemented by delegation of the owner's master goal)
 **Context.**
