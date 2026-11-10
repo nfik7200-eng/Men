@@ -61,6 +61,14 @@ The unit runs the pre-flight check before every start, so an unsafe edit (authen
 non-Secure cookie, a reachable bind with proxy headers trusted, a world-readable env file) stops
 the service instead of exposing it.
 
+## Rehearse it first
+
+`deploy/rehearse.sh` runs the steps above locally in a temporary directory with the real entry
+points: the production env template, the pre-flight check, creating an administrator, the API on a
+Unix socket (mode 0660), sign-in with the CSRF token, a protected write and a verified backup. It
+needs no systemd, proxy or network, contacts no provider, and removes everything when it ends.
+It cannot test systemd, a reverse proxy, TLS or a real host.
+
 ## Verify
 
 ```bash

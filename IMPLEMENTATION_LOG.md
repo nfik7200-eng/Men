@@ -807,3 +807,11 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not verified.** Proxy-to-socket access with a real Caddy or nginx (neither is installed here).
 
+## 2026-11-10 — Deployment rehearsal
+
+**Built.** `deploy/rehearse.sh`: in a temporary directory, with the real entry points, it writes the env file from `deploy/bip.env.production.example`, runs the pre-flight check (no FAIL, scheduled provider use off), creates an administrator from a root-only password file, starts `python -m bip.api` on a Unix socket, then checks: socket mode 660, public health 200, anonymous protected route 401, sign-in with an HttpOnly, SameSite=Strict, Secure cookie, system report 200 with a session, a write without the CSRF token 403, a database-only discovery pass with the token 201, and a backup that verifies.
+
+**Result.** 11 of 11 steps passed on the first run; nothing contacted a provider and everything was removed afterwards.
+
+**Not covered.** systemd (only `systemd-analyze verify` was run on the unit files), a reverse proxy reaching the socket, TLS and certificate renewal, a real host's disk and users, off-site backup copies. The kit has still never run on a real host.
+
