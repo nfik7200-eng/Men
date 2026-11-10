@@ -297,6 +297,14 @@ async function journey(browser, vp, check) {
   await page.getByRole("alert").filter({ hasText: "Your role does not allow this. This action needs the admin role." }).first().waitFor();
   check(`${prefix} viewer who forces the action sees the forbidden message`, true);
   check(`${prefix} a 403 does not sign the user out`, (await page.getByRole("button", { name: /^Account menu/ }).count()) === 1);
+  // coverage: provider-contacting collector runs are admin-only, and a viewer is told so
+  await navigate(page, "Coverage");
+  await heading("Coverage").waitFor();
+  const runButtons = page.getByRole("button", { name: /^Run (Ethereum|Solana) collector once$/ });
+  await runButtons.first().waitFor();
+  check(`${prefix} viewer sees both collector "Run once" buttons disabled`, (await runButtons.count()) === 2 && (await runButtons.nth(0).isDisabled()) && (await runButtons.nth(1).isDisabled()));
+  check(`${prefix} viewer sees why (needs the admin role)`, await page.getByText("Needs the admin role. You are signed in as viewer.").first().isVisible());
+  await layoutOk(page, vp, "coverage (viewer)", check, prefix);
   await signOut(page);
 
   check(`${prefix} no uncaught page errors`, pageErrors.length === 0, pageErrors.join(" | "));

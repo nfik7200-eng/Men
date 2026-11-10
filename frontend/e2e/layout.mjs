@@ -36,6 +36,11 @@ export const ROUTES = [
   "/opportunities",
   "/investigations",
   "/watchlists",
+  "/signals",
+  "/alerts",
+  "/coverage",
+  "/attribution",
+  "/system",
   "/settings",
 ];
 

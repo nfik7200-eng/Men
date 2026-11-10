@@ -53,6 +53,25 @@ import type {
   ReviewInput,
   CaseResearchLink,
   TaxonomyLabel,
+  AlertChannels,
+  AlertPage,
+  AlertRule,
+  AlertRuleInput,
+  BackupCreated,
+  CollectorManifest,
+  CollectorStatus,
+  DetectorCatalogue,
+  DiscoveryEnvelope,
+  DiscoveryFeed,
+  EntityLabel,
+  EntityLabelPage,
+  LabelProposal,
+  LabelReviewInput,
+  PromoteInput,
+  SignalDetail,
+  SignalPage,
+  SignalQuery,
+  SystemHealth,
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -312,6 +331,47 @@ export const api = {
       method: "POST",
       ...json({ investigation_id: investigationId }),
     }),
+  // ---- discovery: signals, alerts, collectors (stored data; only the two collect* calls contact providers)
+  discoveryFeed: (limit = 25, offset = 0) => request<DiscoveryFeed>(`/discovery/feed?limit=${limit}&offset=${offset}`),
+  signals: (q: SignalQuery = {}) => request<SignalPage>(`/signals${queryString(q)}`),
+  signal: (id: number) => request<SignalDetail>(`/signals/${id}`),
+  dismissSignal: (id: number, note: string | null) =>
+    request<SignalDetail>(`/signals/${id}/dismiss`, { method: "POST", ...json({ note }) }),
+  promoteSignal: (id: number, body: PromoteInput) =>
+    request<SignalDetail>(`/signals/${id}/promote`, { method: "POST", ...json(body) }),
+  detectors: () => request<DetectorCatalogue>("/discovery/detectors"),
+  alerts: (q: { unread?: boolean; limit?: number; offset?: number } = {}) =>
+    request<AlertPage>(`/alerts${queryString(q)}`),
+  alertChannels: () => request<AlertChannels>("/alerts/channels"),
+  markAlertRead: (id: number) => request<DiscoveryEnvelope & { id: number; read: boolean }>(`/alerts/${id}/read`, { method: "POST" }),
+  markAllAlertsRead: () => request<DiscoveryEnvelope & { marked_read: number }>("/alerts/read-all", { method: "POST" }),
+  alertRules: () => request<DiscoveryEnvelope & { items: AlertRule[] }>("/alert-rules"),
+  createAlertRule: (body: AlertRuleInput) =>
+    request<AlertRule & DiscoveryEnvelope>("/alert-rules", { method: "POST", ...json(body) }),
+  setAlertRuleEnabled: (id: number, enabled: boolean) =>
+    request<AlertRule & DiscoveryEnvelope>(`/alert-rules/${id}`, { method: "PATCH", ...json({ enabled }) }),
+  ethereumCollector: () => request<CollectorStatus>("/discovery/collector"),
+  solanaCollector: () => request<CollectorStatus>("/discovery/collector/solana"),
+  // These two CONTACT a public RPC provider (admin only, server-bounded). Never call them automatically.
+  collectEthereum: () => request<DiscoveryEnvelope & CollectorManifest>("/discovery/collect/ethereum", { method: "POST" }),
+  collectSolana: () => request<DiscoveryEnvelope & CollectorManifest>("/discovery/collect/solana", { method: "POST" }),
+  // ---- attribution (entity labels)
+  entityLabels: (q: { status?: "proposed" | "approved" | "rejected"; limit?: number; offset?: number } = {}) =>
+    request<EntityLabelPage>(`/entities/labels${queryString(q)}`),
+  proposeLabel: (body: LabelProposal) => request<EntityLabel>("/entities/labels", { method: "POST", ...json(body) }),
+  reviewEntityLabel: (id: number, body: LabelReviewInput) =>
+    request<EntityLabel>(`/entities/labels/${id}/review`, { method: "POST", ...json(body) }),
+  // ---- system
+  systemHealth: () => request<SystemHealth>("/system/health"),
+  createBackup: () => request<BackupCreated>("/system/backups", { method: "POST" }),
 };
+
+/** `?a=1&b=x` from the defined entries of `q` (empty string when there are none). */
+function queryString(q: object): string {
+  const parts = Object.entries(q)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${enc(k)}=${enc(String(v))}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
 
 export type { FindingSummary };

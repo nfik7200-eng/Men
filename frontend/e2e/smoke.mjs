@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { runAuthJourneys } from "./auth.mjs";
-import { checkLayout } from "./layout.mjs";
+import { checkLayout, measurePage } from "./layout.mjs";
 import { join, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
@@ -386,6 +386,140 @@ try {
   await page.goto(caseUrl);
   await page.getByRole("region", { name: "Research runs" }).getByRole("link").first().waitFor({ timeout: 30000 });
   check("[offline fixture] run, report and case link survive a backend restart", true);
+
+  // ---------- Discovery pages (signals, alerts, coverage, attribution, system) on the fixture backend ----------
+  // The fixture's fake nodes cannot yet produce a signal (their block times are far from "now"), so
+  // signals and alerts show their honest empty state here. Labels and alert rules are created through
+  // the real API (via the UI); every record is SYNTHETIC.
+  await page.setViewportSize({ width: 1366, height: 850 });
+  const DISCOVERY_PAGES = [
+    { path: "/signals", h1: "Signals", empty: "No open signals", demo: true },
+    { path: "/alerts", h1: "Alerts", empty: "No alerts yet", demo: true },
+    { path: "/coverage", h1: "Coverage", empty: "No run recorded", demo: true },
+    { path: "/attribution", h1: "Attribution", empty: "No proposals waiting for review", demo: false },
+    { path: "/system", h1: "System", empty: null, demo: false },
+  ];
+  let collectPosts = 0;
+  page.on("request", (r) => {
+    if (r.method() === "POST" && /\/discovery\/collect\//.test(r.url())) collectPosts += 1;
+  });
+  for (const d of DISCOVERY_PAGES) {
+    await page.goto(`${WEB}${d.path}`);
+    await page.getByRole("heading", { level: 1, name: d.h1, exact: true }).waitFor();
+    if (d.empty) await page.getByText(d.empty).first().waitFor();
+    else await page.getByRole("heading", { level: 2, name: "Overall status" }).waitFor();
+    await page.waitForLoadState("networkidle");
+    check(`[offline fixture] ${d.path}: renders with ${d.empty ? "an honest empty state" : "the system report"} and no failed request`,
+      (await page.locator(".state-error").count()) === 0);
+    if (d.demo) {
+      check(`[offline fixture] ${d.path}: labelled as demo data`, (await page.getByText(/Demo data: offline fixtures/).count()) > 0);
+    }
+  }
+  const nav = page.getByRole("navigation", { name: "Main" });
+  const navNames = await nav.getByRole("link").allTextContents();
+  check("[offline fixture] navigation lists Signals, Alerts, Coverage, Attribution and System",
+    ["Signals", "Alerts", "Coverage", "Attribution", "System"].every((n) => navNames.includes(n)), navNames.join(","));
+
+  // coverage: nothing runs by itself; the confirm dialog says what Run once does
+  await page.goto(`${WEB}/coverage`);
+  await page.getByText("Not started: the cursor is not set").first().waitFor();
+  check("[offline fixture] coverage: nothing was collected by merely opening the page", collectPosts === 0, `posts=${collectPosts}`);
+  const detectorCards = await page.getByRole("article").count();
+  check("[offline fixture] coverage: detector catalogue lists detectors with coverage and limitations",
+    detectorCards >= 5 && (await page.getByText("Limitations", { exact: true }).count()) === detectorCards, `detectors=${detectorCards}`);
+  await page.getByRole("button", { name: "Run Ethereum collector once" }).click();
+  const runDialog = page.getByRole("dialog", { name: "Run the Ethereum collector once?" });
+  await runDialog.waitFor();
+  const runText = (await runDialog.textContent()) ?? "";
+  check("[offline fixture] coverage: confirm dialog says it contacts a public RPC provider, the cap and finalized-only",
+    /contacts a public RPC provider/.test(runText) && /150 requests and 90 seconds/.test(runText) && /finalized data only/.test(runText), runText.slice(0, 120));
+  await runDialog.getByRole("button", { name: "Cancel" }).click();
+  await runDialog.waitFor({ state: "detached" });
+  check("[offline fixture] coverage: cancelling the dialog sends no collect request", collectPosts === 0, `posts=${collectPosts}`);
+  await page.getByRole("button", { name: "Run Ethereum collector once" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Contact provider and run once" }).click();
+  const manual = page.getByRole("region", { name: "Ethereum manual run result" });
+  await manual.waitFor({ timeout: 60000 });
+  const manualText = (await manual.textContent()) ?? "";
+  check("[offline fixture] coverage: confirmed run sends one request to the fake node and shows its manifest",
+    collectPosts === 1 && /succeeded|partial|blocked|failed/.test(manualText) && /RPC calls/.test(manualText), `posts=${collectPosts} ${manualText.slice(0, 80)}`);
+  check("[offline fixture] coverage: the Solana collector was not run by the Ethereum run", (await page.getByRole("region", { name: "Solana manual run result" }).count()) === 0);
+
+  // alerts: a SYNTHETIC rule through the real API
+  await page.goto(`${WEB}/alerts`);
+  const ruleForm = page.getByRole("form", { name: "New alert rule" });
+  await ruleForm.waitFor();
+  await ruleForm.getByLabel("Name", { exact: true }).fill("SYNTHETIC e2e rule");
+  await ruleForm.getByRole("button", { name: "Create rule" }).click();
+  const rules = page.getByRole("table", { name: "Alert rules" });
+  await rules.getByText("SYNTHETIC e2e rule").waitFor();
+  await rules.getByRole("button", { name: "Disable rule SYNTHETIC e2e rule" }).click();
+  await rules.getByText("disabled", { exact: true }).waitFor();
+  check("[offline fixture] alerts: a SYNTHETIC rule is created and disabled through the API", true);
+
+  // attribution: propose a SYNTHETIC label, then approve it with person-added url evidence
+  await page.goto(`${WEB}/attribution`);
+  const propose = page.getByRole("form", { name: "Propose label" });
+  await propose.waitFor();
+  await propose.getByLabel("Address or program ID").fill("0x" + "ab".repeat(20));
+  await propose.getByLabel("Organisation or protocol name").fill("SYNTHETIC e2e Exchange");
+  await propose.getByLabel("Reference 1", { exact: true }).fill("https://example.org/synthetic-e2e");
+  await propose.getByRole("button", { name: "Add evidence" }).click();
+  await propose.getByLabel("Kind 2").selectOption("note");
+  await propose.getByLabel("Reference 2", { exact: true }).fill("<b>SYNTHETIC note</b>");
+  await propose.getByRole("button", { name: "Propose label" }).click();
+  const queue = page.getByRole("table", { name: "Proposed labels" });
+  await queue.getByText("SYNTHETIC e2e Exchange").waitFor();
+  const queueText = (await queue.textContent()) ?? "";
+  check("[offline fixture] attribution: evidence text is rendered as text, not markup",
+    queueText.includes("<b>SYNTHETIC note</b>") && (await queue.locator("b").count()) === 0);
+  check("[offline fixture] attribution: a proposal is not attribution until reviewed (approved list still empty)",
+    (await page.getByText("No approved labels").count()) === 1);
+  await page.getByRole("button", { name: "Review SYNTHETIC e2e Exchange" }).click();
+  const review = page.getByRole("dialog", { name: "Review label: SYNTHETIC e2e Exchange" });
+  await review.getByLabel(/Review note/).fill("SYNTHETIC e2e: the url evidence was checked");
+  await review.getByRole("button", { name: "Approve label" }).click();
+  await page.getByText(/Reviewed "SYNTHETIC e2e Exchange"/).waitFor();
+  const approvedTable = page.getByRole("table", { name: "Approved labels" });
+  await approvedTable.waitFor();
+  check("[offline fixture] attribution: the reviewed label moves to the approved list with its reviewer",
+    (await approvedTable.textContent())?.includes("SYNTHETIC e2e Exchange") === true && (await approvedTable.getByText("local", { exact: true }).count()) > 0
+    && (await page.getByText("No proposals waiting for review").count()) === 1);
+
+  // every new page at phone, tablet and desktop: no overflow, tap targets, no failed request
+  const DISCOVERY_VIEWS = [
+    { name: "phone 390x844", viewport: { width: 390, height: 844 }, touch: true },
+    { name: "tablet 820x1180", viewport: { width: 820, height: 1180 }, touch: true },
+    { name: "desktop 1366x850", viewport: { width: 1366, height: 850 }, touch: false },
+  ];
+  for (const v of DISCOVERY_VIEWS) {
+    const vctx = await browser.newContext({ viewport: v.viewport, hasTouch: v.touch, isMobile: v.touch });
+    const vpage = await vctx.newPage();
+    for (const d of DISCOVERY_PAGES) {
+      await vpage.goto(`${WEB}${d.path}`);
+      await vpage.getByRole("heading", { level: 1, name: d.h1, exact: true }).waitFor();
+      await vpage.waitForLoadState("networkidle");
+      const m = await measurePage(vpage, v.touch ? 44 : 32);
+      check(`[offline fixture] ${d.path} at ${v.name}: no horizontal overflow and tap targets large enough`,
+        m.overflow <= 0 && m.smallCount === 0, `overflow=${m.overflow} small=${JSON.stringify(m.small)}`);
+    }
+    // the populated states too: the approved label, the disabled rule and the manual run result's page
+    await vpage.goto(`${WEB}/attribution`);
+    await vpage.getByText("SYNTHETIC e2e Exchange").first().waitFor();
+    const mAttr = await measurePage(vpage, v.touch ? 44 : 32);
+    check(`[offline fixture] /attribution populated at ${v.name}: no overflow and tap targets large enough`, mAttr.overflow <= 0 && mAttr.smallCount === 0, `overflow=${mAttr.overflow} small=${JSON.stringify(mAttr.small)}`);
+    await vpage.goto(`${WEB}/coverage`);
+    await vpage.getByRole("button", { name: "Run Ethereum collector once" }).waitFor();
+    await vpage.getByRole("heading", { level: 3, name: "Last run", exact: true }).first().waitFor();
+    await vpage.getByRole("button", { name: "Run Ethereum collector once" }).click();
+    const dlg = vpage.getByRole("dialog");
+    await dlg.waitFor();
+    const dm = await measurePage(vpage, v.touch ? 44 : 32);
+    const box = await dlg.boundingBox();
+    check(`[offline fixture] /coverage confirm dialog at ${v.name}: fits the screen, no overflow, tap targets large enough`,
+      dm.overflow <= 0 && dm.smallCount === 0 && box !== null && box.x >= 0 && box.x + box.width <= v.viewport.width + 1, `overflow=${dm.overflow} small=${JSON.stringify(dm.small)} box=${JSON.stringify(box)}`);
+    await vctx.close();
+  }
 
   // layout at the Galaxy S24 FE size (412x915, touch) and desktop, every route, with data present
   const layoutFailures = await checkLayout(browser, WEB, { screenshotDir: dataRoot });

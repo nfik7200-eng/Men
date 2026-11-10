@@ -758,3 +758,330 @@ export type AuthStatus = {
 };
 export type AuthMe = { mode: "disabled" | "required"; user: AuthUserPublic | null; csrf_token: string | null };
 export type LoginResult = { user: AuthUserPublic; csrf_token: string; expires_at: string };
+
+// ---- discovery, signals, alerts, collectors, attribution and system health
+// Shapes follow bip/discovery/service.py (_signal_core), bip/entities/labels.py,
+// bip/ingest/collector.py, bip/ingest/solana_collector.py and bip/ops/health.py. The backend
+// returns plain dicts, so everything the UI cannot rely on is typed loosely and read defensively.
+
+/** Added by every discovery envelope. */
+export type DiscoveryEnvelope = { data_origin: DataOrigin; discovery_version: string };
+
+export type Severity = "low" | "medium" | "high";
+export type SignalStatus = "open" | "dismissed" | "promoted" | "invalidated" | "expired";
+
+export type ScoreComponent = { name: string; value: number; weight: number; contribution: number; note: string };
+
+export type SignalExplanation = {
+  statement?: string;
+  /** values may be numbers, strings or nested objects */
+  observed?: Record<string, unknown>;
+  baseline?: Record<string, unknown>;
+  method?: string;
+  caveat?: string;
+  not_claimed?: string;
+  score_components?: ScoreComponent[];
+  scoring?: string;
+  [extra: string]: unknown;
+};
+
+export type SignalEvidenceRef = { kind: string; chain: string; ref: string };
+
+export type SignalCoverage = {
+  detector?: string;
+  version?: string;
+  coverage?: string;
+  limitations?: string;
+  refresh?: string;
+  cost?: string;
+  rows_scanned?: number;
+  row_cap_reached?: boolean;
+  baseline_window_days?: number;
+  lookback_hours?: number;
+  evidence_finality?: { finalized: number; total: number };
+  provisional_evidence?: boolean;
+  [extra: string]: unknown;
+};
+
+export type LabelEvidence = {
+  kind: "url" | "transaction" | "signal" | "note";
+  ref: string;
+  description?: string;
+  added_by?: string;
+  verified_stored?: boolean;
+};
+
+export type ApprovedLabel = {
+  name: string;
+  category: string;
+  label_id: number;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  evidence: LabelEvidence[];
+};
+
+export type SignalAttribution = {
+  /** keyed by reference (address); empty means unattributed, not "not an exchange" */
+  labels: Record<string, ApprovedLabel[]>;
+  note: string;
+};
+
+export type Signal = {
+  id: number;
+  key: string;
+  detector: { id: string; version: string };
+  family: string;
+  chain: string;
+  subject: { kind: string; ref: string };
+  title: string;
+  severity: Severity;
+  confidence: number;
+  score: number;
+  status: SignalStatus;
+  explanation: SignalExplanation;
+  evidence: SignalEvidenceRef[];
+  coverage: SignalCoverage;
+  observed_at: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  occurrences: number;
+  expires_at: string | null;
+  status_note: string | null;
+  /** "watchlist:<id>" or "investigation:<id>" */
+  promoted_to: string | null;
+  attribution: SignalAttribution;
+};
+
+export type SignalDetail = Signal & DiscoveryEnvelope;
+
+export type SignalPage = DiscoveryEnvelope & { total: number; limit: number; offset: number; items: Signal[] };
+
+export type Freshness = {
+  last_run_at: string | null;
+  last_run_status: string | null;
+  age_seconds: number | null;
+  stale: boolean;
+};
+
+export type DiscoveryFeed = SignalPage & { freshness: Freshness; scope: string };
+
+export type SignalQuery = {
+  status?: SignalStatus;
+  family?: string;
+  chain?: string;
+  severity?: Severity;
+  detector?: string;
+  subject?: string;
+  min_score?: number;
+  sort?: "score" | "recent";
+  limit?: number;
+  offset?: number;
+};
+
+export type PromoteInput =
+  | { target: "watchlist"; watchlist_id: number; note?: string | null }
+  | { target: "investigation"; investigation_id: number; note?: string | null };
+
+export type Detector = {
+  id: string;
+  version: string;
+  family: string;
+  title: string;
+  method: string;
+  data_required: string;
+  coverage: string;
+  limitations: string;
+  refresh: string;
+  cost: string;
+  confidence_cap: number;
+  chains: string[];
+};
+
+export type DetectorCatalogue = DiscoveryEnvelope & { detectors: Detector[] };
+
+export type Alert = {
+  id: number;
+  rule_id: number;
+  signal_id: number;
+  severity: Severity;
+  title: string;
+  created_at: string | null;
+  read_at: string | null;
+  delivery: string;
+};
+
+export type AlertPage = DiscoveryEnvelope & { total: number; unread: number; limit: number; offset: number; items: Alert[] };
+
+export type AlertRule = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  min_severity: Severity;
+  min_score: number;
+  families: string[];
+  chains: string[];
+  created_at: string | null;
+};
+
+export type AlertRuleInput = {
+  name: string;
+  min_severity: Severity;
+  min_score: number;
+  families: string[];
+  chains: string[];
+  enabled: boolean;
+};
+
+export type AlertChannels = DiscoveryEnvelope & { available: string[]; unavailable: Record<string, string> };
+
+/** Ethereum and Solana manifests share these keys; every other counter is chain specific. */
+export type CollectorManifest = {
+  status: "succeeded" | "partial" | "blocked" | "failed" | string;
+  message: string;
+  started_at?: string;
+  finished_at?: string;
+  rpc_calls?: number;
+  providers?: string[];
+  finalized_head?: number | null;
+  lag_slots?: number | null;
+  first_block?: number | null;
+  last_block?: number | null;
+  first_slot?: number | null;
+  last_slot?: number | null;
+  not_covered?: string[];
+  gap_recorded?: CoverageGapRange | null;
+  [counter: string]: unknown;
+};
+
+/** A range the collector did not read. Solana reports slots; Ethereum may report blocks. */
+export type CoverageGapRange = {
+  from_slot?: number;
+  to_slot?: number;
+  from_block?: number;
+  to_block?: number;
+  reason: string;
+  at?: string;
+};
+
+export type CollectorStatus = DiscoveryEnvelope & {
+  version: string;
+  chain: "ethereum" | "solana";
+  last_run: CollectorManifest | null;
+  /** limits differ per chain (Ethereum has no run_deadline_s) */
+  limits: Record<string, number>;
+  not_covered: string[];
+  last_block_scanned?: number | null;
+  last_slot_scanned?: number | null;
+  coverage_gaps?: CoverageGapRange[];
+  recognised_programs?: { program_id: string; name: string; source_url: string; verified_at: string }[];
+};
+
+export type EntityKind = "wallet" | "contract" | "token" | "pool" | "program";
+export type LabelCategory = "exchange" | "protocol" | "bridge" | "market_maker" | "treasury" | "team" | "other";
+export type EntityLabelStatus = "proposed" | "approved" | "rejected";
+
+export type EntityLabel = {
+  id: number;
+  chain: string;
+  ref: string;
+  entity_kind: EntityKind;
+  category: LabelCategory;
+  name: string;
+  status: EntityLabelStatus;
+  /** "analyst" or "ai" */
+  source: string;
+  proposed_by: string;
+  evidence: LabelEvidence[];
+  note: string | null;
+  reviewed_by: string | null;
+  review_note: string | null;
+  created_at: string | null;
+  reviewed_at: string | null;
+};
+
+/** No limit/offset and no data_origin in this response. */
+export type EntityLabelPage = { total: number; items: EntityLabel[]; scope: string };
+
+export type EvidenceInput = { kind: LabelEvidence["kind"]; ref: string; description?: string };
+
+export type LabelProposal = {
+  chain: string;
+  ref: string;
+  entity_kind: EntityKind;
+  category: LabelCategory;
+  name: string;
+  evidence: EvidenceInput[];
+  note?: string | null;
+};
+
+export type LabelReviewInput = { decision: "approve" | "reject"; note: string; evidence: EvidenceInput[] };
+
+export type SystemWarning = { code: string; message: string };
+
+export type SystemJob = {
+  job: string;
+  description: string;
+  interval_seconds: number;
+  contacts_providers: boolean;
+  running: boolean;
+  consecutive_failures: number;
+  next_due: string;
+  last_run: { status: string; started_at: string; finished_at: string | null; detail: string | null } | null;
+};
+
+export type SystemBackup = { name: string; size_bytes: number; created_at: string };
+
+export type SystemHealth = {
+  status: "ok" | "degraded" | "critical";
+  version: string;
+  environment: string;
+  time: string;
+  uptime_seconds: number;
+  warnings: SystemWarning[];
+  database: {
+    status: "ok" | "unavailable";
+    schema_version: number | null;
+    size_bytes: number;
+    wal_bytes: number;
+    journal_mode: string;
+    busy_timeout_ms: number;
+  };
+  /** either the measured figures or { writes: "unknown", error } when the disk cannot be measured */
+  disk: {
+    writes: "allowed" | "refused" | "unknown";
+    reasons?: string[];
+    error?: string;
+    total_bytes?: number;
+    free_bytes?: number;
+    free_ratio?: number;
+    bip_used_bytes?: number;
+    max_data_bytes?: number;
+    min_free_bytes?: number;
+  };
+  process: { rss_bytes: number | null; threads: number; open_files: number | null };
+  ingestion: {
+    recent_runs: { id: number; chain: string; status: string; started_at: string | null; rpc_calls: number; error_count: number }[];
+    failed_runs_24h: number;
+    errors_24h: { code: string; count: number }[];
+  };
+  discovery: {
+    last_run: { id: number; status: string; started_at: string | null; finished_at: string | null } | null;
+    open_signals: number;
+    unread_alerts: number;
+  };
+  providers: {
+    total: number;
+    rpc_providers: number;
+    configured: number;
+    adapters_available: number;
+    healthy: number;
+    degraded: number;
+    unavailable: number;
+    untested: number;
+    disabled: number;
+  };
+  workers: { enabled: boolean; running: boolean; jobs: SystemJob[] };
+  backups: { enabled: boolean; count: number; latest: SystemBackup | null };
+};
+
+export type BackupCreated = SystemBackup & { pruned: unknown };

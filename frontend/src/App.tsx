@@ -3,8 +3,11 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { UserMenu } from "./auth/UserMenu";
 import { BackendBanner, HealthProvider, Sidebar, useHealth } from "./components/shell";
 import { WalletSearch } from "./components/WalletSearch";
+import Alerts from "./pages/Alerts";
+import Attribution from "./pages/Attribution";
 import CapitalFlows from "./pages/CapitalFlows";
 import Chains from "./pages/Chains";
+import Coverage from "./pages/Coverage";
 import GraphPage from "./pages/Graph";
 import Investigations, { InvestigationDetail } from "./pages/Investigations";
 import Opportunities from "./pages/Opportunities";
@@ -14,6 +17,9 @@ import ProviderDetail from "./pages/ProviderDetail";
 import Research from "./pages/Research";
 import RunPage from "./pages/research/RunPage";
 import Settings from "./pages/Settings";
+import SignalDetailPage from "./pages/signals/SignalDetail";
+import Signals from "./pages/Signals";
+import System from "./pages/System";
 import Wallets from "./pages/Wallets";
 import WalletWorkspacePage from "./pages/wallet/Workspace";
 import Watchlists from "./pages/Watchlists";
@@ -80,6 +86,12 @@ function Shell() {
           <Route path="/providers" element={<Providers />} />
           <Route path="/providers/:id" element={<ProviderDetail />} />
           <Route path="/watchlists" element={<Watchlists />} />
+          <Route path="/signals" element={<Signals />} />
+          <Route path="/signals/:id" element={<SignalDetailPage />} />
+          <Route path="/alerts" element={<Alerts />} />
+          <Route path="/coverage" element={<Coverage />} />
+          <Route path="/attribution" element={<Attribution />} />
+          <Route path="/system" element={<System />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

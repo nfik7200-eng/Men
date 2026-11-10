@@ -1,8 +1,9 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import type { Health } from "../api/types";
+import { onAlertsChanged } from "../lib/alertsSync";
 import { useApi, type ApiState } from "../lib/useApi";
 import { Pill } from "./ui";
 
@@ -30,8 +31,11 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Intelligence",
     items: [
+      { to: "/signals", label: "Signals", heading: "Signals" },
+      { to: "/alerts", label: "Alerts", heading: "Alerts" },
       { to: "/research", label: "Research", heading: "AI Research" },
       { to: "/opportunities", label: "Opportunities", heading: "Opportunities" },
+      { to: "/attribution", label: "Attribution", heading: "Attribution" },
     ],
   },
   {
@@ -41,7 +45,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/watchlists", label: "Watchlists", heading: "Watchlists" },
     ],
   },
-  { label: "", items: [{ to: "/settings", label: "Settings", heading: "Settings" }] },
+  {
+    label: "",
+    items: [
+      { to: "/coverage", label: "Coverage", heading: "Coverage" },
+      { to: "/system", label: "System", heading: "System" },
+      { to: "/settings", label: "Settings", heading: "Settings" },
+    ],
+  },
 ];
 
 export const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
@@ -104,6 +115,28 @@ export function BackendBanner() {
   );
 }
 
+/**
+ * Unread alert count for the navigation badge. Quiet by design: null while loading and on any
+ * error (no alert, no banner), refreshed on navigation, when alerts are marked read and when the
+ * backend comes back.
+ */
+function useUnreadAlerts(): number | null {
+  const { generation } = useHealth();
+  const { pathname } = useLocation();
+  const unread = useApi(() => api.alerts({ unread: true, limit: 1 }), [generation]);
+  const { reload } = unread;
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    reload();
+  }, [pathname, reload]);
+  useEffect(() => onAlertsChanged(reload), [reload]);
+  return unread.status === "ready" ? unread.data.unread : null;
+}
+
 export function Sidebar({ search }: { search?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
@@ -112,6 +145,8 @@ export function Sidebar({ search }: { search?: ReactNode }) {
   const navRef = useRef<HTMLElement>(null);
   const health = useHealth();
   const { mode } = useAuth();
+  const unreadAlerts = useUnreadAlerts();
+  const badgeId = useId();
   if (location.pathname !== lastPath) {
     setLastPath(location.pathname);
     setOpen(false);
@@ -165,9 +200,20 @@ export function Sidebar({ search }: { search?: ReactNode }) {
               <ul className="nav-list" {...(g.label ? { "aria-labelledby": id } : { "aria-label": "Other" })}>
                 {g.items.map((item) => (
                   <li key={item.to}>
-                    <NavLink to={item.to} end={item.to === "/"} className="nav-link">
+                    <NavLink
+                      to={item.to}
+                      end={item.to === "/"}
+                      className="nav-link"
+                      {...(item.to === "/alerts" && unreadAlerts ? { "aria-describedby": badgeId } : {})}
+                    >
                       {item.label}
                     </NavLink>
+                    {item.to === "/alerts" && unreadAlerts ? (
+                      <>
+                        <span className="nav-badge" aria-hidden="true">{unreadAlerts > 99 ? "99+" : unreadAlerts}</span>
+                        <span className="visually-hidden" id={badgeId}>{unreadAlerts} unread alert{unreadAlerts === 1 ? "" : "s"}</span>
+                      </>
+                    ) : null}
                   </li>
                 ))}
               </ul>

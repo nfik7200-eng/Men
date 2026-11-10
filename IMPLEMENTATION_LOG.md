@@ -753,3 +753,11 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not changed.** Serving the API on a Unix socket (loopback callers can still set the client address; documented). A second provider to confirm finalized blocks. Moving gaps to a table (the newest 50 and an evicted counter are kept).
 
+## 2026-11-10 — Dashboards for signals, alerts, coverage, attribution and system health (subagent owning `frontend/`, verified independently)
+
+**Built.** Routes `/signals`, `/signals/:id`, `/alerts`, `/coverage`, `/attribution`, `/system` and nav entries (with an unread-alerts badge that never raises an alert), shared `Modal`, `ExternalLink` (http(s) only, `rel="noopener noreferrer"`), `EvidenceEditor`, discovery components, role gating through the existing `useCan`/`RoleHint`. "Run once" on Coverage never fires on page load or Cancel; Confirm sends exactly one request and shows the returned manifest.
+
+**Verification (re-run by the integrating session).** `tsc` clean, `eslint` clean, `vitest` 238 passed (was 179), `npm run build` ok, `npm run e2e` 217/217 (was 165), including layout (no overflow, tap targets) for the five new routes at three viewport sizes and a viewer seeing both collector buttons disabled with the admin hint.
+
+**Gaps.** No signal-creating API exists and the offline fake nodes' timestamps fall outside the detector lookback windows, so the browser suite shows empty states for signals and alerts; populated paths are unit-tested with SYNTHETIC data. No "Run discovery" control yet. The unit tests, not real collected data, are the only evidence the pages render real signals correctly.
+
