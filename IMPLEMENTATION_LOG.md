@@ -791,3 +791,9 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Still not seen live.** Solana mint, program-deployment and pool-initialisation events; factories other than Uniswap v2/v3.
 
+## 2026-11-10 — Solana mint layout seen on a real event
+
+**Scans (solana-public, read-only, throwaway database, 141, 81, 34 and 23 requests; one hit the 85 s deadline, as designed).** About 100,000 transactions across about 350 finalized slots. Two real `InitializeMint2` instructions were seen. The first produced no discovery, which I treated as a possible decoder miss until an independent cross-check (System `CreateAccount`, 82 bytes, Token program) and a printout at the moment of detection showed the second one decoded correctly (`mint`, 9 decimals, `InitializeMint2`); the first was a failed transaction, which the decoder skips by design. Raydium AMM v4 and Orca instructions occurred (tens and hundreds) but none was a pool initialisation, and no loader deployment occurred.
+
+**Conclusion.** The SPL mint layout is verified live. Program deployments and pool initialisations are still verified only against official sources and synthetic fixtures.
+
