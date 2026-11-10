@@ -1,13 +1,15 @@
 # Current State
 
-_Last updated: 2026-11-08 (backend completion pass implemented and tested offline; for owner review)_
+_Last updated: 2026-11-10 (autonomous build complete locally; CI green on `cf07957`; for owner review)_
 
 ## Phase
-**Backend completion pass (2026-11-08): implemented and verified offline. Stopped for owner review. Nothing is committed.**
+**Autonomous build (2026-11-09/10): complete locally, committed and pushed to `claude/modest-fermi-0yklvj` (draft PR #2). CI on `cf07957`: backend `checks`, `frontend` and `secret-scan` all concluded success. Not deployed. Remaining items need a real host, rare live events or owner approval (see the BLOCKED register).** Verified locally: 836 backend tests, ruff and pyright strict clean, 245 frontend unit tests, 221 Playwright checks at 390x844, 820x1180 and 1366x850, `deploy/rehearse.sh` 11/11.
+
+Earlier pass, **Backend completion pass (2026-11-08): implemented and verified offline.**
 - **Ingestion hardening** (Stage 1 and its independent review): Solana v1, token accounts, placeholder and partial-row repair with attempt limits, oversized-log splitting, hash-checked finality upgrades, **orphan marking and exclusion from all derived reads**, with analyses marked stale and signals and relationships invalidated on a reorg.
 - **Discovery** over stored canonical data: ten detectors, explainable scores, deduplication and cooldown, expiry, in-app alerts, promotion to a watchlist or case, detector review statistics. It does not scan the chain (see Blocked).
 - **Entities**: evidence-backed relationships (`observed`/`hypothesis` only), search, transaction, token and contract detail, case notes and hypotheses, case timeline.
-- **Security**: authentication (`BIP_AUTH__MODE=required`), server-side sessions, CSRF, origin checks, roles, throttling, audit log, a refusal to start unauthenticated on a reachable address. **The bundled frontend has no sign-in screen**, so it runs only with `mode=disabled` on loopback.
+- **Security**: authentication (`BIP_AUTH__MODE=required`), server-side sessions, CSRF, origin checks, roles, throttling, audit log, a refusal to start unauthenticated on a reachable address. The frontend has a sign-in gate, protected routes, CSRF on writes and role-aware controls (verified in `required` mode at three viewport sizes); `mode=disabled` remains available on loopback only.
 - **Operations**: detailed health and RPC usage, API metrics, verified backups, an in-process scheduler (off by default), retention.
 - **ML**: feature drift monitoring and detector review statistics. Models are still only rules plus a synthetic-trained demo model; no real reviewed labels exist.
 - **API reference** generated from OpenAPI and guarded by a test: `docs/API_REFERENCE.md`.
@@ -38,7 +40,7 @@ Earlier phase:
 - **No live probe has been run.** On 2026-11-04 the proxy status showed the same egress policy that refused CONNECT to the RPC hosts on 2026-11-03, so, as instructed, no identical failing request was repeated. Every provider capability is therefore `not_tested` in a real database. Fixture runs exist only on the offline fixture backend and are labelled.
 - **Live provider verification is still blocked.** The bounded live retry on 2026-11-03 at 17:25Z reached 0 of 2 keyless providers (DNS fails direct; the proxy refuses CONNECT with 403). No real Ethereum or Solana provider has answered a BIP request yet.
 - **No evidence has been corroborated live.** Corroboration needs two providers on independent infrastructure. Only one keyless provider per chain is configured, so a corroboration request reports `could_not_run`.
-- BIP is a local prototype with **no authentication**.
+- (Stage 4 note, superseded) Authentication was added later: `BIP_AUTH__MODE=required` with server-side sessions, CSRF and roles.
 
 ## Capability matrix (2026-11-07)
 
@@ -139,15 +141,16 @@ Nothing below is claimed as working. Each needs an owner decision; none was atte
 | Classifier on real labels | **Not trained** | No reviewed labels exist | Supply labels |
 | Live LLM synthesis / AI label proposals | **Built, not exercised**: `POST /entities/labels/suggest` grounds proposals in stored signals and drops anything uncited. Checked 2026-11-09: `BIP_AI__PROVIDER=none` and nothing listens on 127.0.0.1:11434, so no model was contacted | A reachable local Ollama and an installed model tag | Configure Ollama (optional) |
 | Second-provider orphan confirmation | **Not built** | Needs a second approved provider | Provider choice |
-| Commit, push, PR | **Not done** | Goal requires approval | Authorize |
+| Commit, push, PR | **Done**: pushed to `claude/modest-fermi-0yklvj`, draft PR #2, CI green on `cf07957` | Not merged and not deployed (never done without the owner) | Review and merge |
+| Real-host deployment (systemd, reverse proxy, TLS) | **Kit built and rehearsed locally** (`deploy/`, `deploy/rehearse.sh` 11/11, `systemd-analyze verify` shows only missing binaries on this machine). Never run on a real host | Needs the VPS | Deploy |
 
 ## Blockers
-000. **Partly built, rest BLOCKED:** discovery without supplied addresses now exists for one slice only: Ethereum contract creations and large native transfers read from finalized blocks (`ChainCollector`, admin endpoint `POST /discovery/collect/ethereum`, optional `chain_scan` job, off). New pools are now observed from factory events (event layout only; not proof of a DEX). **BLOCKED, needs an owner decision on data source, cost and storage:** a Solana collector, ERC-20 transfer activity chain-wide, liquidity/reserve changes, holder concentration and exchange flows. The collector is not a chain index and has not touched a live provider.
-000. **Not built, needs a provider decision:** event streams (WebSocket/gRPC), Solana program deployment, liquidity/reserve detection. **BLOCKED.**
+000. **Discovery without supplied addresses is built and bounded** (Ethereum `ChainCollector` and `SolanaCollector`, admin endpoints, optional scheduled jobs, all off by default; see the register above for what each covers). **Still blocked or not covered:** event streams (WebSocket/gRPC, provider choice), true holder balances and v3 reserves (need `eth_call`/an indexer), Solana program deployments and pool initialisations never seen live, factories other than Uniswap v2/v3 and `collector.extra_factories`, and exchange flows without reviewed labels. The collectors are not chain indexes.
+000. **Superseded earlier text removed:** older notes here said the Solana collector, ERC-20 activity and reserve changes were unbuilt; they are built (see the BLOCKED register).
 000. **Real reviewed labels** are still needed before any real classifier is trained; the LLM provider (Ollama) was not contacted.
 00. **Real labelled wallets** (verified, corroborated or analyst-reviewed, with provenance) are needed before any real model can be trained. A local Ollama model is needed for AI synthesis, and must not change the owner's existing models.
 0. **Live provider capability evidence** needs `make probe` from a machine (or environment) whose network allows the RPC hosts.
-1. **Network policy (authoring sandbox):** `ethereum-rpc.publicnode.com`, `api.mainnet.solana.com` and other RPC hosts are denied. To verify live, run `make live-smoke` on a machine with internet access, or allow those hosts in the cloud environment's network settings.
+1. **Network policy (authoring sandbox):** on 2026-11-03/04 the RPC hosts were denied. By 2026-11-09/10 `publicnode-eth` and `solana-public` were reachable through the proxy and bounded live checks ran (see the register). Other providers remain unconfigured and unverified.
 2. **Credentials:** Alchemy, Infura, Ankr, QuickNode and Helius need free accounts and keys (`BIP_PROVIDER_*_URL`). None are configured. No accounts were created.
 3. **Corroboration needs a second, independent provider per chain** (e.g. an Infura or Alchemy free account for Ethereum, Helius or Alchemy for Solana). This needs owner approval to create the account.
 4. **PublicNode Solana hostname** is unconfirmed (sources disagree). It is left unconfigured.
@@ -169,11 +172,11 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 7. Web-fetcher User-Agent contact string.
 8. Remote LLM providers allowed, or local Ollama only.
 9. UI: self-hosted IBM Plex fonts or system fonts (default); confirm transaction-hash search stays out of scope (`docs/FRONTEND_ARCHITECTURE.md` §12). Note: `/search` now matches stored transaction ids; confirm that is wanted.
-10. ADR-032 to ADR-037 (all Proposed; implemented provisionally).
+10. ADR-032 to ADR-040 (all Proposed; implemented provisionally; ADR-039 Solana collector, ADR-040 reviewed entity labels).
 11. Switching to `BIP_AUTH__MODE=required` the reverse-proxy/VPN choice, and the first administrator.
 12. Running the block collector against a live provider (`POST /discovery/collect/ethereum` or `BIP_WORKERS__COLLECTOR_ENABLED`): it spends provider quota (about one full-block call per block plus one receipt per candidate; default 20 blocks and 60 receipts per run). Enabling the scheduler (`BIP_WORKERS__ENABLED`), backups, and above all `watchlist_refresh`, which spends provider quota.
 13. Whether to confirm an orphaned block with a second provider before orphaning, and whether to build a chain-wide collector (with its data source and cost).
-14. A live check of Solana v1 handling, token-account discovery and `getTokenAccountsByOwner` support on a real provider.
+14. Partly done: Solana v1 handling was live-checked on `solana-public` (legacy/0/1 parsed). Still open: `getTokenAccountsByOwner` support and token-account discovery on a real provider.
 
 ## Known limitations
 - Ethereum wallet history is discovered only through Transfer logs in the last 2,000 blocks (configurable). Plain ETH transfers without logs, internal transfers and ERC-1155 are not covered.

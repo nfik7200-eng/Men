@@ -825,3 +825,9 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Process change.** From now on a green CI means an explicit success conclusion on the head commit's check runs, not a completed suite.
 
+
+## 2026-11-10 — CI result and CURRENT_STATE correction
+
+**CI.** Head `cf07957`: backend `checks`, `frontend` and `secret-scan` each concluded `success` in both the push run and the pull-request run (explicit check-run conclusions, read after the jobs completed). Local re-run on the same commit: `uv run ruff check .` and `ruff format --check .` clean, `uv run pyright` 0 errors, `uv run pytest` 836 passed in 161 s. (A first attempt used the system Python instead of the project `.venv` and showed meaningless errors; it was discarded.)
+
+**Documentation fix.** `CURRENT_STATE.md` still carried statements from earlier passes that the finished work contradicts: "nothing is committed", "the frontend has no sign-in screen", "no authentication", the Solana collector and reserve detection listed as blocked, "commit, push, PR not done", and the RPC hosts listed as denied. They were corrected to match the code and the live checks already recorded. No code changed.
