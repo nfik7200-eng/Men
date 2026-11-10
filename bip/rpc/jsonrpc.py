@@ -31,6 +31,7 @@ _RANGE_HINTS = (
     "limit exceeded",
     "10000 results",
     "query returned more",
+    "specify an address",  # PublicNode: address-less queries only over a single block
 )
 _RATE_HINTS = ("rate limit", "too many requests", "exceeded the capacity", "quota")
 

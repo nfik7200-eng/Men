@@ -53,8 +53,11 @@ CURSOR_KEY = "collector:ethereum:last_block"
 LAST_RUN_KEY = "collector:ethereum:last_run"
 COLLECTOR_VERSION = "3"
 
-FEED_CALL_RESERVE = 60
-"""Provider requests kept back from the block loop so the event feeds always have budget."""
+FEED_CALLS_BASE = 40
+FEED_CALLS_PER_BLOCK = 2
+"""Provider requests kept back from the block loop so the event feeds always have budget: a base
+plus two per planned block, because a provider that serves address-less ``eth_getLogs`` only one
+block at a time (PublicNode, seen live) costs one request per block for each of the two feeds."""
 
 NOT_COVERED = (
     "ordinary transactions below the value threshold (counted, not stored)",
@@ -160,12 +163,13 @@ class ChainCollector:
                 m["message"] = "Up to date with the finalized head."
                 return self._finish(m, adapter)
             headers: dict[int, eth.BlockHeader] = {}
+            feed_reserve = FEED_CALLS_BASE + FEED_CALLS_PER_BLOCK * (end - start + 1)
             for number in range(start, end + 1):
                 if receipts >= cfg.max_receipts_per_run:
                     m["status"] = "partial"
                     m["message"] = "Receipt cap reached; the rest resumes next run."
                     break
-                if adapter.calls >= cfg.max_rpc_calls_per_run - FEED_CALL_RESERVE:
+                if adapter.calls >= cfg.max_rpc_calls_per_run - feed_reserve:
                     m["status"] = "partial"
                     m["message"] = (
                         "Call budget kept for the event feeds; the rest resumes next run."

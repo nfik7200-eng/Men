@@ -725,3 +725,13 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Verification.** `tests/unit/test_preflight.py` 12 passed, including that the shipped template loads through the real settings with no FAIL and with collection off. Nothing was installed or started anywhere; `systemd-analyze` and the proxies were not run.
 
+## 2026-11-09/10 — Live verification of both collectors (free public endpoints, throwaway database)
+
+**What ran.** Each invocation used a temporary data root, the registry's no-cost public providers (publicnode-eth, solana-public), read-only methods, and at most 110 requests (limit 150) and well under 90 s. No live database was touched.
+
+**Ethereum.** One block: 20 requests, 315 transactions, 285 Transfer logs, 69 tokens. Twenty blocks (26376729 to 26376748): 6,201 transactions, 15,088 Transfer logs (about 750 per block), 448 tokens, 8 creations, 25 large native transfers stored, 110 requests. **Finding:** PublicNode answers an address-less `eth_getLogs` over several blocks with "Please specify an address in your request"; it was classified as transient and retried three times, which aborted the feed. Fixed: the message is a too-broad-query error, and the adapter goes straight to single-block windows (no bisecting) and remembers it; the feed call reserve scales with the block count; regression test reproduces the behaviour in the fake node. Pools and reserves: none occurred in the window.
+
+**Solana.** 2 slots (3 requests), 40 slots (41 requests, 10,097 transactions, 2,680 failed), plus two read-only diagnostics (101 and 26 requests). Transaction versions seen in one 25-slot sample: legacy 2,296, v0 2,419, v1 2,012. Instruction decoding worked on every transaction (the 59 with none decoded were zero-instruction version-1 no-ops). No InitializeMint, program deployment or pool initialisation occurred in about 142 slots, so those layouts are not confirmed on a live occurrence.
+
+**Not done.** Scheduled collection stays off. Nothing was run against a paid or keyed endpoint.
+

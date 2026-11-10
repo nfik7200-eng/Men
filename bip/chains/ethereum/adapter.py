@@ -32,6 +32,10 @@ def _length(value: object) -> int:
 
 class EthereumAdapter(ChainAdapter):
     chain = "ethereum"
+    single_block_logs = False
+    """Set once a provider has refused an address-less ``eth_getLogs`` over several blocks (seen
+    live on PublicNode); later address-less queries then go block by block without trying a wider
+    window first."""
 
     def chain_id(self) -> int:
         result, _ = self.call("eth_chainId", [])
@@ -122,7 +126,11 @@ class EthereumAdapter(ChainAdapter):
         """
         out: list[tuple[object, SourceInfo]] = []
         notes: list[str] = []
-        stack = [(from_block, to_block)]
+        stack = (
+            [(n, n) for n in range(to_block, from_block - 1, -1)]
+            if self.single_block_logs and not addresses
+            else [(from_block, to_block)]
+        )
         while stack:
             a, b = stack.pop()
             flt: dict[str, object] = {
@@ -141,6 +149,14 @@ class EthereumAdapter(ChainAdapter):
             except RpcError as exc:
                 if exc.error_class != "range_too_large" or b - a + 1 <= min_span:
                     raise
+                if not addresses and "specify an address" in str(exc).lower():
+                    # The provider only serves address-less queries one block at a time: do not
+                    # bisect (that costs about twice the blocks in failed requests); go block by
+                    # block, here and for the rest of this adapter's life.
+                    self.single_block_logs = True
+                    notes.append(f"provider requires an address over several blocks: {a}-{b}")
+                    stack.extend((n, n) for n in range(a, b + 1))
+                    continue
                 mid = (a + b) // 2
                 notes.append(f"split {a}-{b} after provider range limit")
                 stack.extend([(a, mid), (mid + 1, b)])

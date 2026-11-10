@@ -157,3 +157,38 @@ def test_provider_use_per_invocation_cannot_exceed_the_authorised_limits(
 
     with pytest.raises(ConfigurationError, match="less than or equal"):
         load_settings(data_root=Path("/unused"), env="test", **{group: override})
+
+
+def test_a_provider_that_wants_an_address_over_several_blocks_is_served_block_by_block(
+    tmp_path: Path,
+) -> None:
+    """Seen live on PublicNode: address-less eth_getLogs works for one block, not for several."""
+    rig = Rig(
+        tmp_path,
+        mode="disabled",
+        settings={"collector": {"initial_lookback_blocks": 6, "blocks_per_run": 6}},
+    )
+    try:
+        rig.eth.address_required_over_blocks = True
+        n = fin(rig)
+        rig.eth.add_pool(n - 3, h32(0x901), FACTORY, TOKEN, OTHER, POOL)
+        rig.eth.add_token_transfer(n - 2, h32(0xA00), NEW, addr(0x3000), addr(0x3100), 5)
+        m = collect(rig)
+        assert m["status"] == "succeeded"
+        assert m["pool_events_stored"] == 1
+        assert m["tokens_seen"] == 1  # only the transfer emits a Transfer log
+        wide = [w for w in rig.eth.log_windows if w[1] > w[0] and not w[2]]
+        assert len(wide) == 1  # tried once, never retried or bisected
+        singles = [w for w in rig.eth.log_windows if w[0] == w[1] and not w[2]]
+        assert len(singles) == 12  # six blocks for the pool feed, six for the token feed
+        assert m["rpc_calls"] <= 150
+    finally:
+        rig.dispose()
+
+
+def test_provider_wording_for_a_too_broad_query_is_not_treated_as_transient() -> None:
+    from bip.rpc.jsonrpc import classify_error
+
+    msg = "Please specify an address in your request or, to remove restrictions, order a node"
+    assert classify_error(-32000, msg, "eth_getLogs") == "range_too_large"
+    assert classify_error(-32000, msg, "eth_call") == "transient"  # only getLogs is affected

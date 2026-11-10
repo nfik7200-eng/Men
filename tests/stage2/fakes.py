@@ -67,6 +67,10 @@ class FakeEthNode:
     """Full transaction bodies per block, served for ``eth_getBlockByNumber(n, true)``."""
     created: dict[str, str] = field(default_factory=dict[str, str])
     """Contract address a creation transaction's receipt reports."""
+    address_required_over_blocks: bool = False
+    """Like PublicNode: an address-less ``eth_getLogs`` is refused over more than one block."""
+    log_windows: list[tuple[int, int, bool]] = field(default_factory=list[tuple[int, int, bool]])
+    """Every ``eth_getLogs`` window requested: (from, to, has_address)."""
     no_finalized_tag: bool = False
     """The provider rejects the ``finalized`` block tag."""
     history_floor: int = 20_000_000 - 200_000
@@ -257,6 +261,11 @@ class FakeEthNode:
             f = params[0]
             assert isinstance(f, dict)
             a, b = int(f["fromBlock"], 16), int(f["toBlock"], 16)
+            self.log_windows.append((a, b, f.get("address") is not None))
+            if self.address_required_over_blocks and f.get("address") is None and b > a:
+                raise _RpcFaultError(
+                    -32000, "Please specify an address in your request or order a dedicated node"
+                )
             if self.max_log_range is not None and b - a + 1 > self.max_log_range:
                 raise _RpcFaultError(-32005, "query exceeds max block range 1000")
             want = f["topics"]
