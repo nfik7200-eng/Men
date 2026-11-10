@@ -27,6 +27,7 @@ from bip.chains.ethereum import parse as eth
 from bip.chains.ethereum.adapter import EthereumAdapter
 from bip.chains.ethereum.parse import TRANSFER_TOPIC
 from bip.chains.ethereum.pools import (
+    BASE_ASSET_ADDRESSES,
     KNOWN_FACTORY_ADDRESSES,
     POOL_TOPICS,
     SYNC_TOPIC,
@@ -242,14 +243,24 @@ class EventFeeds:
     # ----------------------------------------------------------------------------- tokens
 
     def _pool_tokens(self) -> set[str]:
+        """Tokens whose transfers are stored per event: tokens of trusted-factory pools, minus base
+        assets (WETH) and hubs (tokens in many pools), which pair with everything."""
         pe = schema.pool_events
         with self._repo.transaction() as conn:
             rows = conn.execute(
-                select(pe.c.token0, pe.c.token1).where(
+                select(pe.c.token0, pe.c.token1, pe.c.pool).where(
                     pe.c.chain == CHAIN, pe.c.factory.in_(self._trusted)
                 )
             ).all()
-        return {str(t) for r in rows for t in (r.token0, r.token1)}
+        pools_of: dict[str, set[str]] = {}
+        for r in rows:
+            for t in (str(r.token0), str(r.token1)):
+                pools_of.setdefault(t, set()).add(str(r.pool))
+        return {
+            t
+            for t, pools in pools_of.items()
+            if t not in BASE_ASSET_ADDRESSES and len(pools) < self._cfg.hub_pool_threshold
+        }
 
     def tokens(
         self,

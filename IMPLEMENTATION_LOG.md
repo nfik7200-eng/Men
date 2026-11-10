@@ -783,3 +783,11 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Verification.** `tsc` and `eslint` clean, `vitest` 245 passed, build ok, `npm run e2e` 221/221 (adds a check that a pass runs against the offline backend and sends no collector request). CI on the four previous head commits (80a255f, 13ad93c, b39e492, 851f0a9) reported complete with nothing failing.
 
+## 2026-11-10 — Pool and reserve decoders checked on real events; a design flaw found by real data
+
+**Live checks (free endpoint, throwaway database, 6, 71 and 72 requests; all within the 150-request limit).** Querying the documented Uniswap v2 and v3 factory addresses directly: 62 real `PairCreated` and 14 real `PoolCreated` logs over 5,000 blocks, every one decoded; sampled pools have contract code and pair with real WETH; fees 100 and 500 decoded. 20 real `Sync` logs of a new pair decoded to plausible reserves (an initial 4.5e27 / 0.5 ETH, then a small swap). The real collector, pointed at a window containing a real new v2 pair, stored the pool, watched its reserves and stored 7 (then 4, on a second pair) real reserve updates; no rejection and no continuity mismatch.
+
+**Flaw found only by real data.** `token_transfers_stored` hit its cap of 500 because the new pair was TOKEN/WETH, so every WETH transfer counted as a pooled-token transfer and crowded out the new token. Fixed test-first: base assets (WETH9, from Uniswap's Ethereum deployments page) and hubs (tokens in at least `hub_pool_threshold` = 25 stored pools) are excluded from per-event storage. Re-run on a second real pair: 4 transfers stored, not 500.
+
+**Still not seen live.** Solana mint, program-deployment and pool-initialisation events; factories other than Uniswap v2/v3.
+

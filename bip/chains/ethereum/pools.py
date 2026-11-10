@@ -52,6 +52,19 @@ factories can be added with ``collector.extra_factories`` after the operator ver
 
 KNOWN_FACTORY_ADDRESSES = frozenset(f.address for f in KNOWN_FACTORIES)
 
+BASE_ASSETS: tuple[tuple[str, str, str], ...] = (
+    (
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
+        "WETH9",
+        "https://docs.uniswap.org/contracts/v3/reference/deployments/ethereum-deployments",
+    ),
+)
+"""Tokens that pair with almost everything. A pool "TOKEN/WETH" says something about TOKEN, not
+about WETH: storing every WETH transfer on the chain would use the whole per-run cap (seen live)
+and crowd out the new token. ``(address, name, source_url)``, verified 2026-11-10."""
+
+BASE_ASSET_ADDRESSES = frozenset(a for a, _, _ in BASE_ASSETS)
+
 
 @dataclass(frozen=True, slots=True)
 class PoolCreated:

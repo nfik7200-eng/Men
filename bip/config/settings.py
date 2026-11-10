@@ -263,6 +263,9 @@ class CollectorSettings(BaseModel):
     """Extra pool factories (``0x`` addresses, comma-separated in the environment) the operator
     has verified. Pools from a factory that is neither built in nor listed here are recorded but
     never feed token transfers or reserve watching."""
+    hub_pool_threshold: Annotated[int, Field(ge=2, le=1000)] = 25
+    """A token that appears in this many stored pools is a hub (a base asset), not a new token:
+    its transfers are not stored per event."""
     max_tracked_tokens: Annotated[int, Field(ge=1000, le=5_000_000)] = 500_000
     """Rows in ``token_stats``; new tokens beyond this are counted as a gap, not tracked."""
     max_block_attempts: Annotated[int, Field(ge=1, le=10)] = 3

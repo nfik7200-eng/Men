@@ -284,3 +284,49 @@ def test_a_pool_late_in_the_alphabet_is_still_evaluated_when_the_table_is_large(
         assert late_pool in subjects
     finally:
         rig.dispose()
+
+
+WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+
+
+def test_a_pool_paired_with_a_base_asset_stores_the_new_tokens_transfers_not_the_base_assets(
+    tmp_path: Path,
+) -> None:
+    """Found live: a TOKEN/WETH pair made every WETH transfer on the chain use up the cap."""
+    rig = make(tmp_path, max_token_transfers_per_run=3)
+    try:
+        n = fin(rig)
+        rig.eth.add_pool(n - 4, h32(0x940), FACTORY, TOKEN, WETH, POOL)
+        for i in range(6):  # six WETH transfers, listed first, would fill a cap of three
+            rig.eth.add_token_transfer(
+                n - 3, h32(0xB00 + i), WETH, addr(0x4000), addr(0x4100 + i), 9
+            )
+        for i in range(3):
+            rig.eth.add_token_transfer(
+                n - 2, h32(0xB10 + i), TOKEN, addr(0x5000), addr(0x5100 + i), 7
+            )
+        m = collect(rig)
+        assert m["token_transfers_stored"] == 3
+        assert count(rig, "SELECT COUNT(*) FROM transfers WHERE token = :t", t=TOKEN) == 3
+        assert count(rig, "SELECT COUNT(*) FROM transfers WHERE token = :t", t=WETH) == 0
+        assert m["token_transfers_over_cap"] == 0
+    finally:
+        rig.dispose()
+
+
+def test_a_token_in_very_many_pools_is_treated_as_a_hub_not_a_new_token(tmp_path: Path) -> None:
+    rig = make(tmp_path, hub_pool_threshold=3)
+    try:
+        n = fin(rig)
+        hub = addr(0xAB0)
+        for i in range(3):
+            rig.eth.add_pool(
+                n - 5 + i, h32(0x950 + i), FACTORY, addr(0xAC0 + i), hub, addr(0xB100 + i)
+            )
+        rig.eth.add_token_transfer(n - 1, h32(0xB20), hub, addr(0x6000), addr(0x6100), 5)
+        rig.eth.add_token_transfer(n - 1, h32(0xB21), addr(0xAC0), addr(0x6000), addr(0x6101), 5)
+        collect(rig)
+        assert count(rig, "SELECT COUNT(*) FROM transfers WHERE token = :t", t=hub) == 0
+        assert count(rig, "SELECT COUNT(*) FROM transfers WHERE token = :t", t=addr(0xAC0)) == 1
+    finally:
+        rig.dispose()
