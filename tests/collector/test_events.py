@@ -36,7 +36,11 @@ def test_sync_topic_matches_the_event_signature() -> None:
 
 @pytest.fixture
 def rig(tmp_path: Path) -> Iterator[Rig]:
-    r = Rig(tmp_path, mode="disabled", settings={"collector": {"initial_lookback_blocks": 10}})
+    r = Rig(
+        tmp_path,
+        mode="disabled",
+        settings={"collector": {"initial_lookback_blocks": 10, "extra_factories": [FACTORY]}},
+    )
     yield r
     r.dispose()
 
@@ -166,7 +170,13 @@ def test_a_provider_that_wants_an_address_over_several_blocks_is_served_block_by
     rig = Rig(
         tmp_path,
         mode="disabled",
-        settings={"collector": {"initial_lookback_blocks": 6, "blocks_per_run": 6}},
+        settings={
+            "collector": {
+                "initial_lookback_blocks": 6,
+                "blocks_per_run": 6,
+                "extra_factories": [FACTORY],
+            }
+        },
     )
     try:
         rig.eth.address_required_over_blocks = True

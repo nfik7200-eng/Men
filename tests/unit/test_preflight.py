@@ -131,3 +131,26 @@ def test_the_shipped_production_template_loads_and_passes(tmp_path: Path) -> Non
     checks = run_checks(settings_from(values))
     assert [c for c in checks if c.level == "FAIL"] == []
     assert levels(checks)["provider_contact"] == "PASS"  # collection is off in the template
+
+
+def test_a_group_writable_env_file_fails(tmp_path: Path) -> None:
+    f = tmp_path / "bip.env"
+    f.write_text("BIP_ENV=production\n")
+    settings = settings_from(safe(tmp_path))
+    f.chmod(0o660)
+    assert levels(run_checks(settings, env_file=f))["env_file_permissions"] == "FAIL"
+    f.chmod(0o640)
+    assert levels(run_checks(settings, env_file=f))["env_file_permissions"] == "PASS"
+
+
+def test_use_environment_judges_what_the_process_has_not_what_the_file_says(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The unit passes the file to systemd and to the check; they must not disagree."""
+    env = tmp_path / "bip.env"
+    env.write_text("\n".join(f"{k}={v}" for k, v in safe(tmp_path).items()))  # says: required
+    env.chmod(0o600)
+    running = safe(tmp_path, BIP_AUTH__MODE="disabled")  # but the service would run with auth off
+    assert main(["--use-environment", "--env-file", str(env)], environ=running) == 1
+    assert "FAIL  authentication" in capsys.readouterr().out
+    assert main(["--env-file", str(env)], environ=running) == 0  # manual mode reads the file

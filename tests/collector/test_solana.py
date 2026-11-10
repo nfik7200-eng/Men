@@ -104,7 +104,7 @@ def test_discoveries_are_found_failed_transactions_ignored_and_gaps_counted(rig:
     populate(rig)
     m = collect(rig)
     assert m["status"] == "succeeded"
-    assert (m["slots_scanned"], m["slots_skipped_or_unavailable"]) == (4, 1)  # head is "skipped"
+    assert (m["slots_scanned"], m["slots_skipped"]) == (4, 1)  # the head slot is "skipped"
     assert (m["mints_found"], m["programs_found"], m["pools_found"]) == (2, 1, 2)
     assert m["failed_transactions"] == 1
     assert m["large_transfers_stored"] == 1  # 600 SOL stored, 1 SOL not
@@ -150,7 +150,8 @@ def test_a_broken_blockhash_chain_is_reported(rig: Rig) -> None:
     assert m["continuity_mismatches"] == 1
 
 
-def test_a_slot_that_keeps_failing_is_given_up_and_recorded(tmp_path: Path) -> None:
+def test_a_block_not_available_is_retried_then_given_up_and_recorded(tmp_path: Path) -> None:
+    """-32004 is not "skipped": the cursor must not move past it until it is given up."""
     rig = Rig(
         tmp_path,
         mode="disabled",
@@ -158,16 +159,95 @@ def test_a_slot_that_keeps_failing_is_given_up_and_recorded(tmp_path: Path) -> N
     )
     try:
         head = rig.sol.head_slot
-        rig.sol.fail_slots.add(head - 1)
+        rig.sol.unavailable_slots.add(head - 1)
         for slot in (head - 2, head):
             rig.sol.blocks[slot] = make_block(slot, hash_of(slot), hash_of(slot - 1), [])
         first = collect(rig)
         assert first["status"] == "partial"
+        assert rig.repo.get_meta(CURSOR_KEY) == str(head - 2)  # not advanced over head - 1
         second = collect(rig)
         assert second["slots_given_up"] == 1
         assert json.loads(rig.repo.get_meta(GAPS_KEY) or "[]")[-1]["from_slot"] == head - 1
     finally:
         rig.dispose()
+
+
+def test_an_outage_never_makes_the_collector_give_a_slot_up(tmp_path: Path) -> None:
+    rig = Rig(
+        tmp_path,
+        mode="disabled",
+        settings={"solana_collector": {"blocks_per_run": 3, "max_slot_attempts": 1}},
+    )
+    try:
+        head = rig.sol.head_slot
+        rig.sol.fail_slots.add(head - 1)  # -32603: transient, the same on every attempt
+        rig.sol.blocks[head - 2] = make_block(head - 2, hash_of(head - 2), hash_of(head - 3), [])
+        for _ in range(3):
+            m = collect(rig)
+            assert m["slots_given_up"] == 0
+        assert json.loads(rig.repo.get_meta(GAPS_KEY) or "[]") == []
+        assert rig.repo.get_meta(CURSOR_KEY) == str(head - 2)
+    finally:
+        rig.dispose()
+
+
+def test_continuity_is_checked_across_runs_and_a_lag_jump_records_one_gap(rig: Rig) -> None:
+    head = rig.sol.head_slot
+    rig.sol.head_slot = head - 1  # run 1 reads head-5 .. head-1; only head-2 has a block
+    rig.sol.blocks[head - 2] = make_block(head - 2, hash_of(head - 2), hash_of(head - 3), [])
+    first = collect(rig)
+    assert first["continuity_mismatches"] == 0
+    # run 2: the next block names head-2 as its parent but carries a different previous blockhash
+    rig.sol.head_slot = head
+    wrong = make_block(head, hash_of(head), key(0xEE), [])
+    wrong["parentSlot"] = head - 2
+    rig.sol.blocks[head] = wrong
+    second = collect(rig)
+    assert second["continuity_mismatches"] == 1  # the previous run's blockhash was remembered
+    rig.repo.set_meta(CURSOR_KEY, str(head - 100_000))
+    for _ in range(2):
+        collect(rig)
+    jumps = [g for g in json.loads(rig.repo.get_meta(GAPS_KEY) or "[]") if "lag" in g["reason"]]
+    assert len(jumps) == 1  # the second run did not record the same jump again
+
+
+def test_discoveries_are_kept_when_the_transaction_cap_is_hit(tmp_path: Path) -> None:
+    rig = Rig(
+        tmp_path,
+        mode="disabled",
+        settings={"solana_collector": {"blocks_per_run": 5, "max_stored_transactions_per_run": 1}},
+    )
+    try:
+        populate(rig)  # five discoveries and a large transfer in four blocks
+        m = collect(rig)
+        assert m["stored_transactions_over_cap"] >= 1
+        assert count(rig, "SELECT COUNT(*) FROM solana_discoveries") == 5  # tiny rows: never capped
+        gaps = json.loads(rig.repo.get_meta(GAPS_KEY) or "[]")
+        assert any("large SOL transfer" in g["reason"] for g in gaps)
+    finally:
+        rig.dispose()
+
+
+def test_a_transaction_without_meta_is_not_assumed_to_have_succeeded(rig: Rig) -> None:
+    head = rig.sol.head_slot
+    tx = mint_tx(1, MINT)
+    del tx["meta"]
+    rig.sol.blocks[head - 1] = make_block(head - 1, hash_of(head - 1), hash_of(head - 2), [tx])
+    m = collect(rig)
+    assert m["unknown_status_transactions"] == 1
+    assert count(rig, "SELECT COUNT(*) FROM solana_discoveries") == 0
+    assert sp.decode_discoveries(tx) == []
+
+
+def test_huge_instruction_data_and_unrelated_programs_are_not_decoded() -> None:
+    long_data = "1" * 5000  # would be a slow base58 decode if it were attempted
+    keys = [PAYER, sp.TOKEN_PROGRAM, key(0xCC)]
+    tx = block_tx(sig(9), keys, [{"programIdIndex": 1, "accounts": [0], "data": long_data}])
+    assert sp.instructions(tx) == []  # over the length cap
+    other = block_tx(
+        sig(10), keys, [{"programIdIndex": 2, "accounts": [0], "data": "3Bxs4h24hBtQy9rw"}]
+    )
+    assert sp.instructions(other) == []  # unrelated program: its data is never decoded
 
 
 def test_detector_raises_evidence_backed_signals_with_honest_limits(rig: Rig) -> None:

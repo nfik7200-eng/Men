@@ -11,7 +11,7 @@ _Last updated: 2026-11-08 (backend completion pass implemented and tested offlin
 - **Operations**: detailed health and RPC usage, API metrics, verified backups, an in-process scheduler (off by default), retention.
 - **ML**: feature drift monitoring and detector review statistics. Models are still only rules plus a synthetic-trained demo model; no real reviewed labels exist.
 - **API reference** generated from OpenAPI and guarded by a test: `docs/API_REFERENCE.md`.
-- Migrations v7 to v14 (additive; v11 `pool_events`, v12 `token_stats` and `pool_reserves`, v13 `solana_discoveries`, v14 `entity_labels`). ADR-032 to ADR-038 (all Proposed).
+- Migrations v7 to v14 (additive; v11 `pool_events`, v12 `token_stats` and `pool_reserves`, v13 `solana_discoveries`, v14 `entity_labels`, v15 `entity_labels.requested_by`). ADR-032 to ADR-038 (all Proposed).
 
 Earlier in this pass: **Stage 1 ingestion correctness (2026-11-08)**
 - Solana transaction versions legacy, 0 and 1 are requested and parsed. Previously, v1 transactions (live on mainnet since 2026-09-15) produced placeholder rows.

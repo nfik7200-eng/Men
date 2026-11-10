@@ -743,3 +743,13 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Notes.** `GET /auth/status` returns no CSRF token (the UI uses `/auth/me`). A locked account and a wrong password both return 401 `invalid_credentials`. `/auth/password` accepts a new password of any length from 1 to 256 in the schema while user creation requires 12; the dialog enforces 12 locally. Not exercised: a real deployment behind HTTPS.
 
+## 2026-11-10 — Independent review of the collectors and labels, and the fixes
+
+**Review.** A correctness reviewer and a security reviewer (read-only, a different agent type because the review-council agents refuse a checkout whose CLAUDE.md or CI file differs from `origin/main`; the guard was not bypassed) read the new backend and deploy files. Findings were checked against the code before acting.
+
+**Fixed (each with a failing-then-passing test in `tests/collector/test_review_fixes.py`, `test_solana.py`, `test_labels.py`, `test_preflight.py`).** Ethereum: cursor and feeds after an exception, per-block give-up with a persistent gap list, receipt cap no longer half-stores a block, budget arithmetic from the caps (validated), reverted creations (also fixed at the parser), pool kept when its evidence transaction is missing, atomic token counting, oversize blocks skipped and recorded, trusted-factory ranking and restriction, token row cap, redacted messages. Solana: -32004 not treated as skipped, outage never burns attempts, continuity across runs (slot:hash), one gap per lag jump, discoveries outside the transaction cap, missing meta not success, base58 decode only for known programs and short data. Detectors: reserve truncation by pool name, per-row queries in the pool detector. Labels: requester recorded (migration v15), bundle-only citations, unverified evidence not reported as verified, review race, re-proposal after rejection, name normalisation, one model call at a time. Deploy: no env values on a command line, reviewed-commit checkout, `UMask=0077`, restart limits, no `--delete` off-site copy, `/srv` permissions, preflight `--use-environment`, stricter file mode.
+
+**Verification.** `pytest -q` 828 passed; ruff and pyright clean; live re-check of both collectors on the throwaway database (60 and 21 requests): no continuity mismatches, nothing rejected.
+
+**Not changed.** Serving the API on a Unix socket (loopback callers can still set the client address; documented). A second provider to confirm finalized blocks. Moving gaps to a table (the newest 50 and an evicted counter are kept).
+

@@ -7,6 +7,9 @@ from bip.chains.common import ParseError, SourceInfo, arr, integer, obj, text, u
 from bip.chains.solana.parse import Commitment, SignatureInfo, parse_signatures
 from bip.rpc.jsonrpc import RpcError
 
+SLOT_SKIPPED = -32007
+"""JSON-RPC code for "slot was skipped, or missing due to ledger jump"."""
+
 
 class SolanaAdapter(ChainAdapter):
     chain = "solana"
@@ -86,9 +89,9 @@ class SolanaAdapter(ChainAdapter):
                 ],
             )
         except RpcError as exc:
-            if exc.error_class == "not_available":
-                return None
-            raise
+            if exc.code == SLOT_SKIPPED:
+                return None  # definitive: the slot produced no block
+            raise  # -32004 (not yet available) and -32009 (missing) may be transient: retry
         if result is None:
             return None
         b = obj(result, "getBlock")

@@ -243,3 +243,102 @@ def test_roles_and_a_separate_reviewer_when_authentication_is_required(tmp_path:
             assert ok.json()["reviewed_by"] == "bob"
     finally:
         rig.dispose()
+
+
+def test_the_person_who_asked_the_model_cannot_approve_its_proposal(rig: Rig) -> None:
+    signal_id = seed_signal(rig)
+    svc = EntityLabelService(rig.repo, separate_reviewer=True)
+    reply: dict[str, Any] = {
+        "suggestions": [
+            {
+                "category": "protocol",
+                "name": "Asked For",
+                "evidence": [{"kind": "signal", "ref": str(signal_id)}],
+            }
+        ]
+    }
+    out = svc.suggest(FakeLLM(reply), chain=ETH, ref=CONTRACT, entity_kind="contract", actor="ana")
+    label = out["created"][0]
+    assert label["requested_by"] == "ana"
+    with pytest.raises(InvalidRecordError, match="asked the model"):
+        svc.review(
+            label["id"],
+            decision="approve",
+            reviewer="ana",
+            note="approving my own request",
+            evidence=[URL],
+        )
+    done = svc.review(
+        label["id"],
+        decision="approve",
+        reviewer="bob",
+        note="checked by a second person",
+        evidence=[URL],
+    )
+    assert done["status"] == "approved"
+
+
+def test_a_model_may_only_cite_signals_it_was_shown_and_must_name_things_as_text(rig: Rig) -> None:
+    signal_id = seed_signal(rig)
+    svc = EntityLabelService(rig.repo)
+    reply: dict[str, Any] = {
+        "suggestions": [
+            {
+                "category": "protocol",
+                "name": "Unseen",
+                "evidence": [{"kind": "signal", "ref": "999999"}],
+            },
+            {
+                "category": "protocol",
+                "name": None,
+                "evidence": [{"kind": "signal", "ref": str(signal_id)}],
+            },
+            {
+                "category": "protocol",
+                "name": "Shown",
+                "evidence": [{"kind": "signal", "ref": str(signal_id)}],
+            },
+        ]
+    }
+    out = svc.suggest(FakeLLM(reply), chain=ETH, ref=CONTRACT, entity_kind="contract", actor="ana")
+    assert [x["name"] for x in out["created"]] == ["Shown"]
+    assert len(out["dropped"]) == 2
+
+
+def test_evidence_that_was_not_checked_is_not_reported_as_verified(rig: Rig) -> None:
+    with TestClient(rig.app) as c:
+        made = propose(c, evidence=[URL, {"kind": "note", "ref": "free text"}]).json()
+    assert [e["verified_stored"] for e in made["evidence"]] == [None, None]
+
+
+def test_a_rejected_label_can_be_proposed_again_and_odd_input_is_a_clean_error(rig: Rig) -> None:
+    with TestClient(rig.app) as c:
+        first = propose(c).json()
+        c.post(
+            f"{API}/entities/labels/{first['id']}/review",
+            json={"decision": "reject", "note": "no evidence was given"},
+        )
+        again = propose(c, evidence=[URL])
+        assert again.status_code == 201
+        assert again.json()["id"] == first["id"]
+        assert again.json()["status"] == "proposed"
+        assert again.json()["reviewed_by"] is None
+        bad_ref = propose(c, evidence=[{"kind": "signal", "ref": "²"}])
+        assert bad_ref.status_code == 422  # not a 500
+        hidden = propose(c, name="Exam​ple")  # zero-width space
+        assert hidden.status_code == 422
+
+
+def test_only_one_label_suggestion_runs_at_a_time(rig: Rig) -> None:
+    svc = EntityLabelService(rig.repo, ai_concurrency=1)
+
+    class Blocking(FakeLLM):
+        def generate(self, system: str, user: str, *, timeout_s: float, max_bytes: int) -> str:
+            with pytest.raises(DuplicateRecordError, match="already running"):
+                svc.suggest(
+                    FakeLLM({}), chain=ETH, ref=CONTRACT, entity_kind="contract", actor="bob"
+                )
+            return json.dumps({"suggestions": []})
+
+    out = svc.suggest(Blocking({}), chain=ETH, ref=CONTRACT, entity_kind="contract", actor="ana")
+    assert out["created"] == []

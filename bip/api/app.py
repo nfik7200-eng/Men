@@ -167,7 +167,11 @@ def create_app(
             relationships=RelationshipService(repo, cfg),
             collector=ChainCollector(router, repo, cfg),
             solana_collector=SolanaCollector(router, repo, cfg),
-            entity_labels=EntityLabelService(repo, separate_reviewer=cfg.auth.mode == "required"),
+            entity_labels=EntityLabelService(
+                repo,
+                separate_reviewer=cfg.auth.mode == "required",
+                ai_concurrency=cfg.ai.max_concurrent,
+            ),
             cases=CaseService(repo),
             scheduler=None,
         )

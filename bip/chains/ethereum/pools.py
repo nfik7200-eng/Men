@@ -23,6 +23,35 @@ SYNC_TOPIC = "0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1
 
 _WORD = 64  # hex characters per 32-byte word
 
+VERIFIED_AT = "2026-11-10"
+
+
+@dataclass(frozen=True, slots=True)
+class KnownFactory:
+    address: str
+    name: str
+    source_url: str
+    verified_at: str = VERIFIED_AT
+
+
+KNOWN_FACTORIES: tuple[KnownFactory, ...] = (
+    KnownFactory(
+        "0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f",
+        "Uniswap v2 factory",
+        "https://docs.uniswap.org/contracts/v2/reference/smart-contracts/v2-deployments",
+    ),
+    KnownFactory(
+        "0x1f98431c8ad98523631ae4a59f267346ea31f984",
+        "Uniswap v3 factory",
+        "https://raw.githubusercontent.com/Uniswap/v3-periphery/main/deploys.md",
+    ),
+)
+"""Factories whose address came from the protocol's own documentation. Any contract can emit the
+creation events, so only pools from a trusted factory feed token transfers and reserves; other
+factories can be added with ``collector.extra_factories`` after the operator verifies them."""
+
+KNOWN_FACTORY_ADDRESSES = frozenset(f.address for f in KNOWN_FACTORIES)
+
 
 @dataclass(frozen=True, slots=True)
 class PoolCreated:

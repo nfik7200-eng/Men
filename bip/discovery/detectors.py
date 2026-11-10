@@ -507,22 +507,24 @@ def new_liquidity_pool(ctx: Context) -> DetectorOutput:
         ).all()
         truncated = len(rows) > cap
         rows = rows[:cap]
+        # Earliest stored pool per token, in a few chunked queries (not two queries per row): a
+        # token is "unseen" for a pool when that pool is the first stored one to involve it.
+        first: dict[str, tuple[int, int]] = {}
+        tokens = sorted({str(t) for r in rows for t in (r.token0, r.token1)})
+        for i in range(0, len(tokens), 400):
+            chunk = tokens[i : i + 400]
+            for col in (pe.c.token0, pe.c.token1):
+                for tok, blk, log_ix in conn.execute(
+                    select(col, pe.c.block_number, pe.c.log_index).where(
+                        pe.c.chain == ctx.chain, col.in_(chunk)
+                    )
+                ):
+                    key = (int(blk), int(log_ix))
+                    first[str(tok)] = min(first.get(str(tok), key), key)
         out: list[RawCandidate] = []
         for r in rows:
-            pair = [r.token0, r.token1]
-            earlier_tokens: set[str] = set()
-            for col in (pe.c.token0, pe.c.token1):
-                earlier_tokens.update(
-                    str(x)
-                    for x in conn.execute(
-                        select(col).where(
-                            pe.c.chain == ctx.chain,
-                            pe.c.block_time < r.block_time,
-                            col.in_(pair),
-                        )
-                    ).scalars()
-                )
-            unseen = [t for t in (r.token0, r.token1) if t not in earlier_tokens]
+            here = (int(r.block_number), int(r.log_index))
+            unseen = [t for t in (r.token0, r.token1) if first.get(str(t), here) == here]
             out.append(
                 RawCandidate(
                     detector_id="new_liquidity_pool",
@@ -666,9 +668,24 @@ def pool_reserve_change(ctx: Context) -> DetectorOutput:
     since = ctx.now - timedelta(days=ctx.cfg.baseline_days)
     cap = ctx.cfg.max_rows_scanned
     with ctx.repo.transaction() as conn:
+        # Pools with a recent update first, then their series: truncating the whole table by pool
+        # name would leave every pool late in the alphabet permanently unevaluated.
+        recent_pools = [
+            str(x)
+            for x in conn.execute(
+                select(pr.c.pool)
+                .where(pr.c.chain == ctx.chain, pr.c.block_time >= recent_start)
+                .distinct()
+                .limit(500)
+            ).scalars()
+        ]
         rows = conn.execute(
             select(pr)
-            .where(pr.c.chain == ctx.chain, pr.c.block_time >= since)
+            .where(
+                pr.c.chain == ctx.chain,
+                pr.c.pool.in_(recent_pools),
+                pr.c.block_time >= since,
+            )
             .order_by(pr.c.pool, pr.c.block_number, pr.c.log_index)
             .limit(cap + 1)
         ).all()

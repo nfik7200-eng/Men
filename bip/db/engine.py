@@ -169,6 +169,13 @@ def _entity_labels(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _label_requester(conn: Connection) -> None:
+    """v15: who asked for an AI-proposed label (so they cannot also approve it). Additive."""
+    existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(entity_labels)")}
+    if existing and "requested_by" not in existing:
+        conn.exec_driver_sql("ALTER TABLE entity_labels ADD COLUMN requested_by VARCHAR(80)")
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -186,6 +193,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(12, "token statistics and pool reserves", _tokens_and_reserves),
     Migration(13, "Solana discoveries", _solana_discoveries),
     Migration(14, "reviewed entity labels", _entity_labels),
+    Migration(15, "label requester", _label_requester),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

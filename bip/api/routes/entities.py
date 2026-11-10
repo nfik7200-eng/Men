@@ -214,6 +214,7 @@ def suggest_labels(request: Request, ctx: WritableContext, body: LabelSuggest) -
         entity_kind=body.entity_kind,
         actor=_author(request),
         timeout_s=ctx.settings.ai.request_timeout_s,
+        max_bytes=ctx.settings.ai.max_model_output_bytes,
     )
 
 

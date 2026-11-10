@@ -51,12 +51,15 @@ from bip.router.router import (
 )
 from bip.rpc.jsonrpc import RpcError
 from bip.rpc.transport import TransportError
+from bip.security.secrets import redact_text
 
 log = get_logger("bip.solana_collector")
 
 CURSOR_KEY = "collector:solana:last_slot"
 HASH_KEY = "collector:solana:last_blockhash"
+"""Stored as ``<slot>:<blockhash>`` so continuity can be checked across runs."""
 GAPS_KEY = "collector:solana:gaps"
+GAPS_EVICTED_KEY = "collector:solana:gaps_evicted"
 ATTEMPTS_KEY = "collector:solana:attempts"
 LAST_RUN_KEY = "collector:solana:last_run"
 COLLECTOR_VERSION = "1"
@@ -69,6 +72,19 @@ NOT_COVERED = (
     "program upgrades and any slot before the cursor",
     "ordinary transactions (counted, not stored)",
 )
+
+
+def _deterministic(exc: BaseException) -> bool:
+    """Would the same request fail again for the same reason? Only then does it count as an
+    attempt against a slot; an outage or a rate limit must not make BIP give a slot up."""
+    if isinstance(exc, ParseError):
+        return True
+    if isinstance(exc, RpcError):
+        return exc.error_class in {"not_available", "invalid_request", "malformed"}
+    if isinstance(exc, RoutingFailedError):
+        text = str(exc)
+        return "too_large" in text and "timeout" not in text and "connection" not in text
+    return False
 
 
 class SolanaCollector:
@@ -87,6 +103,7 @@ class SolanaCollector:
             "last_slot_scanned": int(cursor) if cursor else None,
             "last_run": json.loads(raw) if raw else None,
             "coverage_gaps": json.loads(gaps) if gaps else [],
+            "coverage_gaps_evicted": int(self._repo.get_meta(GAPS_EVICTED_KEY) or 0),
             "limits": {
                 "blocks_per_run": self._cfg.blocks_per_run,
                 "max_lag_slots": self._cfg.max_lag_slots,
@@ -113,7 +130,8 @@ class SolanaCollector:
             "status": "succeeded",
             "started_at": utcnow().isoformat(),
             "slots_scanned": 0,
-            "slots_skipped_or_unavailable": 0,
+            "slots_skipped": 0,
+            "unknown_status_transactions": 0,
             "slots_given_up": 0,
             "transactions_seen": 0,
             "failed_transactions": 0,
@@ -139,18 +157,24 @@ class SolanaCollector:
             m["finalized_head"] = head
             raw_cursor = self._repo.get_meta(CURSOR_KEY)
             fresh = max(0, head - cfg.blocks_per_run + 1)
-            prev_hash: str | None = None
+            prev: tuple[int, str] | None = None
             if raw_cursor is None:
                 start = fresh
             elif head - int(raw_cursor) > cfg.max_lag_slots:
-                start = fresh
+                start = max(fresh, int(raw_cursor) + 1)
                 self._record_gap(int(raw_cursor) + 1, start - 1, "lag exceeded max_lag_slots", m)
+                # Moving the cursor now keeps a repeated failure from recording the same gap
+                # again, and the old blockhash no longer links to the first slot we read.
+                self._repo.set_meta(CURSOR_KEY, str(start - 1))
+                self._repo.set_meta(HASH_KEY, "")
             else:
                 start = int(raw_cursor) + 1
-                prev_hash = self._repo.get_meta(HASH_KEY)
+                stored_hash = self._repo.get_meta(HASH_KEY) or ""
+                head_slot, _, h = stored_hash.partition(":")
+                prev = (int(head_slot), h) if head_slot.isdecimal() and h else None
             end = min(head, start + cfg.blocks_per_run - 1)
-            m["lag_slots"] = head - end
             if start > end:
+                m["lag_slots"] = head - int(raw_cursor or end)
                 m["message"] = "Up to date with the finalized head."
                 return self._finish(m, adapter)
             attempts: dict[str, int] = json.loads(self._repo.get_meta(ATTEMPTS_KEY) or "{}")
@@ -158,6 +182,11 @@ class SolanaCollector:
                 try:
                     pair = adapter.block_full(slot)
                 except (RoutingFailedError, RpcError, TransportError, ParseError) as exc:
+                    if not _deterministic(exc):
+                        # A provider outage must never burn the slot's attempts: stop and retry.
+                        m["status"] = "partial"
+                        m["message"] = redact_text(f"{type(exc).__name__}: {exc}")[:300]
+                        break
                     n = attempts.get(str(slot), 0) + 1
                     attempts[str(slot)] = n
                     self._repo.set_meta(ATTEMPTS_KEY, json.dumps(attempts))
@@ -171,24 +200,25 @@ class SolanaCollector:
                     self._record_gap(slot, slot, f"given up after {n} failed reads", m)
                     m["slots_given_up"] += 1
                     attempts.pop(str(slot), None)
+                    self._repo.set_meta(ATTEMPTS_KEY, json.dumps(attempts))
                     self._advance(slot, None)
                     continue
                 attempts.pop(str(slot), None)
                 if pair is None:
-                    m["slots_skipped_or_unavailable"] += 1
+                    m["slots_skipped"] += 1  # the node said the slot was skipped (-32007)
                     self._advance(slot, None)
                     continue
                 block, src = pair
                 blockhash = str(block["blockhash"])
                 if (
-                    prev_hash is not None
-                    and block.get("parentSlot") == m["last_slot"]
-                    and block.get("previousBlockhash") != prev_hash
+                    prev is not None
+                    and block.get("parentSlot") == prev[0]
+                    and block.get("previousBlockhash") != prev[1]
                 ):
                     m["continuity_mismatches"] += 1
                 stored_txs += self._scan_block(slot, block, src, stored_txs, m)
-                prev_hash = blockhash
-                self._advance(slot, blockhash)
+                prev = (slot, blockhash)
+                self._advance(slot, f"{slot}:{blockhash}")
                 m["slots_scanned"] += 1
                 m["first_slot"] = m["first_slot"] if m["first_slot"] is not None else slot
                 m["last_slot"] = slot
@@ -197,10 +227,10 @@ class SolanaCollector:
             m["message"] = f"Stopped early: {exc}. The cursor keeps the last finished slot."
         except NoEligibleProviderError as exc:
             m["status"] = "blocked"
-            m["message"] = f"No eligible provider: {exc}"
+            m["message"] = redact_text(f"No eligible provider: {exc}")[:300]
         except (RoutingFailedError, RpcError, TransportError, ParseError) as exc:
             m["status"] = "partial" if m["slots_scanned"] else "failed"
-            m["message"] = f"{type(exc).__name__}: {exc}"
+            m["message"] = redact_text(f"{type(exc).__name__}: {exc}")[:300]
         except Exception as exc:  # the manifest must always be written
             log.exception("solana collector run failed unexpectedly")
             m["status"] = "failed"
@@ -208,7 +238,7 @@ class SolanaCollector:
         if not m["message"]:
             m["message"] = (
                 f"Scanned {m['slots_scanned']} finalized slot(s) "
-                f"({m['slots_skipped_or_unavailable']} skipped or unavailable): "
+                f"({m['slots_skipped']} skipped): "
                 f"{m['mints_found']} mint(s), {m['programs_found']} program(s), "
                 f"{m['pools_found']} pool(s), {m['large_transfers_stored']} large transfer(s)."
             )
@@ -216,6 +246,9 @@ class SolanaCollector:
 
     def _finish(self, m: dict[str, Any], adapter: SolanaAdapter) -> dict[str, Any]:
         m["rpc_calls"] = adapter.calls
+        raw_cursor = self._repo.get_meta(CURSOR_KEY)
+        if m["finalized_head"] is not None and raw_cursor is not None:
+            m["lag_slots"] = max(0, m["finalized_head"] - int(raw_cursor))
         m["providers"] = sorted(adapter.providers_used)
         m["finished_at"] = utcnow().isoformat()
         self._repo.set_meta(LAST_RUN_KEY, json.dumps(m))
@@ -233,6 +266,9 @@ class SolanaCollector:
         gaps.append(
             {"from_slot": first, "to_slot": last, "reason": reason, "at": utcnow().isoformat()}
         )
+        if len(gaps) > MAX_GAPS_KEPT:
+            evicted = int(self._repo.get_meta(GAPS_EVICTED_KEY) or 0) + len(gaps) - MAX_GAPS_KEPT
+            self._repo.set_meta(GAPS_EVICTED_KEY, str(evicted))
         self._repo.set_meta(GAPS_KEY, json.dumps(gaps[-MAX_GAPS_KEPT:]))
         m["gap_recorded"] = {"from_slot": first, "to_slot": last, "reason": reason}
 
@@ -241,20 +277,29 @@ class SolanaCollector:
     def _scan_block(
         self, slot: int, block: dict[str, object], src: Any, stored_so_far: int, m: dict[str, Any]
     ) -> int:
-        """Handle one block's transactions; return how many were stored."""
+        """Handle one block's transactions; return how many transactions were stored.
+
+        Discovery rows (a mint, program or pool) are tiny and are always stored. The per-run cap
+        applies to storing whole transactions and large transfers; what it drops is recorded.
+        """
         cfg = self._cfg
         txs: list[Any] = list(block["transactions"])  # type: ignore[call-overload]
         block_time = block.get("blockTime")
         blockhash = str(block["blockhash"])
         min_lamports = cfg.min_sol_transfer * LAMPORTS_PER_SOL
         stored = 0
+        dropped = 0
         for tx in txs:
             m["transactions_seen"] += 1
             if not isinstance(tx, dict):
                 m["rejected"] += 1
                 continue
             entry: dict[str, Any] = tx  # pyright: ignore[reportUnknownVariableType]
-            if (as_dict(entry.get("meta")) or {}).get("err") is not None:
+            meta = as_dict(entry.get("meta"))
+            if meta is None:
+                m["unknown_status_transactions"] += 1  # never assume success without a status
+                continue
+            if meta.get("err") is not None:
                 m["failed_transactions"] += 1
                 continue
             found = decode_discoveries(entry)
@@ -267,9 +312,6 @@ class SolanaCollector:
                         d.kind
                     ]
                 ] += 1
-            if stored_so_far + stored >= cfg.max_stored_transactions_per_run:
-                m["stored_transactions_over_cap"] += 1  # disclosed gap: not retried
-                continue
             wrapped = {
                 "slot": slot,
                 "blockTime": block_time,
@@ -285,8 +327,18 @@ class SolanaCollector:
             except ParseError:
                 m["rejected"] += 1
                 continue
+            if stored_so_far + stored >= cfg.max_stored_transactions_per_run:
+                m["stored_transactions_over_cap"] += 1
+                if big:
+                    dropped += 1
+                self._store_discoveries(parsed, blockhash, found, m)  # tiny: never capped
+                continue
             self._store(parsed, blockhash, found, m)
             stored += 1
+        if dropped:
+            self._record_gap(
+                slot, slot, f"{dropped} large SOL transfer(s) not stored (per-run cap)", m
+            )
         return stored
 
     @staticmethod
@@ -325,6 +377,12 @@ class SolanaCollector:
                 )
             ):
                 m["large_transfers_stored"] += 1
+        self._store_discoveries(parsed, blockhash, found, m)
+
+    def _store_discoveries(
+        self, parsed: sol.ParsedSolanaTx, blockhash: str, found: list[Any], m: dict[str, Any]
+    ) -> None:
+        tx = parsed.tx
         sd = schema.solana_discoveries
         for d in found:
             with self._repo.transaction() as conn:

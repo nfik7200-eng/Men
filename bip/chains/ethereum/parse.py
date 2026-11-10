@@ -180,7 +180,11 @@ def parse_transaction(
             code = quantity(st, "receipt.status")
             status = TxStatus.SUCCESS if code == 1 else TxStatus.FAILED
         gas_used = opt_quantity(r.get("gasUsed"), "receipt.gasUsed")
-        if to_raw is None and r.get("contractAddress") is not None:
+        if (
+            to_raw is None
+            and r.get("contractAddress") is not None
+            and status is not TxStatus.FAILED  # clients fill contractAddress on reverted creations
+        ):
             created = address(r.get("contractAddress"), "receipt.contractAddress")
     try:
         tx = EvmTransaction(

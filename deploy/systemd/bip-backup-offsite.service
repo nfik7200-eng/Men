@@ -3,10 +3,14 @@
 # them somewhere else so losing the disk does not lose the data. Nothing is uploaded by BIP itself.
 [Unit]
 Description=Copy BIP backups off this disk
+# Never write into an unmounted directory on the (nearly full) root disk.
+RequiresMountsFor=/mnt/offsite
 
 [Service]
 Type=oneshot
 User=bip
 Group=bip
 # Replace with your destination (another volume, or an SSH target you control).
-ExecStart=/usr/bin/rsync -a --delete-after /var/lib/bip/operational/backups/ /mnt/offsite/bip-backups/
+# No --delete: a compromised service account that deletes local backups must not be able to wipe
+# the off-site copy. Prune the destination by age on the destination side instead.
+ExecStart=/usr/bin/rsync -a /var/lib/bip/operational/backups/ /mnt/offsite/bip-backups/

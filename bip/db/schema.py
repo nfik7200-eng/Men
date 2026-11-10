@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 metadata = MetaData(
     naming_convention={
@@ -1354,6 +1354,7 @@ entity_labels = Table(
     Column("status", String(10), nullable=False),
     Column("source", String(10), nullable=False),
     Column("proposed_by", String(80), nullable=False),
+    Column("requested_by", String(80), nullable=True),
     Column("evidence_json", Text, nullable=False),
     Column("note", String(500), nullable=True),
     Column("reviewed_by", String(80), nullable=True),

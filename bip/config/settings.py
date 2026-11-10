@@ -13,6 +13,7 @@ with :func:`bip.security.secrets.read_secret`.
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -258,6 +259,49 @@ class CollectorSettings(BaseModel):
     max_reserve_updates_per_run: Annotated[int, Field(ge=0, le=2000)] = 500
     max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=150)] = 150
     run_deadline_s: Annotated[float, Field(gt=0, le=90)] = 90.0
+    extra_factories: Annotated[tuple[str, ...], NoDecode] = ()
+    """Extra pool factories (``0x`` addresses, comma-separated in the environment) the operator
+    has verified. Pools from a factory that is neither built in nor listed here are recorded but
+    never feed token transfers or reserve watching."""
+    max_tracked_tokens: Annotated[int, Field(ge=1000, le=5_000_000)] = 500_000
+    """Rows in ``token_stats``; new tokens beyond this are counted as a gap, not tracked."""
+    max_block_attempts: Annotated[int, Field(ge=1, le=10)] = 3
+    """Failed reads of one block (a malformed or oversize response, a hard provider error) before
+    it is given up as a recorded gap, so one bad block cannot stall the cursor forever."""
+
+    @field_validator("extra_factories", mode="before")
+    @classmethod
+    def _split_factories(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return tuple(x.strip() for x in value.split(",") if x.strip())
+        return value
+
+    @field_validator("extra_factories")
+    @classmethod
+    def _factory_format(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for v in value:
+            if not re.fullmatch(r"0x[0-9a-fA-F]{40}", v):
+                raise ValueError("each extra factory must be a 0x-prefixed 20-byte address")
+        return tuple(v.lower() for v in value)
+
+    @property
+    def feed_call_reserve(self) -> int:
+        """Requests kept back for the event feeds: address-less logs may cost one request per
+        block for each of the two feeds, plus one reserves call and two per evidence transaction
+        (transaction and receipt)."""
+        return (
+            2 * self.blocks_per_run + 1 + 2 * (self.max_pools_per_run + self.max_new_tokens_per_run)
+        )
+
+    @model_validator(mode="after")
+    def _budget_fits(self) -> Self:
+        need = self.blocks_per_run + 1 + self.max_receipts_per_run + self.feed_call_reserve
+        if need > self.max_rpc_calls_per_run:
+            raise ValueError(
+                f"blocks_per_run + max_receipts_per_run + the feed reserve ({need}) exceeds "
+                f"max_rpc_calls_per_run ({self.max_rpc_calls_per_run}); lower a cap"
+            )
+        return self
 
 
 class SolanaCollectorSettings(BaseModel):

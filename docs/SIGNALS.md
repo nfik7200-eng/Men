@@ -123,3 +123,18 @@ model cited does not count alone. With authentication required the proposer cann
 reviewer. Transaction and signal evidence must exist in BIP's database. An empty `labels` object
 means "unattributed", not "not an exchange". No labels ship with BIP and none are inferred.
 
+## What the collectors record when they cannot store something
+
+Every place a collector drops data it knows about is counted in the run manifest **and** written
+to a persistent gap list (`GET /discovery/collector` and `/discovery/collector/solana`,
+`coverage_gaps`; the newest 50 are kept and `coverage_gaps_evicted` counts the rest): qualifying
+transactions beyond the receipt cap or call budget, pool events, token transfers and reserve
+updates beyond their caps, a block whose logs exceed the provider's response limit even alone, a
+block given up after `max_block_attempts` failed reads, tokens beyond `max_tracked_tokens`, Solana
+slots given up or jumped over because the cursor fell too far behind, and large SOL transfers over
+the per-run cap. The cursor never moves past a block that is still being retried; a provider
+outage never counts as a failed attempt. Pool-creation events can be emitted by any contract, so
+only pools from a factory with a documented address (Uniswap v2/v3, each with its source) or one
+the operator added with `collector.extra_factories` feed token transfers and reserve watching;
+other pools are stored as observations and labelled as such.
+

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime
 from typing import Any, cast
@@ -54,20 +56,17 @@ AI_SYSTEM_PROMPT = (
 )
 
 
-def _cited(suggestion: dict[str, Any]) -> list[dict[str, Any]]:
-    """The stored-evidence references a model suggestion cites (signals and transactions only)."""
+def _cited(suggestion: dict[str, Any], allowed_signals: set[str]) -> list[dict[str, Any]]:
+    """The evidence a model suggestion cites. Only signals that were in the bundle it was given
+    count: a model may not cite stored items it was never shown."""
     raw = suggestion.get("evidence", [])
     out: list[dict[str, Any]] = []
     for item in cast("list[Any]", raw) if isinstance(raw, list) else []:
         if isinstance(item, dict):
             d = cast("dict[str, Any]", item)
-            if d.get("kind") in ("signal", "transaction"):
+            if d.get("kind") == "signal" and str(d.get("ref")) in allowed_signals:
                 out.append(
-                    {
-                        "kind": d["kind"],
-                        "ref": str(d.get("ref")),
-                        "description": "cited by the model",
-                    }
+                    {"kind": "signal", "ref": str(d["ref"]), "description": "cited by the model"}
                 )
     return out
 
@@ -91,6 +90,7 @@ def _row(r: Any) -> dict[str, Any]:
         "status": r["status"],
         "source": r["source"],
         "proposed_by": r["proposed_by"],
+        "requested_by": r["requested_by"],
         "evidence": json.loads(r["evidence_json"]),
         "note": r["note"],
         "reviewed_by": r["reviewed_by"],
@@ -133,10 +133,12 @@ class EntityLabelService:
         *,
         clock: Callable[[], datetime] = utcnow,
         separate_reviewer: bool = False,
+        ai_concurrency: int = 2,
     ) -> None:
         self._repo = repo
         self._clock = clock
         self._separate = separate_reviewer
+        self._ai_slots = threading.BoundedSemaphore(max(1, ai_concurrency))
 
     # ------------------------------------------------------------------ validation
 
@@ -162,7 +164,10 @@ class EntityLabelService:
                     "ref": ref,
                     "description": str(raw.get("description") or "")[:300],
                     "added_by": actor,
-                    "verified_stored": self._stored(chain, kind, ref),
+                    # None: nothing was checked (a url is never fetched; a note is free text)
+                    "verified_stored": self._stored(chain, kind, ref)
+                    if kind in ("transaction", "signal")
+                    else None,
                 }
             )
         for item in out:
@@ -183,7 +188,8 @@ class EntityLabelService:
             if kind == "signal":
                 s = schema.signals
                 return (
-                    ref.isdigit()
+                    ref.isascii()
+                    and ref.isdecimal()
                     and conn.execute(
                         select(s.c.id).where(s.c.id == int(ref), s.c.chain == chain)
                     ).first()
@@ -205,45 +211,69 @@ class EntityLabelService:
         actor: str,
         source: str = "analyst",
         note: str | None = None,
+        requested_by: str | None = None,
     ) -> dict[str, Any]:
         if entity_kind not in ENTITY_KINDS:
             raise InvalidRecordError(f"entity_kind must be one of {', '.join(ENTITY_KINDS)}")
         if category not in CATEGORIES:
             raise InvalidRecordError(f"category must be one of {', '.join(CATEGORIES)}")
-        name = name.strip()
+        name = unicodedata.normalize("NFKC", name).strip()
         if not 1 <= len(name) <= 80:
             raise InvalidRecordError("name needs 1 to 80 characters")
+        if any(unicodedata.category(c).startswith("C") for c in name):
+            raise InvalidRecordError("name must not contain control or invisible characters")
         address = canonical_address(chain, ref)
         items = self._evidence(address.chain, evidence, actor)
         t = schema.entity_labels
         with self._repo.transaction() as conn:
             existing = conn.execute(
-                select(t.c.id).where(
+                select(t.c.id, t.c.status).where(
                     t.c.chain == address.chain,
                     t.c.ref == address.address,
                     t.c.category == category,
                     t.c.name == name,
                 )
             ).first()
-            if existing is not None:
-                raise DuplicateRecordError("this label has already been proposed")
-            pk = conn.execute(
-                insert(t).values(
-                    chain=address.chain,
-                    ref=address.address,
-                    entity_kind=entity_kind,
-                    category=category,
-                    name=name,
-                    status="proposed",
-                    source=source,
-                    proposed_by=actor,
-                    evidence_json=json.dumps(items),
-                    note=(note or None) and note[:500],
-                    created_at=self._clock(),
+            if existing is not None and existing.status != "rejected":
+                raise DuplicateRecordError(f"this label is already {existing.status}")
+            if existing is not None:  # a rejected label may be proposed again with new evidence
+                conn.execute(
+                    update(t)
+                    .where(t.c.id == existing.id)
+                    .values(
+                        status="proposed",
+                        source=source,
+                        proposed_by=actor,
+                        requested_by=requested_by,
+                        evidence_json=json.dumps(items),
+                        note=(note or None) and note[:500],
+                        reviewed_by=None,
+                        review_note=None,
+                        reviewed_at=None,
+                        created_at=self._clock(),
+                    )
                 )
-            ).inserted_primary_key
-            assert pk is not None  # noqa: S101
-        return self.get(int(pk[0]))
+                label_id = int(existing.id)
+            else:
+                pk = conn.execute(
+                    insert(t).values(
+                        chain=address.chain,
+                        ref=address.address,
+                        entity_kind=entity_kind,
+                        category=category,
+                        name=name,
+                        status="proposed",
+                        source=source,
+                        proposed_by=actor,
+                        requested_by=requested_by,
+                        evidence_json=json.dumps(items),
+                        note=(note or None) and note[:500],
+                        created_at=self._clock(),
+                    )
+                ).inserted_primary_key
+                assert pk is not None  # noqa: S101
+                label_id = int(pk[0])
+        return self.get(label_id)
 
     def review(
         self,
@@ -268,8 +298,10 @@ class EntityLabelService:
         items: list[dict[str, Any]] = list(label["evidence"])
         items += self._evidence(label["chain"], evidence, reviewer)
         if decision == "approve":
-            if self._separate and reviewer == label["proposed_by"]:
-                raise InvalidRecordError("the proposer cannot approve their own label")
+            if self._separate and reviewer in (label["proposed_by"], label["requested_by"]):
+                raise InvalidRecordError(
+                    "the proposer, or the person who asked the model for it, cannot approve it"
+                )
             if not any(
                 e["kind"] in HUMAN_EVIDENCE and _is_human(str(e["added_by"])) for e in items
             ):
@@ -279,9 +311,9 @@ class EntityLabelService:
                 )
         t = schema.entity_labels
         with self._repo.transaction() as conn:
-            conn.execute(
+            changed = conn.execute(
                 update(t)
-                .where(t.c.id == label_id)
+                .where(t.c.id == label_id, t.c.status == "proposed")
                 .values(
                     status="approved" if decision == "approve" else "rejected",
                     reviewed_by=reviewer,
@@ -290,6 +322,8 @@ class EntityLabelService:
                     evidence_json=json.dumps(items),
                 )
             )
+            if changed.rowcount != 1:  # another review decided it between our read and update
+                raise DuplicateRecordError(f"label {label_id} was already decided")
         return self.get(label_id)
 
     # ------------------------------------------------------------------ reads
@@ -358,6 +392,35 @@ class EntityLabelService:
         entity_kind: str,
         actor: str,
         timeout_s: float = 30.0,
+        max_bytes: int = 16_384,
+    ) -> dict[str, Any]:
+        """One suggestion at a time per ``ai.max_concurrent``: the model is a shared local resource
+        and a request thread waits on it, so a burst must not exhaust the pool."""
+        if not self._ai_slots.acquire(blocking=False):
+            raise DuplicateRecordError("a label suggestion is already running; try again shortly")
+        try:
+            return self._suggest(
+                provider,
+                chain=chain,
+                ref=ref,
+                entity_kind=entity_kind,
+                actor=actor,
+                timeout_s=timeout_s,
+                max_bytes=max_bytes,
+            )
+        finally:
+            self._ai_slots.release()
+
+    def _suggest(
+        self,
+        provider: Any,
+        *,
+        chain: str,
+        ref: str,
+        entity_kind: str,
+        actor: str,
+        timeout_s: float,
+        max_bytes: int,
     ) -> dict[str, Any]:
         """Ask the configured model to propose labels from stored evidence; keep only grounded ones.
 
@@ -390,7 +453,8 @@ class EntityLabelService:
                 "stored_signals": bundle,
             }
         )
-        raw = provider.generate(AI_SYSTEM_PROMPT, user, timeout_s=timeout_s, max_bytes=65_536)
+        allowed = {str(r["id"]) for r in rows}
+        raw = provider.generate(AI_SYSTEM_PROMPT, user, timeout_s=timeout_s, max_bytes=max_bytes)
         try:
             parsed: Any = json.loads(raw)
             suggestions: list[Any] = (
@@ -411,19 +475,24 @@ class EntityLabelService:
         for item in candidates:
             sug = cast("dict[str, Any]", item) if isinstance(item, dict) else {}
             try:
-                evidence = _cited(sug)
+                evidence = _cited(sug, allowed)
                 if not evidence:
-                    raise InvalidRecordError("no stored evidence cited")
+                    raise InvalidRecordError("no evidence from the bundle cited")
+                name = sug.get("name")
+                category = sug.get("category")
+                if not isinstance(name, str) or not isinstance(category, str):
+                    raise InvalidRecordError("a suggestion needs a text name and category")
                 created.append(
                     self.propose(
                         chain=address.chain,
                         ref=address.address,
                         entity_kind=entity_kind,
-                        category=str(sug.get("category")),
-                        name=str(sug.get("name")),
+                        category=category,
+                        name=name,
                         evidence=evidence,
                         actor=f"ai:{provider.name}",
                         source="ai",
+                        requested_by=actor,
                         note=str(sug.get("rationale") or "")[:500] or None,
                     )
                 )

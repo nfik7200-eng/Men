@@ -20,6 +20,7 @@ from collections.abc import Generator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from unittest import mock
+from urllib.parse import urlsplit
 
 from bip.config.settings import Environment, Settings, load_settings
 from bip.core.exceptions import BIPError
@@ -127,14 +128,16 @@ def run_checks(settings: Settings, *, env_file: Path | None = None) -> list[Chec
                 "PASS" if s.auth.trust_proxy_headers else "WARN",
                 "proxy headers trusted behind a loopback bind"
                 if s.auth.trust_proxy_headers
-                else "BIP_AUTH__TRUST_PROXY_HEADERS is off: behind a proxy every client shares "
-                "the proxy's address in throttling and the audit log",
+                else "BIP_AUTH__TRUST_PROXY_HEADERS is off: BIP then ignores X-Forwarded-For in "
+                "its own throttling and audit log (the HTTP server may still rewrite the peer "
+                "address for loopback callers; see deploy/README.md, known limits)",
             )
         )
     bad_origins = [
         o
         for o in s.api.cors_origins
-        if o == "*" or (o.startswith("http://") and not any(h in o for h in LOOPBACK))
+        if o == "*"
+        or (urlsplit(o).scheme == "http" and (urlsplit(o).hostname or "") not in LOOPBACK)
     ]
     add(
         "cors_origins",
@@ -224,9 +227,10 @@ def run_checks(settings: Settings, *, env_file: Path | None = None) -> list[Chec
         mode = stat.S_IMODE(env_file.stat().st_mode)
         add(
             "env_file_permissions",
-            mode & 0o007 == 0,
-            f"env file is not world-accessible (mode {mode:o})",
-            f"env file mode {mode:o} lets other users read it; chmod 640 and own it by the service",
+            mode & 0o027 == 0,
+            f"env file is not group-writable or world-accessible (mode {mode:o})",
+            f"env file mode {mode:o} is group-writable or world-readable; use 640 or stricter, "
+            "owned by root",
         )
     return out
 
@@ -238,13 +242,20 @@ def _say(message: str, *, error: bool = False) -> None:
 def main(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Check a BIP deployment configuration.")
     ap.add_argument("--env-file", type=Path, help="KEY=VALUE file such as /etc/bip/bip.env")
+    ap.add_argument(
+        "--use-environment",
+        action="store_true",
+        help="judge the process environment only (as systemd passes it); use --env-file just for "
+        "the file-permission check. The service unit uses this so the check and the service "
+        "cannot disagree about what the file says.",
+    )
     args = ap.parse_args(argv)
     values = {
         k: v
         for k, v in (environ if environ is not None else os.environ).items()
         if k.startswith("BIP_")
     }
-    if args.env_file is not None:
+    if args.env_file is not None and not args.use_environment:
         try:
             values.update(parse_env_file(args.env_file.read_text(encoding="utf-8")))
         except OSError:

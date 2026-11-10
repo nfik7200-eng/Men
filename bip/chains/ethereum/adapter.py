@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 from bip.chains.base import ChainAdapter
 from bip.chains.common import ParseError, SourceInfo, arr
@@ -32,6 +32,14 @@ def _length(value: object) -> int:
 
 class EthereumAdapter(ChainAdapter):
     chain = "ethereum"
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.oversize_blocks = []
+
+    oversize_blocks: list[int]
+    """Single blocks whose address-less logs exceeded the response limit and were skipped, for the
+    caller to record as gaps (one block emitting 10,000 matching logs cannot be split further)."""
     single_block_logs = False
     """Set once a provider has refused an address-less ``eth_getLogs`` over several blocks (seen
     live on PublicNode); later address-less queries then go block by block without trying a wider
@@ -147,8 +155,14 @@ class EthereumAdapter(ChainAdapter):
                 logs = arr(result, "eth_getLogs", max_len=MAX_LOGS_PER_RESPONSE)
                 out.extend((lg, src) for lg in logs)
             except RpcError as exc:
-                if exc.error_class != "range_too_large" or b - a + 1 <= min_span:
+                if exc.error_class != "range_too_large":
                     raise
+                if b - a + 1 <= min_span:
+                    if "specify an address" in str(exc).lower():
+                        raise  # a genuine restriction, not an oversized block
+                    self.oversize_blocks.append(a)
+                    notes.append(f"block {a} exceeds the provider response limit; skipped")
+                    continue
                 if not addresses and "specify an address" in str(exc).lower():
                     # The provider only serves address-less queries one block at a time: do not
                     # bisect (that costs about twice the blocks in failed requests); go block by

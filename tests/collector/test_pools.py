@@ -73,7 +73,11 @@ FACTORY = addr(0xFAC0)
 
 @pytest.fixture
 def rig(tmp_path: Path) -> Iterator[Rig]:
-    r = Rig(tmp_path, mode="disabled", settings={"collector": {"initial_lookback_blocks": 10}})
+    r = Rig(
+        tmp_path,
+        mode="disabled",
+        settings={"collector": {"initial_lookback_blocks": 10, "extra_factories": [FACTORY]}},
+    )
     yield r
     r.dispose()
 

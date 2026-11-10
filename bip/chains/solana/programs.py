@@ -46,6 +46,19 @@ RAYDIUM_AMM_V4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
 ORCA_WHIRLPOOL = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
 ORCA_INITIALIZE_POOL = hashlib.sha256(b"global:initialize_pool").digest()[:8]
 
+RELEVANT_PROGRAMS = frozenset(
+    {
+        SYSTEM_PROGRAM,
+        TOKEN_PROGRAM,
+        TOKEN_2022_PROGRAM,
+        BPF_LOADER_UPGRADEABLE,
+        RAYDIUM_AMM_V4,
+        ORCA_WHIRLPOOL,
+    }
+)
+MAX_DATA_CHARS = 400
+"""Longest base58 instruction data decoded (about 290 bytes; the layouts used are under 60)."""
+
 INIT_MINT, INIT_MINT2 = 0, 20
 DEPLOY_WITH_MAX_DATA_LEN = 2
 RAYDIUM_INITIALIZE2 = 1
@@ -123,6 +136,10 @@ def _ix(raw: object, keys: list[str]) -> Ix | None:
         return None
     if accts is None or not isinstance(data, str):
         return None
+    # Only programs this module decodes are looked at, and only short data: base58 decoding is
+    # quadratic, and a hostile provider could otherwise pin a core with one huge string.
+    if keys[pid] not in RELEVANT_PROGRAMS or len(data) > MAX_DATA_CHARS:
+        return None
     names: list[str] = []
     for a in accts:
         if not isinstance(a, int) or isinstance(a, bool) or not 0 <= a < len(keys):
@@ -147,7 +164,10 @@ def instructions(tx: Mapping[str, Any]) -> list[Ix]:
 
 
 def _failed(tx: Mapping[str, Any]) -> bool:
-    return (as_dict(tx.get("meta")) or {}).get("err") is not None
+    """Failed, or of unknown status (no ``meta``): neither applied its instructions as far as
+    BIP can tell."""
+    meta = as_dict(tx.get("meta"))
+    return meta is None or meta.get("err") is not None
 
 
 def decode_discoveries(tx: Mapping[str, Any]) -> list[Discovery]:

@@ -23,11 +23,13 @@ loopback. There is no queue, cache or second database.
 # 1. service account and directories
 sudo useradd --system --home /opt/bip --shell /usr/sbin/nologin bip
 sudo install -d -o bip -g bip -m 750 /opt/bip /var/lib/bip
-sudo install -d -o root -g bip -m 750 /etc/bip /srv/bip
+sudo install -d -o root -g bip -m 750 /etc/bip
+sudo install -d -o root -g root -m 755 /srv/bip   # static files: readable by the proxy only
 
 # 2. code and dependencies (from a checkout of the reviewed commit)
 sudo -u bip git clone https://github.com/nfik7200-eng/Men /opt/bip/app
-cd /opt/bip/app && sudo -u bip uv sync --locked --no-dev
+cd /opt/bip/app && sudo -u bip git checkout <reviewed-commit>   # never deploy a branch tip unseen
+sudo -u bip uv sync --locked --no-dev
 
 # 3. frontend, built anywhere and copied (the host does not need Node)
 ( cd frontend && npm ci && npm run build )
@@ -38,12 +40,15 @@ sudo cp deploy/bip.env.production.example /etc/bip/bip.env
 sudo chown root:bip /etc/bip/bip.env && sudo chmod 640 /etc/bip/bip.env
 sudoedit /etc/bip/bip.env            # set BIP_API__CORS_ORIGINS to your site
 
-# 5. check it. FAIL lines must be fixed; WARN lines are decisions.
+# 5. check it. FAIL lines must be fixed; WARN lines are decisions. (The unit runs the same check
+#    with --use-environment, judging exactly the environment systemd passes the service.)
 sudo -u bip env -i /opt/bip/app/.venv/bin/python -m bip.tools.preflight --env-file /etc/bip/bip.env
 
-# 6. the first administrator (password from a file or prompt, never an argument)
-cd /opt/bip/app && sudo -u bip env $(grep -v '^#' /etc/bip/bip.env | xargs) \
-    .venv/bin/python -m bip.tools.users create admin --role admin
+# 6. the first administrator (password from a prompt or a root-only file, never an argument).
+#    systemd-run reads /etc/bip/bip.env itself, so no value ever appears on a command line.
+sudo systemd-run --pty --wait --collect --uid=bip --property=EnvironmentFile=/etc/bip/bip.env \
+    --property=WorkingDirectory=/opt/bip/app \
+    /opt/bip/app/.venv/bin/python -m bip.tools.users create admin --role admin
 
 # 7. service
 sudo cp deploy/systemd/bip-api.service /etc/systemd/system/
@@ -101,6 +106,20 @@ capped by validation at 150 requests and 90 seconds per chain.
    `BIP_WORKERS__SOLANA_COLLECTOR_ENABLED=true`, restart, and watch `GET /api/v1/system/jobs`.
 
 The pre-flight check reports an enabled collection job as a WARN so it is never on by accident.
+
+## Known limits
+
+* **Client address behind the proxy.** The HTTP server rewrites the peer address from
+  `X-Forwarded-For` for any caller on loopback, whatever `BIP_AUTH__TRUST_PROXY_HEADERS` says. On a
+  host shared with other software, a local process can therefore spoof the address BIP uses for
+  throttling and in the audit log. Login brute force is still bounded by the per-account lockout.
+  Remedies: do not run untrusted software on the host, or reach the API through a Unix socket
+  (not wired up in this kit).
+* **Pool and token coverage rests on factories someone verified.** Only Uniswap v2/v3 factories
+  with a documented address feed token transfers and reserve watching; add others after verifying
+  them with `BIP_COLLECTOR__EXTRA_FACTORIES`.
+* **Ownership.** The unit runs as `bip`, which also owns the code under `/opt/bip/app`; for a
+  stricter setup make the code root-owned and read-only to `bip`.
 
 ## What this kit does not do
 

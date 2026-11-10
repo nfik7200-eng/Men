@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -120,7 +121,7 @@ def test_receipt_cap_is_disclosed_not_hidden(tmp_path: Path) -> None:
         assert m["contract_creations_stored"] == 1
         assert m["status"] == "partial"  # stopped before the next block, which resumes next run
         assert m["last_block"] == fin(rig) - 5
-        assert "Receipt cap" in m["message"]
+        assert "more receipts than are left" in m["message"]
         with TestClient(rig.app) as c:
             later = c.post(f"{API}/discovery/collect/ethereum").json()
         assert later["large_transfers_stored"] == 1
@@ -139,8 +140,15 @@ def test_candidates_over_the_cap_inside_one_block_are_counted_as_a_gap(tmp_path:
         rig.eth.add_block_tx(n, h32(0x701), addr(0xA1), addr(0xB1), 40 * ETH)
         rig.eth.add_block_tx(n, h32(0x702), addr(0xA2), addr(0xB2), 41 * ETH)
         with TestClient(rig.app) as c:
+            first = c.post(f"{API}/discovery/collect/ethereum").json()
+            # earlier empty blocks completed; the over-cap block is not half-processed behind them
+            assert (first["large_transfers_stored"], first["status"]) == (0, "partial")
             m = c.post(f"{API}/discovery/collect/ethereum").json()
+        # as the first block of a run it takes what fits and records the rest as a persistent gap
         assert (m["large_transfers_stored"], m["skipped_over_receipt_cap"]) == (1, 1)
+        gaps = json.loads(rig.repo.get_meta("collector:ethereum:gaps") or "[]")
+        assert gaps[-1]["from_block"] == n
+        assert "1 qualifying transaction(s) not stored" in gaps[-1]["reason"]
     finally:
         rig.dispose()
 

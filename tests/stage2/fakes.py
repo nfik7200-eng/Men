@@ -71,6 +71,14 @@ class FakeEthNode:
     """Like PublicNode: an address-less ``eth_getLogs`` is refused over more than one block."""
     log_windows: list[tuple[int, int, bool]] = field(default_factory=list[tuple[int, int, bool]])
     """Every ``eth_getLogs`` window requested: (from, to, has_address)."""
+    fail_tx: set[str] = field(default_factory=set[str])
+    """Transactions whose ``eth_getTransactionByHash`` fails with a node error."""
+    corrupt_blocks: set[int] = field(default_factory=set[int])
+    """Blocks served with a malformed hash (a ParseError for the reader)."""
+    failed_txs: set[str] = field(default_factory=set[str])
+    """Transactions whose receipt says status 0x0 (reverted) but still names a contract."""
+    huge_log_blocks: set[int] = field(default_factory=set[int])
+    """Blocks whose address-less ``eth_getLogs`` returns more than the 10,000-log cap."""
     no_finalized_tag: bool = False
     """The provider rejects the ``finalized`` block tag."""
     history_floor: int = 20_000_000 - 200_000
@@ -248,6 +256,8 @@ class FakeEthNode:
             block = self.blocks.get(n)
             if block is None and self.history_floor <= n <= self.head:
                 block = self._block(n)  # synthesized historical header
+            if block is not None and n in self.corrupt_blocks:
+                return {**block, "hash": "0x12"}
             if block is not None and len(params) > 1 and params[1] is True and n in self.block_txs:
                 return {**block, "transactions": self.block_txs[n]}
             return block
@@ -262,6 +272,8 @@ class FakeEthNode:
             assert isinstance(f, dict)
             a, b = int(f["fromBlock"], 16), int(f["toBlock"], 16)
             self.log_windows.append((a, b, f.get("address") is not None))
+            if f.get("address") is None and any(n in self.huge_log_blocks for n in range(a, b + 1)):
+                return [{}] * 10_001
             if self.address_required_over_blocks and f.get("address") is None and b > a:
                 raise _RpcFaultError(
                     -32000, "Please specify an address in your request or order a dedicated node"
@@ -286,6 +298,8 @@ class FakeEthNode:
                     out.append(lg)
             return out
         if method == "eth_getTransactionByHash":
+            if str(params[0]) in self.fail_tx:
+                raise _RpcFaultError(-32603, "internal node error")
             tx = self.txs.get(str(params[0]))
             if tx is not None and params[0] == self.reorg_tx:
                 return {**tx, "blockHash": h32(0xDEAD)}
@@ -298,7 +312,7 @@ class FakeEthNode:
             return {
                 "transactionHash": txh,
                 "blockHash": tx["blockHash"],
-                "status": "0x1",
+                "status": "0x0" if txh in self.failed_txs else "0x1",
                 "gasUsed": hex(51_000),
                 "contractAddress": self.created.get(txh),
                 "logs": [lg for lg in self.logs if lg["transactionHash"] == txh],
@@ -327,7 +341,9 @@ class FakeSolNode:
     blocks: dict[int, dict[str, object]] = field(default_factory=dict[int, dict[str, object]])
     """Full blocks served for ``getBlock(..., transactionDetails=full)``; SYNTHETIC."""
     fail_slots: set[int] = field(default_factory=set[int])
-    """Slots whose ``getBlock`` fails with an internal node error."""
+    """Slots whose ``getBlock`` fails with an internal node error (-32603: an outage)."""
+    unavailable_slots: set[int] = field(default_factory=set[int])
+    """Slots whose ``getBlock`` says "block not available" (-32004), not "skipped" (-32007)."""
 
     def __post_init__(self) -> None:
         self.recipient = key(2)
@@ -474,6 +490,8 @@ class FakeSolNode:
             opts = params[1] if len(params) > 1 else {}
             if slot in self.fail_slots:
                 raise _RpcFaultError(-32603, "internal node error")
+            if slot in self.unavailable_slots:
+                raise _RpcFaultError(-32004, f"Block not available for slot {slot}")
             if isinstance(opts, dict) and opts.get("transactionDetails") == "full":
                 if slot in self.blocks:
                     return self.blocks[slot]  # type: ignore[index]

@@ -3,6 +3,9 @@
 Description=BIP API (blockchain intelligence platform)
 After=network-online.target
 Wants=network-online.target
+# A failing pre-flight must not restart forever: five tries in five minutes, then stay down.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,7 +14,7 @@ Group=bip
 WorkingDirectory=/opt/bip/app
 EnvironmentFile=/etc/bip/bip.env
 # Refuse to start on an unsafe configuration (exit status 1 stops the unit).
-ExecStartPre=/opt/bip/app/.venv/bin/python -m bip.tools.preflight --env-file /etc/bip/bip.env
+ExecStartPre=/opt/bip/app/.venv/bin/python -m bip.tools.preflight --use-environment --env-file /etc/bip/bip.env
 ExecStart=/opt/bip/app/.venv/bin/python -m bip.api
 Restart=on-failure
 RestartSec=5
@@ -19,6 +22,7 @@ RestartSec=5
 TimeoutStopSec=30
 
 # Confinement
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
