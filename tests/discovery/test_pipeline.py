@@ -45,7 +45,9 @@ def make(engine: Engine, clock: Clock | None = None, **cfg: object) -> Discovery
 def baseline(seed: Seed, token: str = TOKEN, n: int = 15) -> None:
     for i in range(n):
         when = NOW - timedelta(days=10, hours=i)
-        tx = eth_tx(5_000 + hash(token) % 1000 * 100 + i)
+        # int(token, 16), not hash(token): str hashes are randomised per process, so two tokens
+        # could land in one bucket and collide on a transaction id (a rare CI-only failure)
+        tx = eth_tx(5_000 + int(token, 16) % 1000 * 100 + i)
         seed.tx(tx, eth_addr(0x100 + i), when)
         seed.transfer(
             tx, eth_addr(0x100 + i), eth_addr(0x200), (1000 + i * 10) * E18, when, token=token

@@ -815,3 +815,13 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not covered.** systemd (only `systemd-analyze verify` was run on the unit files), a reverse proxy reaching the socket, TLS and certificate renewal, a real host's disk and users, off-site backup copies. The kit has still never run on a real host.
 
+## 2026-11-10 — A CI failure I had misread as a pass, and its cause
+
+**What happened.** The backend `checks` job failed once, on commit `a08a911`: `tests/discovery/test_pipeline.py::test_per_run_signal_cap_is_applied_and_reported` raised a `UNIQUE constraint failed: transactions.tx_id` while seeding its own data (830 passed, 1 failed). I had not seen it: I read "check suite completed" events as "passed", but that event only says the suite finished. Only the explicit `check_run ... conclusion: failure` event carries the result, and I had not read that notification until later.
+
+**Cause (reproduced).** The test helper `baseline()` built transaction ids from Python's built-in `hash(token)`, which is randomised per process, so two of the three tokens occasionally fell into the same bucket (`hash % 1000`) and collided: about a 1-in-300 chance per run. In 1,501 hash seeds, 5 collide (0.33%); the old line fails on the colliding seeds I ran (184, 592, 659) and the fixed line passes on all five. It never failed locally because the chance per run is small.
+
+**Fix.** The helper now uses `int(token, 16)`, which is stable. The same pattern was not found anywhere else in the tests.
+
+**Process change.** From now on a green CI means an explicit success conclusion on the head commit's check runs, not a completed suite.
+
