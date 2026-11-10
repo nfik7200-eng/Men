@@ -1000,7 +1000,12 @@ export type EntityLabel = {
 };
 
 /** No limit/offset and no data_origin in this response. */
-export type EntityLabelPage = { total: number; items: EntityLabel[]; scope: string };
+export type EntityLabelPage = {
+  total: number;
+  items: EntityLabel[];
+  scope: string;
+  data_origin?: DataOrigin;
+};
 
 export type EvidenceInput = { kind: LabelEvidence["kind"]; ref: string; description?: string };
 
@@ -1032,6 +1037,7 @@ export type SystemJob = {
 export type SystemBackup = { name: string; size_bytes: number; created_at: string };
 
 export type SystemHealth = {
+  data_origin?: DataOrigin;
   status: "ok" | "degraded" | "critical";
   version: string;
   environment: string;

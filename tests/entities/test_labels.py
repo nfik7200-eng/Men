@@ -342,3 +342,19 @@ def test_only_one_label_suggestion_runs_at_a_time(rig: Rig) -> None:
 
     out = svc.suggest(Blocking({}), chain=ETH, ref=CONTRACT, entity_kind="contract", actor="ana")
     assert out["created"] == []
+
+
+def test_label_and_health_responses_say_where_their_data_came_from(tmp_path: Path) -> None:
+    """Pages that list SYNTHETIC or fixture records must be able to label them as such."""
+    rig = Rig(tmp_path, mode="disabled")
+    try:
+        rig.repo.set_meta("data_origin", "offline_fixture")
+        with TestClient(rig.app) as c:
+            assert c.get(f"{API}/entities/labels").json()["data_origin"] == "offline_fixture"
+            assert (
+                c.get(f"{API}/entities/{ETH}/{CONTRACT}/labels").json()["data_origin"]
+                == "offline_fixture"
+            )
+            assert c.get(f"{API}/system/health").json()["data_origin"] == "offline_fixture"
+    finally:
+        rig.dispose()

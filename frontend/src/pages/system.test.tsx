@@ -9,6 +9,19 @@ const heading = () => screen.findByRole("heading", { level: 1, name: "System" })
 const system = (patch: (s: SystemHealth) => SystemHealth) => patch(defaultSystem());
 
 describe("system", () => {
+  it("labels the page as demo data when the backend says its records are fixtures", async () => {
+    renderDiscovery("/system", { origin: "offline_fixture" });
+    await heading();
+    expect(await screen.findByText(/Demo data: offline fixtures/)).toBeInTheDocument();
+  });
+
+  it("shows no demo banner for stored observations", async () => {
+    renderDiscovery("/system");
+    await heading();
+    await screen.findByText("No warnings.");
+    expect(screen.queryByText(/Demo data: offline fixtures/)).toBeNull();
+  });
+
   it("shows an ok server, with no warnings, and states that no backup exists", async () => {
     renderDiscovery("/system");
     await heading();

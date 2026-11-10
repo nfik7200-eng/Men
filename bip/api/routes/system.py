@@ -20,7 +20,8 @@ router = APIRouter(prefix="/system", tags=["system"])
 
 @router.get("/health")
 def detailed_health(ctx: Context) -> dict[str, Any]:
-    return system_report(ctx, ctx.backups, ctx.started_monotonic)
+    report = system_report(ctx, ctx.backups, ctx.started_monotonic)
+    return {**report, "data_origin": ctx.repo.get_meta("data_origin") or "stored_observations"}
 
 
 @router.get("/usage")

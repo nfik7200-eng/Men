@@ -268,7 +268,7 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
     if (path === "/entities/labels" && method === "GET") {
       const status = q.get("status");
       const items = state.labels.filter((l) => !status || l.status === status).slice().reverse();
-      return json(200, { total: items.length, items, scope: "SYNTHETIC scope: labels attribute organisations and protocols, never people." });
+      return json(200, { total: items.length, items, scope: "SYNTHETIC scope: labels attribute organisations and protocols, never people.", data_origin: state.origin });
     }
     if (path === "/entities/labels" && method === "POST") {
       const evidence = (body.evidence as { kind: LabelEvidence["kind"]; ref: string; description?: string }[]).map((e) => ({ ...e, added_by: "local", verified_stored: true }));
@@ -291,7 +291,7 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
       l.evidence = all;
       return json(200, l);
     }
-    if (path === "/system/health") return json(200, state.system);
+    if (path === "/system/health") return json(200, { ...state.system, data_origin: state.origin });
     if (path === "/system/backups" && method === "POST") {
       const b = { name: "bip-backup-synthetic.sqlite3", size_bytes: 2_097_152, created_at: NOW };
       state.system = { ...state.system, backups: { ...state.system.backups, count: state.system.backups.count + 1, latest: b } };

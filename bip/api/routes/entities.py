@@ -122,6 +122,11 @@ def rebuild_relationships(
 # ----------------------------------------------------------------------------- case notes
 
 
+def _origin(ctx: Context) -> str:
+    """Where the stored data came from, so a page can label fixture or synthetic records."""
+    return ctx.repo.get_meta("data_origin") or "stored_observations"
+
+
 def _author(request: Request) -> str:
     user = request.scope.get("state", {}).get("user")
     return str(user.username) if user is not None else "local"
@@ -180,9 +185,10 @@ def list_labels(
     limit: Limit = 50,
     offset: Offset = 0,
 ) -> dict[str, Any]:
-    return ctx.entity_labels.list(
+    page = ctx.entity_labels.list(
         status=status, chain=chain, ref=ref, category=category, limit=limit, offset=offset
     )
+    return {**page, "data_origin": _origin(ctx)}
 
 
 @router.post("/entities/labels/{label_id}/review")
@@ -221,4 +227,4 @@ def suggest_labels(request: Request, ctx: WritableContext, body: LabelSuggest) -
 @router.get("/entities/{chain}/{ref}/labels")
 def entity_labels(ctx: Context, chain: ChainP, ref: Ref) -> dict[str, Any]:
     _require_chain(ctx, chain)
-    return ctx.entity_labels.for_entity(chain, ref)
+    return {**ctx.entity_labels.for_entity(chain, ref), "data_origin": _origin(ctx)}

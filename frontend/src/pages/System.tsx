@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, FieldError, Loading, PageHeader, Panel, Pill, S
 import { chainLabel } from "../lib/address";
 import { fmtBytes, fmtInt, fmtTime, humanize } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import { DataOriginBanner } from "../components/intel";
 
 const STATUS_TONE: Record<SystemHealth["status"], Tone> = { ok: "ok", degraded: "warn", critical: "bad" };
 const RUN_TONE: Record<string, Tone> = { succeeded: "ok", success: "ok", ok: "ok", partial: "warn", failed: "bad", error: "bad", running: "info" };
@@ -255,6 +256,7 @@ export default function System() {
   return (
     <>
       <PageHeader title="System" lede="Operational state of this BIP server: storage, background jobs, providers and backups. Paths and secrets are never shown." />
+      {health.status === "ready" ? <DataOriginBanner origin={health.data.data_origin ?? "stored_observations"} /> : null}
       {health.status === "loading" ? <Loading /> : null}
       {health.status === "error" ? <ErrorState error={health.error} onRetry={health.reload} /> : null}
       {health.status === "ready" ? <Report h={health.data} reload={health.reload} /> : null}

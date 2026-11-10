@@ -7,6 +7,19 @@ import { renderDiscovery } from "../test/renderDiscovery";
 const heading = () => screen.findByRole("heading", { level: 1, name: "Attribution" });
 
 describe("attribution", () => {
+  it("labels the page as demo data when the backend says its records are fixtures", async () => {
+    renderDiscovery("/attribution", { origin: "offline_fixture", labels: [makeLabel({ id: 1, name: "SYNTHETIC queued" })] });
+    await heading();
+    expect(await screen.findByText(/Demo data: offline fixtures/)).toBeInTheDocument();
+  });
+
+  it("shows no demo banner for stored observations", async () => {
+    renderDiscovery("/attribution");
+    await heading();
+    await screen.findByText("No proposals waiting for review");
+    expect(screen.queryByText(/Demo data: offline fixtures/)).toBeNull();
+  });
+
   it("explains what labels are and shows honest empty states", async () => {
     renderDiscovery("/attribution");
     await heading();

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
-import type { EntityKind, EntityLabel, LabelCategory } from "../api/types";
+import type { EntityKind, EntityLabel, EntityLabelPage, LabelCategory } from "../api/types";
 import { RoleHint } from "../auth/RoleHint";
 import { useCan } from "../auth/useAuth";
 import { Address } from "../components/Address";
@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, FieldError, Loading, PageHeader, Panel, Pill } 
 import { CHAINS, chainLabel, validateAddress } from "../lib/address";
 import { fmtTime } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import { DataOriginBanner } from "../components/intel";
 
 const KINDS: EntityKind[] = ["wallet", "contract", "token", "pool", "program"];
 const CATEGORIES: LabelCategory[] = ["exchange", "protocol", "bridge", "market_maker", "treasury", "team", "other"];
@@ -191,7 +192,7 @@ function EvidenceCell({ label }: { label: EntityLabel }) {
   );
 }
 
-type QueueState = ReturnType<typeof useApi<{ total: number; items: EntityLabel[]; scope: string }>>;
+type QueueState = ReturnType<typeof useApi<EntityLabelPage>>;
 function QueueView({ state, reviewer, onReview }: { state: QueueState; reviewer: ReturnType<typeof useCan>; onReview: (l: EntityLabel) => void }) {
   return (
     <Panel title="Review queue" aside={state.status === "ready" ? <span className="muted" role="status">{state.data.total} waiting</span> : null}>
@@ -246,6 +247,7 @@ export default function Attribution() {
   return (
     <>
       <PageHeader title="Attribution" lede="Reviewed labels that attribute an address to an organisation or protocol." />
+      {queue.status === "ready" ? <DataOriginBanner origin={queue.data.data_origin ?? "stored_observations"} /> : null}
       <div className="stack disc">
         <Panel title="How labels work">
           <ul className="bullets">

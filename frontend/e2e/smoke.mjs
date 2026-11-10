@@ -396,8 +396,8 @@ try {
     { path: "/signals", h1: "Signals", empty: "No open signals", demo: true },
     { path: "/alerts", h1: "Alerts", empty: "No alerts yet", demo: true },
     { path: "/coverage", h1: "Coverage", empty: "No run recorded", demo: true },
-    { path: "/attribution", h1: "Attribution", empty: "No proposals waiting for review", demo: false },
-    { path: "/system", h1: "System", empty: null, demo: false },
+    { path: "/attribution", h1: "Attribution", empty: "No proposals waiting for review", demo: true },
+    { path: "/system", h1: "System", empty: null, demo: true },
   ];
   let collectPosts = 0;
   page.on("request", (r) => {

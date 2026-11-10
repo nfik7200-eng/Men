@@ -767,3 +767,11 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not done.** The preview shows invented data, so it proves the pages work, not that real collected data looks like this. No "Run discovery" button in the UI yet.
 
+## 2026-11-10 — Preview walkthrough found pages without the demo banner
+
+**Finding.** A walkthrough of the populated preview (every new page at phone, tablet and desktop sizes) showed that Attribution and System displayed synthetic records with no "Demo data" banner, contradicting the documentation. Cause: `/entities/labels` and `/system/health` did not return `data_origin`.
+
+**Fix (backend test first).** Both endpoints, and `GET /entities/{chain}/{ref}/labels`, now return `data_origin`; both pages render the existing banner; four unit tests and two browser checks pin it.
+
+**Verification.** `pytest` 829 passed; frontend `tsc`, `eslint`, build, `vitest` 242 passed, `npm run e2e` 219/219. `systemd-analyze verify` on the three unit files reports only that `python` and `rsync` are not installed on this machine (no unknown directives).
+
