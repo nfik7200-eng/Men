@@ -506,7 +506,8 @@ class MemoryService:
                 ent,
                 key,
                 {"funder": r["target_ref"], "transfers": r["weight"], "note": r["note"]},
-                str(r["target_ref"]),
+                # the basis is part of the signature, so a re-labelled link supersedes the old fact
+                f"{r['target_ref']}|{r['basis']}",
                 "observed" if r["basis"] == "observed" else "hypothesis",
                 "entity_relationships",
                 s,

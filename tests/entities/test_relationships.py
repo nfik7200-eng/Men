@@ -82,6 +82,11 @@ def test_funded_by_uses_the_first_stored_inbound_transfer(engine: Engine) -> Non
     assert funded[0]["target"]["ref"] == eth_addr(0xA1)
     assert funded[0]["confidence"] == 0.5
     assert "first inbound native transfer" in funded[0]["explanation"]["note"]
+    # the collector keeps only native transfers at or above its threshold, so an earlier, smaller
+    # funder is invisible: the funder link is an interpretation of censored data, not an observation
+    assert funded[0]["basis"] == "hypothesis"
+    assert "10 ETH" in funded[0]["explanation"]["note"]
+    assert "smaller" in funded[0]["explanation"]["note"]
     assert "does not show common ownership" in funded[0]["explanation"]["limitations"]
 
 
@@ -100,7 +105,7 @@ def test_shared_funder_is_a_labelled_hypothesis_not_a_stored_link(engine: Engine
         kinds = set(conn.execute(text("SELECT DISTINCT kind FROM entity_relationships")).scalars())
         bases = set(conn.execute(text("SELECT DISTINCT basis FROM entity_relationships")).scalars())
     assert kinds <= {"funded_by", "deployed_by", "transferred_to", "interacted_with"}
-    assert bases == {"observed"}  # nothing automatic is ever 'verified'
+    assert bases == {"hypothesis"}  # funder links are hypotheses; nothing automatic is 'verified'
 
 
 def test_the_schema_refuses_a_verified_basis(engine: Engine) -> None:

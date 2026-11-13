@@ -92,6 +92,7 @@ class RelationshipService:
     ) -> None:
         self._repo = repo
         self._cfg = settings.discovery
+        self._settings = settings
         self._clock = clock
 
     # ------------------------------------------------------------------ rebuild
@@ -198,6 +199,7 @@ class RelationshipService:
                 continue
             first.setdefault(str(r.to_address), r)
             pair_count[(str(r.to_address), str(r.from_address))] += 1
+        note = self._funding_note(chain)
         for recipient, r in first.items():
             funder = str(r.from_address)
             scan.found.append(
@@ -212,10 +214,23 @@ class RelationshipService:
                     [str(r.tx_id)],
                     r.block_time,
                     r.block_time,
-                    note="first inbound native transfer in the stored data",
+                    note=note,
+                    basis="hypothesis",
                 )
             )
         return scan
+
+    def _funding_note(self, chain: str) -> str:
+        """The censoring caveat: collectors keep only native transfers at or above a threshold,
+        so an earlier, smaller transfer from another wallet is invisible to this builder."""
+        threshold = {
+            "ethereum": f"{self._settings.collector.min_native_value_eth} ETH",
+            "solana": f"{self._settings.solana_collector.min_sol_transfer} SOL",
+        }.get(chain, "the collector threshold")
+        return (
+            "first inbound native transfer in the stored data; only transfers of at least "
+            f"{threshold} are collected, so an earlier, smaller funder would not be visible"
+        )
 
     def _repeated_transfers(self, chain: str) -> _Scan:
         tr = schema.transfers

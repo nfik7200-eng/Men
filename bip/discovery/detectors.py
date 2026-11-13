@@ -271,6 +271,11 @@ def large_transfers(ctx: Context) -> DetectorOutput:
                             "median/MAD on log10(amount), same asset; the baseline excludes the "
                             "lookback window"
                         ),
+                        "data_censoring": (
+                            "Native transfers are stored only at or above the collector "
+                            "threshold, so the baseline omits small transfers and the robust z is "
+                            "relative to that censored baseline."
+                        ),
                     },
                     notes={
                         "magnitude": f"robust z {z:.1f} against threshold {cfg.mad_threshold}",
@@ -1045,7 +1050,9 @@ def common_funding_source(ctx: Context) -> DetectorOutput:
                     explanation={
                         "statement": (
                             "One wallet sent native funds to several wallets that have no earlier "
-                            "stored activity. This is an observed funding relationship."
+                            "stored activity. The transfers are observed; that they were the "
+                            "recipients' first funding is a hypothesis, because collectors store "
+                            "only transfers above a threshold and earlier activity may be missing."
                         ),
                         "observed": {
                             "source": source,
@@ -1055,6 +1062,10 @@ def common_funding_source(ctx: Context) -> DetectorOutput:
                         },
                         "method": "native transfers from one sender to recipients with no earlier "
                         "stored transaction or transfer",
+                        "data_censoring": (
+                            "Only native transfers at or above the collector threshold are stored, "
+                            "so 'no earlier activity' is relative to censored data."
+                        ),
                         "not_claimed": (
                             "Shared funding does not show that the wallets have the same owner. "
                             "Exchanges, faucets and payroll produce the same pattern."
@@ -1094,7 +1105,8 @@ DETECTORS: tuple[Detector, ...] = (
             coverage="Transfers stored by ingestion for ingested wallets and their token accounts",
             limitations=(
                 "Needs a baseline of stored transfers for the same asset. Says nothing about "
-                "transfers BIP never stored. Large is relative to the stored baseline."
+                "transfers BIP never stored. Large is relative to the stored baseline, which "
+                "for native assets omits transfers below the collector threshold."
             ),
             refresh="On demand or per scheduled pass; reads the last baseline_days",
             cost=STORED_ONLY_COST,
@@ -1280,8 +1292,9 @@ DETECTORS: tuple[Detector, ...] = (
             data_required="Stored native transfers",
             coverage="Funding visible in stored transfers inside the funding window",
             limitations=(
-                "An observed relationship, not an attribution. Exchanges, faucets and payroll "
-                "look the same. Recipients are 'new' only relative to the stored data."
+                "Observed transfers; 'first funding' is a hypothesis, not an attribution. "
+                "Exchanges, faucets and payroll look the same. Recipients are 'new' only relative "
+                "to stored data, which keeps only transfers above the collector threshold."
             ),
             refresh="On demand or per scheduled pass",
             cost=STORED_ONLY_COST,

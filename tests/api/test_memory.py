@@ -527,6 +527,29 @@ def test_several_active_funders_are_separate_stable_facts(
     assert status == {f"funded_by:{f1}": "current", f"funded_by:{f2}": "outdated"}
 
 
+def test_a_funder_link_reclassified_as_hypothesis_supersedes_the_observed_fact(
+    seed: Seed, memory: MemoryService, repo: Repository
+) -> None:
+    w, f1 = addr(511), addr(512)
+    seed.relationship("funded_by", w, f1, [seed.transfer(f1, w)])
+    memory.refresh(CHAIN)
+    [first] = facts(repo, w, f"funded_by:{f1}")
+    assert first["evidence_class"] == "observed"
+    with repo.transaction() as conn:  # a rebuild re-labels the link from censored data
+        conn.execute(
+            text("UPDATE entity_relationships SET basis='hypothesis' WHERE source_ref=:w"), {"w": w}
+        )
+    memory.refresh(CHAIN)
+    history = facts(repo, w, f"funded_by:{f1}")
+    assert [(r["evidence_class"], r["status"]) for r in history] == [
+        ("observed", "superseded"),
+        ("hypothesis", "current"),
+    ]  # history kept: the old class is superseded, never rewritten
+    assert history[1]["supersedes_id"] == history[0]["id"]
+    memory.refresh(CHAIN)
+    assert len(facts(repo, w, f"funded_by:{f1}")) == 2  # stable on repeat
+
+
 def test_a_deployment_upgraded_in_place_is_still_folded_in(
     seed: Seed, memory: MemoryService, repo: Repository
 ) -> None:

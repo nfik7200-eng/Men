@@ -26,7 +26,7 @@ relationships and analyses that rested on it are invalidated in the same databas
 | `holder_concentration` | holders | ethereum | top-3 share of positive net inflow in stored transfers (observed flow, not balances) | 0.4 |
 | `solana_new_entities` | tokens, contracts, pools | solana | verified compiled-instruction layouts in finalized slots (SPL `InitializeMint`/`InitializeMint2`, upgradeable-loader `DeployWithMaxDataLen`, Raydium AMM v4 `Initialize2`, Orca `initialize_pool`) | 0.45 |
 | `new_liquidity_pool` | pools | ethereum | v2/v3-style `PairCreated`/`PoolCreated` factory logs from finalized blocks | 0.4 |
-| `common_funding_source` | related_wallets | ethereum, solana | one sender funding several recipients with no earlier stored activity | 0.5 |
+| `common_funding_source` | related_wallets | ethereum, solana | one sender funding several recipients with no earlier stored activity (observed transfers; "first funding" is a hypothesis over censored data) | 0.5 |
 
 Each detector declares its coverage, limitations, refresh frequency and cost in
 `GET /api/v1/discovery/detectors`. All cost: local database reads only, no RPC, no provider credits.
