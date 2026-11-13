@@ -1033,7 +1033,10 @@ $ gitleaks dir . / git --staged  -> no leaks found
   - **LOW:** a few, open.
 - **Owner decision:** approved committing and pushing Stages 1–3 (`ffc5b6f`), fixing the three HIGH findings, and adding a devcontainer.
 
-**Repairs (each test-first; tests seen failing before the fix):**
+**Repairs (each test-first):**
+- For H1 and H2, the new tests were seen failing before the fix.
+- For H3, the tests were first run together with the implementation. Afterwards a mutation check removed the `_tx_rows` upper bound: `test_an_as_of_run_finds_candidates_in_backfilled_history` then failed on `assert later not in found`, and passed again once the bound was restored.
+- Only the `_tx_rows` bound has a leak test. The other six upper bounds (large transfers, holder concentration, pools, both reserve queries, Solana discoveries, common funding) are untested.
 - **H2, funder links from censored data** (`6b8760f`):
   - `funded_by` basis is `hypothesis`, with a note naming the collector threshold.
   - The memory signature includes the basis, so old observed facts are superseded rather than left current.
@@ -1052,11 +1055,14 @@ $ gitleaks dir . / git --staged  -> no leaks found
   - Validation: `as_of` must be time-zone aware, not in the future, and within `as_of_max_days` (365). The run is manual and uses the discovery lock.
   - Four new tests.
 - **Codespaces:**
-  - `.devcontainer/devcontainer.json`: Python 3.12, Node 22. Post-create runs `uv sync` and `npm ci`. Only 5173 is forwarded.
+  - `.devcontainer/devcontainer.json`: Python 3.12, Node 22. Post-create runs `uv sync` and `npm ci`. Only 5173 is forwarded; 8000 is set to `onAutoForward: ignore`.
   - `.devcontainer/start-preview.sh`.
   - `tests/preview/serve_preview.py` adds `https://$CODESPACE_NAME-5173.$GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN` to its allowed origins.
   - Without that origin, sign-in mode would refuse every write from the forwarded URL. Verified with simulated variables: login 200, write from the codespace origin 201, write from another origin 403.
   - The start script was run here: frontend 200, API through the proxy 200, protected route without a session 401.
+  - `frontend/vite.config.ts` allows exactly `$CODESPACE_NAME-5173.<domain>` in `server.allowedHosts`, and only inside a codespace.
+    - Without it, Vite refused the forwarded host with "Blocked request" (403). This was found by curl with a codespace Host header after the first version.
+    - Verified through the Vite proxy with simulated variables: page 200, other host 403, login 200, write from the codespace origin 201, write from another origin 403.
   - Not yet run in a real Codespace.
 
 **Verification:**
@@ -1066,7 +1072,10 @@ $ gitleaks dir . / git --staged  -> no leaks found
 - `uv run pytest`: 953 passed in 277 s, which is 945 plus 8 new.
 - `python -m bip.tools.api_contract` regenerated `docs/API_REFERENCE.md`.
 - The end-to-end fixture re-run after the repairs: 9/9.
-- No frontend source changed in this round.
+- Frontend (only `vite.config.ts` changed): re-run against the changed backend.
+  - `npx vitest run`: 25 files, 269 tests passed.
+  - `npm run typecheck` and `npm run lint` clean.
+  - `npm run e2e`: 221/221 checks.
 - No live provider was contacted.
 
 **Incident:**

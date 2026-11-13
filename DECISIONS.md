@@ -577,4 +577,5 @@ The Stage 3 verification audit found three correctness problems.
 - Existing observed funder facts are superseded once on the next memory refresh.
 - Weights from capped scans are lower bounds.
 - An as-of run and a live run over overlapping windows can open separate signals for one funding event or activity burst. Their dedup keys include a date. Other detectors key on transactions or subjects.
+- Feed freshness uses the time of the last discovery run of any kind, so an as-of run makes the feed look freshly scanned although live data was not re-evaluated. Run a live pass after an as-of run.
 - Approval of this ADR is pending with the owner.

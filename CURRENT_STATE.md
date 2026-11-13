@@ -19,7 +19,7 @@ _Last updated: 2026-11-13 (Stage 3 verification audit and repairs; Stages 1–3 
 - **Live verification:** never done; all chain behaviour is tested against local fakes only.
 - **Tests:** 953 backend tests, ruff and pyright clean; the e2e fixture passes 9/9.
 
-**Five-stage programme, Stage 3 (Intelligence Memory and Autonomous Discovery), 2026-11-13: done offline, NOT committed (owner instruction).**
+**Five-stage programme, Stage 3 (Intelligence Memory and Autonomous Discovery), 2026-11-13: done offline; committed and pushed later the same day with owner approval (`ffc5b6f`).**
 - **Memory:** an intelligence-memory registry and append-only fact history (migration v18; `bip/intel/memory.py`). It is filled from stored data only, bounded and resumable.
 - **Review:** candidate review decisions with required reasons and an actor (`bip/discovery/review.py`).
 - **Expansion:** bounded relationship expansion from seeds BIP chooses, producing hypothesis-labelled candidates (`bip/discovery/expansion.py`).
@@ -27,7 +27,7 @@ _Last updated: 2026-11-13 (Stage 3 verification audit and repairs; Stages 1–3 
 - **Status:** ADR-045 and ADR-046 (Proposed). Memory refresh and expansion jobs are off by default; nothing in this stage contacts a provider.
 - **Tests:** 945 backend tests, ruff and pyright clean; 269 frontend tests, 221/221 browser checks.
 
-**Five-stage programme, Stage 2 (Multi-chain Data Acquisition), 2026-11-13: done offline, NOT committed (owner instruction).**
+**Five-stage programme, Stage 2 (Multi-chain Data Acquisition), 2026-11-13: done offline; committed and pushed later the same day with owner approval (`ffc5b6f`).**
 - **Backfill and recovery:** bounded backward backfill and gap recovery for Ethereum and Solana (`bip/ingest/backfill.py`).
   - Live work has priority. Live and historical can each be paused (admin endpoints).
   - History no configured provider serves is recorded `provider_unavailable` and stops the backfill. Other providers are asked first.
@@ -35,7 +35,7 @@ _Last updated: 2026-11-13 (Stage 3 verification audit and repairs; Stages 1–3 
 - **Providers:** the router counts BIP's own per-provider daily requests (migration v17) and honours optional daily caps. Provider facts were re-checked against official pages on 2026-11-13.
 - **Status:** ADR-043 and ADR-044 (Proposed). Jobs are off by default. Everything is tested with local fakes only; no live provider was contacted in this stage.
 
-**Five-stage programme, Stage 1 (Intelligence Foundation and Control Plane), 2026-11-13: done offline, NOT committed (owner instruction: no commit, push or PR for this stage).** Audit by four read-only investigators, then a small additive build: migration v16 (`ingestion_checkpoints`, `coverage_ranges`), `bip/db/checkpoints.py`, both collectors wired to it, a persisted-state circuit breaker with a single half-open trial, read-only `GET /ingestion/checkpoints`, `GET /ingestion/coverage/{chain}`, `GET /system/budgets`, and `/settings` now reports the real auth mode. ADR-041 and ADR-042 (Proposed). 880 backend tests pass, ruff and pyright strict clean, frontend tsc and 245 tests pass. Four independent reviews and two repair rounds; see `IMPLEMENTATION_LOG.md`. The programme itself is recorded in `docs/IMPLEMENTATION_ROADMAP.md`.
+**Five-stage programme, Stage 1 (Intelligence Foundation and Control Plane), 2026-11-13: done offline; committed and pushed later the same day with owner approval (`ffc5b6f`).** Audit by four read-only investigators, then a small additive build: migration v16 (`ingestion_checkpoints`, `coverage_ranges`), `bip/db/checkpoints.py`, both collectors wired to it, a persisted-state circuit breaker with a single half-open trial, read-only `GET /ingestion/checkpoints`, `GET /ingestion/coverage/{chain}`, `GET /system/budgets`, and `/settings` now reports the real auth mode. ADR-041 and ADR-042 (Proposed). 880 backend tests pass, ruff and pyright strict clean, frontend tsc and 245 tests pass. Four independent reviews and two repair rounds; see `IMPLEMENTATION_LOG.md`. The programme itself is recorded in `docs/IMPLEMENTATION_ROADMAP.md`.
 
 **Autonomous build (2026-11-09/10): complete locally, committed and pushed to `claude/modest-fermi-0yklvj` (draft PR #2). CI on `cf07957`: backend `checks`, `frontend` and `secret-scan` all concluded success. Not deployed. Remaining items need a real host, rare live events or owner approval (see the BLOCKED register).** Verified locally: 836 backend tests, ruff and pyright strict clean, 245 frontend unit tests, 221 Playwright checks at 390x844, 820x1180 and 1366x850, `deploy/rehearse.sh` 11/11.
 

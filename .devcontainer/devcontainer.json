@@ -12,7 +12,7 @@
   "forwardPorts": [5173],
   "portsAttributes": {
     "5173": { "label": "BIP frontend (synthetic preview)", "onAutoForward": "notify" },
-    "8000": { "label": "BIP API (reached through the 5173 proxy; do not share)", "onAutoForward": "silent" }
+    "8000": { "label": "BIP API (reached through the 5173 proxy; do not share)", "onAutoForward": "ignore" }
   },
   "customizations": {
     "vscode": { "extensions": ["ms-python.python", "charliermarsh.ruff"] }
