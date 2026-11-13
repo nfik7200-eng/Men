@@ -212,12 +212,69 @@ def test_a_capped_scan_invalidates_nothing(engine: Engine) -> None:
         fund(seed, 1000 + i, 0x100 + i, 0x500 + i, hours=300 - i)
     svc = make(engine)
     assert svc.rebuild(ETH)["chains"][ETH]["funded_by"]["created"] == 120
-    capped = make(engine, max_rows_scanned=100)  # reads only the oldest 100 rows
+    capped = make(engine, max_rows_scanned=100)  # reads only the newest 100 rows
     summary = capped.rebuild(ETH)["chains"][ETH]["funded_by"]
     assert summary["row_cap_reached"] is True
     assert summary["found"] == 100
     assert summary["invalidated"] == 0  # the 20 unread relationships are not declared gone
     assert capped.counts()["funded_by"] == {"active": 120}
+
+
+def test_a_capped_rebuild_reads_the_newest_rows_so_new_data_is_never_starved(
+    engine: Engine,
+) -> None:
+    seed = Seed(engine)
+    for i in range(120):  # oldest first; the store has more rows than the cap
+        fund(seed, 1000 + i, 0x100 + i, 0x500 + i, hours=300 - i)
+    capped = make(engine, max_rows_scanned=100)
+    capped.rebuild(ETH)
+    newest = rel(capped, eth_addr(0x500 + 119), kind="funded_by", direction="out")
+    assert [r["target"]["ref"] for r in newest] == [eth_addr(0x100 + 119)]
+    assert rel(capped, eth_addr(0x500), kind="funded_by", direction="out") == []  # outside window
+    fund(seed, 2000, 0x9F0, 0x9F1, hours=1)  # data arriving later is picked up on the next run
+    capped.rebuild(ETH)
+    assert len(rel(capped, eth_addr(0x9F1), kind="funded_by", direction="out")) == 1
+
+
+def test_a_capped_rebuild_never_makes_an_existing_relationship_worse(engine: Engine) -> None:
+    seed = Seed(engine)
+    for i in range(5):  # an old, repeated pair
+        fund(seed, 10 + i, 0xA1, 0xB1, hours=300 - i)
+    full = make(engine)
+    full.rebuild(ETH)
+    [before] = rel(full, eth_addr(0xA1), kind="transferred_to", direction="out")
+    assert before["weight"] == 5
+    for i in range(150):  # newer, unrelated rows push the old pair out of the capped window
+        fund(seed, 100 + i, 0x200 + i, 0x400 + i, hours=200 - i)
+    for i in range(3):  # and the pair repeats recently, inside the window
+        fund(seed, 300 + i, 0xA1, 0xB1, hours=3 - i)
+    capped = make(engine, max_rows_scanned=100)
+    summary = capped.rebuild(ETH)["chains"][ETH]["transferred_to"]
+    assert summary["row_cap_reached"] is True
+    [after] = rel(capped, eth_addr(0xA1), kind="transferred_to", direction="out")
+    assert after["weight"] == 5  # a partial window is a lower bound, never a reduction
+    assert after["first_seen_at"] == before["first_seen_at"]
+    assert after["last_seen_at"] > before["last_seen_at"]
+    assert len(after["evidence"]) == 8  # earlier evidence kept, new evidence appended
+    capped.rebuild(ETH)
+    [again] = rel(capped, eth_addr(0xA1), kind="transferred_to", direction="out")
+    assert len(again["evidence"]) == 8 and again["weight"] == 5  # stable on repeat
+
+
+def test_a_capped_rebuild_does_not_invent_a_funder_when_the_first_one_is_out_of_window(
+    engine: Engine,
+) -> None:
+    seed = Seed(engine)
+    fund(seed, 10, 0xA1, 0xB1, hours=300)  # the real first stored funding of B1
+    for i in range(150):
+        fund(seed, 100 + i, 0x200 + i, 0x400 + i, hours=200 - i)
+    fund(seed, 20, 0xA2, 0xB1, hours=1)  # a later transfer, inside the capped window
+    capped = make(engine, max_rows_scanned=100)
+    capped.rebuild(ETH)
+    assert rel(capped, eth_addr(0xB1), kind="funded_by", direction="out") == []
+    make(engine).rebuild(ETH)  # a complete scan still finds the real first funder
+    funders = rel(capped, eth_addr(0xB1), kind="funded_by", direction="out")
+    assert [r["target"]["ref"] for r in funders] == [eth_addr(0xA1)]
 
 
 def test_orphaning_a_block_invalidates_relationships_resting_on_it(engine: Engine) -> None:

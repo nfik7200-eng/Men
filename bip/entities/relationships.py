@@ -2,8 +2,13 @@
 
 A rebuild is bounded (``discovery.max_rows_scanned``), idempotent (rows are keyed by chain, kind,
 source and target) and reads only canonical rows, never orphaned ones. A relationship that a
-complete scan no longer finds is marked ``invalidated`` rather than deleted. A scan that hit the
-row cap proves nothing about what it did not read, so it invalidates nothing.
+complete scan no longer finds is marked ``invalidated`` rather than deleted.
+
+When the store holds more rows than the cap, each scan reads the newest ``cap`` rows, so new data
+is never starved by old data. Such a capped scan proves nothing about what it did not read: it
+invalidates nothing, never lowers an existing relationship's weight or moves its first-seen time
+later, and appends evidence instead of replacing it. A funder link is only proposed from a capped
+window for a recipient with no earlier stored inbound transfer outside that window.
 """
 
 from __future__ import annotations
@@ -75,6 +80,12 @@ class _Found:
     basis: str = "observed"
 
 
+def _oldest_first(rows: Sequence[Any], cap: int) -> tuple[list[Any], bool]:
+    """``rows`` were read newest first with one extra row; return the newest ``cap`` rows in
+    ascending time order and whether the cap was reached."""
+    return list(reversed(rows[:cap])), len(rows) > cap
+
+
 @dataclass(slots=True)
 class _Scan:
     found: list[_Found] = field(default_factory=list[_Found])
@@ -142,10 +153,10 @@ class RelationshipService:
                 .where(
                     t.c.chain == chain, t.c.block_time.is_not(None), canonical_transaction(), *extra
                 )
-                .order_by(t.c.block_time.asc())
+                .order_by(t.c.block_time.desc(), t.c.tx_id.desc())
                 .limit(cap + 1)
             ).all()
-        return rows[:cap], len(rows) > cap
+        return _oldest_first(rows, cap)
 
     def _deployments(self, chain: str) -> _Scan:
         t = schema.transactions
@@ -184,18 +195,46 @@ class RelationshipService:
                     tr.c.block_time.is_not(None),
                     tr.c.tx_id.not_in(orphaned_tx_ids(chain)),
                 )
-                .order_by(tr.c.block_time.asc())
+                .order_by(tr.c.block_time.desc(), tr.c.id.desc())
                 .limit(cap + 1)
             ).all()
-        return rows[:cap], len(rows) > cap
+        return _oldest_first(rows, cap)
+
+    def _funded_before_window(self, chain: str, rows: Sequence[Any]) -> set[str]:
+        """Recipients in a capped window that have a stored inbound native transfer the window did
+        not read (earlier, or at the boundary time): their first stored funder is unknown here."""
+        if not rows:
+            return set()
+        start = rows[0].block_time
+        in_window = {str(r.tx_id) for r in rows}
+        recipients = sorted({str(r.to_address) for r in rows})
+        tr = schema.transfers
+        earlier: set[str] = set()
+        with self._repo.transaction() as conn:
+            for i in range(0, len(recipients), 400):
+                for to_address, tx_id in conn.execute(
+                    select(tr.c.to_address, tr.c.tx_id).where(
+                        tr.c.chain == chain,
+                        tr.c.token.is_(None),
+                        tr.c.to_address.in_(recipients[i : i + 400]),
+                        tr.c.from_address.is_not(None),
+                        tr.c.from_address != tr.c.to_address,
+                        tr.c.block_time <= start,
+                        tr.c.tx_id.not_in(orphaned_tx_ids(chain)),
+                    )
+                ).all():
+                    if str(tx_id) not in in_window:
+                        earlier.add(str(to_address))
+        return earlier
 
     def _funding(self, chain: str) -> _Scan:
         rows, truncated = self._native_transfers(chain)
         scan = _Scan(rows=len(rows), truncated=truncated)
+        unknown = self._funded_before_window(chain, rows) if truncated else set[str]()
         first: dict[str, Any] = {}
         pair_count: dict[tuple[str, str], int] = defaultdict(int)
         for r in rows:  # ascending in time: the first inbound transfer per recipient wins
-            if r.from_address == r.to_address:
+            if r.from_address == r.to_address or str(r.to_address) in unknown:
                 continue
             first.setdefault(str(r.to_address), r)
             pair_count[(str(r.to_address), str(r.from_address))] += 1
@@ -245,11 +284,10 @@ class RelationshipService:
                     tr.c.block_time.is_not(None),
                     tr.c.tx_id.not_in(orphaned_tx_ids(chain)),
                 )
-                .order_by(tr.c.block_time.asc())
+                .order_by(tr.c.block_time.desc(), tr.c.id.desc())
                 .limit(cap + 1)
             ).all()
-        truncated = len(rows) > cap
-        rows = rows[:cap]
+        rows, truncated = _oldest_first(rows, cap)
         scan = _Scan(rows=len(rows), truncated=truncated)
         pairs: dict[tuple[str, str], list[Any]] = defaultdict(list)
         for r in rows:
@@ -311,7 +349,9 @@ class RelationshipService:
         with self._repo.transaction() as conn:
             for f in scan.found:
                 existing = conn.execute(
-                    select(r.c.id).where(
+                    select(
+                        r.c.id, r.c.weight, r.c.confidence, r.c.first_seen_at, r.c.last_seen_at
+                    ).where(
                         r.c.chain == chain,
                         r.c.kind == f.kind,
                         r.c.source_ref == f.source_ref,
@@ -342,13 +382,33 @@ class RelationshipService:
                     assert pk is not None  # noqa: S101
                     rel_id = int(pk[0])
                     created += 1
+                elif scan.truncated:  # a partial window: merge, never make the row worse
+                    rel_id = int(existing.id)
+                    values["weight"] = max(int(existing.weight), f.weight)
+                    values["confidence"] = max(float(existing.confidence), f.confidence)
+                    values["first_seen_at"] = min(existing.first_seen_at, f.seen_first)
+                    values["last_seen_at"] = max(existing.last_seen_at, f.seen_last)
+                    conn.execute(update(r).where(r.c.id == rel_id).values(**values))
+                    updated += 1
                 else:
-                    rel_id = int(existing[0])
+                    rel_id = int(existing.id)
                     conn.execute(update(r).where(r.c.id == rel_id).values(**values))
                     conn.execute(delete(e).where(e.c.relationship_id == rel_id))
                     updated += 1
+                have = set(
+                    conn.execute(select(e.c.tx_id).where(e.c.relationship_id == rel_id)).scalars()
+                )
                 for tx in dict.fromkeys(f.tx_ids):
-                    conn.execute(insert(e).values(relationship_id=rel_id, chain=chain, tx_id=tx))
+                    if tx not in have:
+                        conn.execute(
+                            insert(e).values(relationship_id=rel_id, chain=chain, tx_id=tx)
+                        )
+                if scan.truncated:  # keep the newest MAX_EVIDENCE items
+                    keep = select(e.c.id).where(e.c.relationship_id == rel_id)
+                    keep = keep.order_by(e.c.id.desc()).limit(MAX_EVIDENCE)
+                    conn.execute(
+                        delete(e).where(e.c.relationship_id == rel_id, e.c.id.not_in(keep))
+                    )
             invalidated = 0
             if not scan.truncated:
                 seen = {(f.source_ref, f.target_ref) for f in scan.found}
