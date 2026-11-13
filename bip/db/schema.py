@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 18
 
 metadata = MetaData(
     naming_convention={
@@ -1381,3 +1381,210 @@ A label is ``proposed`` until a human approves it with traceable evidence; only 
 ever shown as attribution. AI and signal proposals stay proposals."""
 
 V14_TABLES = (entity_labels,)
+
+
+# ------------------------------------------------- v16: BIP-owned checkpoints and coverage
+
+ingestion_checkpoints = Table(
+    "ingestion_checkpoints",
+    metadata,
+    Column("chain", String(32), primary_key=True),
+    Column("network", String(32), primary_key=True),
+    Column("stream", String(40), primary_key=True),
+    Column("direction", String(12), primary_key=True),
+    Column("position_kind", String(8), nullable=False),
+    Column("cursor", Integer, nullable=True),
+    Column("cursor_hash", String(100), nullable=True),
+    Column("boundary", Integer, nullable=True),
+    Column("head_seen", Integer, nullable=True),
+    Column("head_seen_at", UTCDateTime, nullable=True),
+    Column("last_batch_from", Integer, nullable=True),
+    Column("last_batch_to", Integer, nullable=True),
+    Column("last_committed_at", UTCDateTime, nullable=True),
+    Column("status", String(16), nullable=False),
+    Column("last_error_category", String(32), nullable=True),
+    Column("last_error_at", UTCDateTime, nullable=True),
+    Column("last_providers_json", Text, nullable=False, server_default="[]"),
+    Column("decoder_version", String(16), nullable=False),
+    Column("config_version", String(64), nullable=True),
+    Column("recovery_json", Text, nullable=False, server_default="{}"),
+    Column("updated_at", UTCDateTime, nullable=False),
+    CheckConstraint("direction IN ('live', 'historical')", name="checkpoint_direction"),
+    CheckConstraint("position_kind IN ('block', 'slot')", name="checkpoint_position_kind"),
+    CheckConstraint(
+        "status IN ('idle', 'running', 'stalled', 'blocked', 'complete', 'paused')",
+        name="checkpoint_status",
+    ),
+)
+"""BIP's own ingestion progress per chain, network, stream and direction. ``cursor`` is the last
+block (Ethereum) or slot (Solana) whose batch was committed; it never moves on a provider failure.
+``live`` moves forward toward the head, ``historical`` moves backward toward ``boundary``; the two
+are independent rows. Providers are provenance (``last_providers_json``), never part of the key.
+``cursor_hash`` always belongs to ``cursor`` (``NULL`` when that position has no known hash), and
+``head_seen`` is the chain head the last run observed, so lag can be read without a provider."""
+
+coverage_ranges = Table(
+    "coverage_ranges",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("network", String(32), nullable=False),
+    Column("stream", String(40), nullable=False),
+    Column("position_kind", String(8), nullable=False),
+    Column("from_pos", Integer, nullable=False),
+    Column("to_pos", Integer, nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("provider_id", String(64), nullable=True),
+    Column("decoder_version", String(16), nullable=False),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("reason", String(300), nullable=True),
+    Column("first_recorded_at", UTCDateTime, nullable=False),
+    Column("last_recorded_at", UTCDateTime, nullable=False),
+    Column("resolved_at", UTCDateTime, nullable=True),
+    CheckConstraint("to_pos >= from_pos", name="coverage_range_order"),
+    CheckConstraint("position_kind IN ('block', 'slot')", name="coverage_position_kind"),
+    CheckConstraint(
+        "status IN ('processed', 'confirmed_empty', 'incomplete', 'failed', 'skipped',"
+        " 'provider_unavailable')",
+        name="coverage_status",
+    ),
+    Index(None, "chain", "network", "stream", "from_pos"),
+    Index(None, "chain", "network", "stream", "status"),
+)
+"""What BIP knows about each block or slot range of a stream. ``processed`` means read and handled
+under the stream's rules (it can hold zero matches); ``confirmed_empty`` means the chain itself has
+no block there (a skipped Solana slot); ``incomplete`` means read but not everything was stored;
+``failed`` means given up after repeated reads; ``skipped`` means deliberately not read;
+``provider_unavailable`` means no provider served it. A range with no row is *not observed*, and a
+range beyond the live cursor is *not yet processed*: neither is ever shown as empty. A gap row
+(``failed``, ``skipped``, ``provider_unavailable``) gets ``resolved_at`` when a later read processes
+its whole range; it is kept as history. ``incomplete`` is never resolved that way, because it
+qualifies a processed read of the same positions rather than replacing one."""
+
+V16_TABLES = (ingestion_checkpoints, coverage_ranges)
+
+
+# ------------------------------------------------- v17: per-provider daily request usage
+
+provider_usage_daily = Table(
+    "provider_usage_daily",
+    metadata,
+    Column("provider_id", String(64), primary_key=True),
+    Column("day", String(10), primary_key=True),
+    Column("requests", Integer, nullable=False, server_default="0"),
+    Column("failures", Integer, nullable=False, server_default="0"),
+    Column("updated_at", UTCDateTime, nullable=False),
+)
+"""Requests BIP itself sent to each provider per UTC day (``YYYY-MM-DD``), counted by the router
+for every attempt. It is BIP's own count, not the provider's billing: credit-weighted plans
+(compute units, credits) cost more per request than one."""
+
+V17_TABLES = (provider_usage_daily,)
+
+
+# ------------------------------------------------- v18: intelligence memory, review, expansion
+
+entities = Table(
+    "entities",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("ref", String(100), nullable=False),
+    Column("kind", String(16), nullable=False),
+    Column("first_seen_at", UTCDateTime, nullable=True),
+    Column("last_seen_at", UTCDateTime, nullable=True),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("updated_at", UTCDateTime, nullable=False),
+    UniqueConstraint("chain", "ref"),
+    CheckConstraint(
+        "kind IN ('wallet', 'contract', 'token', 'pool', 'program')", name="entity_kind"
+    ),
+    Index(None, "chain", "kind"),
+    Index(None, "last_seen_at"),
+)
+"""One persistent identity per chain address. Identity is the address only: two addresses are
+never merged because they behave alike. What BIP knows about an entity lives in ``entity_facts``;
+``kind`` is the kind the evidence supports (``contract`` once a deployment is observed)."""
+
+entity_facts = Table(
+    "entity_facts",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("entity_id", Integer, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False),
+    Column("fact_key", String(64), nullable=False),
+    Column("value_json", Text, nullable=False),
+    Column("evidence_class", String(12), nullable=False),
+    Column("change", String(14), nullable=False),
+    Column("source", String(80), nullable=False),
+    Column("source_chain", String(32), nullable=True),
+    Column("source_tx", String(100), nullable=True),
+    Column("observed_at", UTCDateTime, nullable=True),
+    Column("recorded_at", UTCDateTime, nullable=False),
+    Column("confirmed_at", UTCDateTime, nullable=False),
+    Column("confirmations", Integer, nullable=False, server_default="1"),
+    Column("supersedes_id", Integer, nullable=True),
+    Column("status", String(12), nullable=False),
+    CheckConstraint(
+        "evidence_class IN ('observed', 'statistical', 'heuristic', 'hypothesis', 'reviewed')",
+        name="fact_evidence_class",
+    ),
+    CheckConstraint(
+        "change IN ('new', 'changed', 'contradiction', 'invalidated')", name="fact_change"
+    ),
+    CheckConstraint(
+        "status IN ('current', 'superseded', 'invalidated', 'outdated')", name="fact_status"
+    ),
+    Index(None, "entity_id", "fact_key", "status"),
+    Index(None, "source_chain", "source_tx"),
+)
+"""Append-only knowledge about an entity. A fact is never overwritten: a different value for the
+same key appends a ``changed`` row that supersedes the previous one; seeing the same value again
+only raises ``confirmations``; conflicting reviewed sources append a ``contradiction`` and both
+stay visible; a fact resting on an orphaned transaction becomes ``invalidated``. ``evidence_class``
+separates observed facts, statistical signals, heuristics, hypotheses and human-reviewed labels."""
+
+signal_decisions = Table(
+    "signal_decisions",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("signal_id", Integer, ForeignKey("signals.id", ondelete="CASCADE"), nullable=False),
+    Column("from_state", String(16), nullable=False),
+    Column("to_state", String(16), nullable=False),
+    Column("reason_code", String(32), nullable=False),
+    Column("note", String(500), nullable=True),
+    Column("actor", String(80), nullable=False),
+    Column("decided_at", UTCDateTime, nullable=False),
+    CheckConstraint(
+        "to_state IN ('new', 'pending_review', 'accepted', 'rejected', 'monitoring',"
+        " 'investigating', 'archived')",
+        name="decision_state",
+    ),
+    Index(None, "signal_id", "decided_at"),
+)
+"""Human review of a candidate: every state change with its required reason, actor and time. The
+review state of a signal is its latest decision (``new`` when there is none). Review is separate
+from the machine status; accepting a candidate never makes it a fact."""
+
+discovery_examined = Table(
+    "discovery_examined",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("policy", String(40), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("ref", String(100), nullable=False),
+    Column("depth", Integer, nullable=False),
+    Column("via_ref", String(100), nullable=True),
+    Column("run_id", Integer, nullable=True),
+    Column("outcome", String(16), nullable=False),
+    Column("examined_at", UTCDateTime, nullable=False),
+    UniqueConstraint("policy", "chain", "ref"),
+    CheckConstraint(
+        "outcome IN ('examined', 'candidate', 'skipped_budget', 'skipped_depth')",
+        name="examined_outcome",
+    ),
+    Index(None, "policy", "examined_at"),
+)
+"""What a bounded expansion policy looked at, so it never re-examines an entity within its
+cooldown and an interrupted run resumes from its frontier."""
+
+V18_TABLES = (entities, entity_facts, signal_decisions, discovery_examined)

@@ -121,7 +121,7 @@ def test_settings_and_responses_expose_no_secrets(
 
 def test_public_settings_shape(client: TestClient) -> None:
     body = client.get(f"{API}/settings").json()
-    assert body["authentication"] == "not_implemented"
+    assert body["authentication"] == "disabled"  # the configured mode, not a placeholder
     assert body["database_engine"] == "sqlite"
     assert body["enabled_chains"] == ["ethereum", "solana"]
     assert body["storage"]["writes_allowed"] is True

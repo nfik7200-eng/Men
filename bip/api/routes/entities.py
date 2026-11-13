@@ -11,10 +11,12 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Path, Query, Request, status
 
 from bip.api.deps import Context, WritableContext
+from bip.api.errors import error_response
 from bip.api.routes.chains import _require_chain  # pyright: ignore[reportPrivateUsage]
 from bip.api.schemas import Body
 from bip.db.repository import canonical_address
 from bip.entities import views
+from bip.intel.memory import MemoryBusyError, counterparties
 
 router = APIRouter(tags=["entities"])
 ChainP = Annotated[str, Path(min_length=1, max_length=32)]
@@ -84,6 +86,71 @@ def token(ctx: Context, chain: ChainP, address: Ref) -> dict[str, Any]:
 def contract(ctx: Context, chain: ChainP, address: Ref) -> dict[str, Any]:
     _require_chain(ctx, chain)
     return views.contract_detail(ctx.repo, chain, address)
+
+
+@router.get("/entities/memory/search")
+def memory_search(
+    ctx: Context,
+    chain: Annotated[str | None, Query(max_length=32)] = None,
+    kind: Literal["wallet", "contract", "token", "pool", "program"] | None = None,
+    q: Annotated[str | None, Query(min_length=2, max_length=100)] = None,
+    limit: Limit = 50,
+) -> dict[str, Any]:
+    """Entities in intelligence memory, most recently seen first (prefix search on the address)."""
+    if chain is not None:
+        _require_chain(ctx, chain)
+    return {
+        "items": ctx.memory.search(chain=chain, kind=kind, q=q, limit=limit),
+        "last_refresh": ctx.memory.last_run(),
+        "data_origin": _origin(ctx),
+    }
+
+
+@router.get("/entities/memory/{chain}/{ref}")
+def memory_entity(ctx: Context, chain: ChainP, ref: Ref) -> dict[str, Any]:
+    """What BIP remembers about one entity: current facts with their evidence class, the full
+    fact history (nothing is overwritten), contradictions, counterparties, relationships with
+    their evidence, and the candidates that name it with their review state."""
+    _require_chain(ctx, chain)
+    canonical = canonical_address(chain, ref).address
+    entity = ctx.memory.entity(chain, canonical)
+    signals = ctx.discovery.list_signals(
+        chain=chain, subject_ref=canonical, sort="recent", limit=20
+    )["items"]
+    states = ctx.review.states([int(x["id"]) for x in signals])
+    return {
+        "chain": chain,
+        "ref": canonical,
+        "in_memory": entity is not None,
+        "entity": entity,
+        "counterparties": counterparties(ctx.repo, chain, canonical),
+        "relationships": ctx.relationships.for_entity(chain, canonical, limit=50),
+        "candidates": [
+            {
+                "id": x["id"],
+                "title": x["title"],
+                "detector_id": x["detector"]["id"],
+                "score": x["score"],
+                "status": x["status"],
+                "review_state": states.get(int(x["id"]), "new"),
+            }
+            for x in signals
+        ],
+        "data_origin": _origin(ctx),
+        "note": "Facts are what stored data shows; statistical and heuristic facts and "
+        "hypotheses are labelled as such and are not proof of identity or intent.",
+    }
+
+
+@router.post("/entities/memory/refresh/{chain}", status_code=status.HTTP_201_CREATED)
+def memory_refresh(ctx: WritableContext, chain: ChainP) -> Any:
+    """Fold newly stored data into intelligence memory once (local database only, bounded)."""
+    _require_chain(ctx, chain)
+    ctx.disk_guard.require(64 * 1024)
+    try:
+        return ctx.memory.refresh(chain)
+    except MemoryBusyError:
+        return error_response(409, "memory_busy", "A memory refresh is running. Try again.")
 
 
 @router.get("/entities/{chain}/{ref}/relationships")

@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, FieldError, Loading, PageHeader, Panel, Pill, t
 import { chainLabel } from "../lib/address";
 import { fmtInt, fmtTime } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import { ExpansionPanel, RunHistoryPanel } from "./coverage/ExpansionPanels";
 
 type Chain = "ethereum" | "solana";
 
@@ -287,6 +288,8 @@ export default function Coverage() {
         <CollectorPanel chain="ethereum" />
         <CollectorPanel chain="solana" />
         <Detectors catalogue={catalogue} />
+        <RunHistoryPanel />
+        <ExpansionPanel />
       </div>
     </>
   );

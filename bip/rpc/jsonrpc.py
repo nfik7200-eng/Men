@@ -41,6 +41,8 @@ class RpcError(BIPError):
         super().__init__(message)
         self.error_class = error_class
         self.code = code
+        self.provider_id: str | None = None
+        """The provider that returned this error, set by the router when it re-raises."""
 
     @property
     def counts_against_provider(self) -> bool:
@@ -70,6 +72,8 @@ def classify_error(code: int | None, message: str, method: str) -> ErrorClass:
         return "rate_limited"
     if method == "eth_getLogs" and any(h in text for h in _RANGE_HINTS):
         return "range_too_large"
+    if code == -32001 and not method.startswith("eth_"):
+        return "not_available"  # Solana: block cleaned up (EVM uses -32001 for other errors)
     if code in {-32004, -32007, -32009, -32011, -32015, -32016}:
         # Solana: block not available / slot skipped / missing in long-term storage /
         # tx history not available / unsupported version / min context slot not reached

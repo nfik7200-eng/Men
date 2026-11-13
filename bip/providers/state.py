@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.engine import Connection
 
 from bip.db import schema
 from bip.db.repository import Repository
@@ -65,12 +66,37 @@ class ProviderStateStore:
             )
         return out
 
+    def usage_today(self) -> dict[str, int]:
+        """Requests BIP sent to each provider so far this UTC day (its own count)."""
+        u = schema.provider_usage_daily
+        day = utcnow().date().isoformat()
+        with self._repo.transaction() as conn:
+            rows = conn.execute(select(u.c.provider_id, u.c.requests).where(u.c.day == day))
+            return {str(pid): int(n) for pid, n in rows}
+
+    def usage(self, days: int = 7) -> list[dict[str, object]]:
+        u = schema.provider_usage_daily
+        with self._repo.transaction() as conn:
+            rows = conn.execute(
+                select(u).order_by(u.c.day.desc(), u.c.provider_id).limit(days * 50)
+            ).mappings()
+            return [
+                {
+                    "provider_id": r["provider_id"],
+                    "day": r["day"],
+                    "requests": r["requests"],
+                    "failures": r["failures"],
+                }
+                for r in rows
+            ]
+
     def record_call(
         self, provider_id: str, *, ok: bool, latency_ms: int | None, outcome: str
     ) -> None:
         c = schema.provider_checks
         now = utcnow()
         with self._repo.transaction() as conn:
+            self._count(conn, provider_id, ok, now)
             row = conn.execute(select(c).where(c.c.provider_id == provider_id)).mappings().first()
             if row is None:
                 conn.execute(
@@ -98,6 +124,29 @@ class ProviderStateStore:
                     consecutive_failures=int(row["consecutive_failures"] or 0) + 1,
                 )
             conn.execute(update(c).where(c.c.provider_id == provider_id).values(**values))
+
+    def count_request(self, provider_id: str, *, ok: bool) -> None:
+        """Count a request in the daily usage without touching health state (for example a
+        probe answered with a rate limit, which is a usage policy, not an outage)."""
+        with self._repo.transaction() as conn:
+            self._count(conn, provider_id, ok, utcnow())
+
+    @staticmethod
+    def _count(conn: Connection, provider_id: str, ok: bool, now: datetime) -> None:
+        u = schema.provider_usage_daily
+        day = now.date().isoformat()
+        fail = 0 if ok else 1
+        hit = conn.execute(
+            update(u)
+            .where(u.c.provider_id == provider_id, u.c.day == day)
+            .values(requests=u.c.requests + 1, failures=u.c.failures + fail, updated_at=now)
+        )
+        if hit.rowcount == 0:
+            conn.execute(
+                insert(u).values(
+                    provider_id=provider_id, day=day, requests=1, failures=fail, updated_at=now
+                )
+            )
 
     def record_health_check(self, record: HealthCheckRecord) -> None:
         with self._repo.transaction() as conn:

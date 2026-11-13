@@ -69,6 +69,16 @@ import type { DiscoveryRunResult,
   LabelReviewInput,
   PromoteInput,
   SignalDetail,
+  DecisionList,
+  ExpansionOverview,
+  ExpansionPolicyId,
+  ExpansionResult,
+  DiscoveryRunList,
+  MemoryProfile,
+  MemoryRefresh,
+  MemorySearch,
+  ReviewResult,
+  SignalReviewInput,
   SignalPage,
   SignalQuery,
   SystemHealth,
@@ -339,7 +349,19 @@ export const api = {
     request<SignalDetail>(`/signals/${id}/dismiss`, { method: "POST", ...json({ note }) }),
   promoteSignal: (id: number, body: PromoteInput) =>
     request<SignalDetail>(`/signals/${id}/promote`, { method: "POST", ...json(body) }),
+  reviewSignal: (id: number, body: SignalReviewInput) =>
+    request<ReviewResult>(`/signals/${id}/review`, { method: "POST", ...json(body) }),
+  signalDecisions: (id: number) => request<DecisionList>(`/signals/${id}/decisions`),
   detectors: () => request<DetectorCatalogue>("/discovery/detectors"),
+  discoveryRuns: (limit = 10) => request<DiscoveryRunList>(`/discovery/runs?limit=${limit}`),
+  expansion: () => request<ExpansionOverview>("/discovery/expansion"),
+  runExpansion: (chain: string, policy: ExpansionPolicyId) =>
+    request<ExpansionResult>(`/discovery/expand/${enc(chain)}`, { method: "POST", ...json({ policy }) }),
+  // ---- intelligence memory (stored data only)
+  memory: (chain: string, ref: string) => request<MemoryProfile>(`/entities/memory/${enc(chain)}/${enc(ref)}`),
+  memorySearch: (q: { chain?: string; kind?: string; q?: string; limit?: number }) =>
+    request<MemorySearch>(`/entities/memory/search${queryString(q)}`),
+  refreshMemory: (chain: string) => request<MemoryRefresh>(`/entities/memory/refresh/${enc(chain)}`, { method: "POST" }),
   alerts: (q: { unread?: boolean; limit?: number; offset?: number } = {}) =>
     request<AlertPage>(`/alerts${queryString(q)}`),
   alertChannels: () => request<AlertChannels>("/alerts/channels"),

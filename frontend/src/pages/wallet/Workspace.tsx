@@ -15,6 +15,7 @@ import { FlowsView } from "../CapitalFlows";
 import { GraphView } from "../Graph";
 import { ClassificationPanel, Investigation } from "../Research";
 import WalletIntel from "../WalletIntel";
+import MemoryTab from "./MemoryTab";
 import { IngestPanel, WalletActivity } from "../Wallets";
 
 export const TABS = [
@@ -26,6 +27,7 @@ export const TABS = [
   ["research", "Research"],
   ["cases", "Cases"],
   ["evidence", "Evidence"],
+  ["memory", "Memory"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 const NEEDS_DATA: ReadonlySet<Tab> = new Set(["flows", "graph", "classification", "evidence"]);
@@ -135,6 +137,8 @@ function TabContent({ tab, s, base, onChange, nonce }: { tab: Tab; s: WalletStat
       return <ResearchTab s={s} />;
     case "cases":
       return <CasesTab s={s} onChange={onChange} />;
+    case "memory":
+      return <MemoryTab chain={s.chain} address={s.address} />;
     case "evidence":
       return <WalletIntel chain={s.chain} address={s.address} refreshKey={nonce} showOrigin={false} />;
   }

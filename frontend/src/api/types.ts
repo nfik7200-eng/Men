@@ -268,7 +268,7 @@ export type PublicSettings = {
     writes_allowed: boolean;
     reasons: string[];
   } | null;
-  authentication: "not_implemented";
+  authentication: "disabled" | "required";
   ingest_default_limit: number;
   ingest_max_limit: number;
   ethereum_lookback_blocks: number;
@@ -850,9 +850,38 @@ export type Signal = {
   /** "watchlist:<id>" or "investigation:<id>" */
   promoted_to: string | null;
   attribution: SignalAttribution;
+  /** analyst review state, independent of the system status */
+  review_state: ReviewState;
 };
 
-export type SignalDetail = Signal & DiscoveryEnvelope;
+export type ReviewState = "new" | "pending_review" | "accepted" | "rejected" | "monitoring" | "investigating" | "archived";
+export type ReviewTarget = Exclude<ReviewState, "new">;
+export type ReasonCode =
+  | "evidence_sufficient"
+  | "evidence_insufficient"
+  | "needs_more_data"
+  | "false_positive"
+  | "duplicate"
+  | "known_entity"
+  | "out_of_scope"
+  | "reopened"
+  | "other";
+
+export type ReviewDecision = {
+  id: number;
+  from_state: ReviewState;
+  to_state: ReviewState;
+  reason_code: ReasonCode;
+  note: string | null;
+  actor: string;
+  decided_at: string;
+};
+
+export type SignalReviewInput = { state: ReviewTarget; reason_code: ReasonCode; note?: string };
+export type ReviewResult = { signal_id: number; review_state: ReviewState; history: ReviewDecision[] };
+export type DecisionList = { signal_id: number; review_state: ReviewState; items: ReviewDecision[] };
+
+export type SignalDetail = Signal & DiscoveryEnvelope & { decisions?: ReviewDecision[] };
 
 export type SignalPage = DiscoveryEnvelope & { total: number; limit: number; offset: number; items: Signal[] };
 
@@ -867,6 +896,7 @@ export type DiscoveryFeed = SignalPage & { freshness: Freshness; scope: string }
 
 export type SignalQuery = {
   status?: SignalStatus;
+  review_state?: ReviewState;
   family?: string;
   chain?: string;
   severity?: Severity;
@@ -1102,3 +1132,130 @@ export type SystemHealth = {
 };
 
 export type BackupCreated = SystemBackup & { pruned: unknown };
+
+
+// ---- intelligence memory, review decisions and expansion (Stage 3). Loosely typed where the API returns plain dicts.
+
+export type EvidenceClass = "observed" | "statistical" | "heuristic" | "hypothesis" | "reviewed";
+export type Fact = {
+  id: number;
+  key: string;
+  value: Record<string, unknown>;
+  evidence_class: EvidenceClass;
+  change: "new" | "changed" | "contradiction" | "invalidated";
+  status: "current" | "superseded" | "invalidated" | "outdated";
+  source: string | null;
+  source_tx: string | null;
+  observed_at: string | null;
+  recorded_at: string | null;
+  confirmed_at: string | null;
+  confirmations: number;
+  supersedes_id: number | null;
+};
+
+export type MemoryEntity = {
+  chain: string;
+  ref: string;
+  kind: "wallet" | "contract" | "token" | "pool" | "program";
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  updated_at: string | null;
+  current_facts: Fact[];
+  contradictions: Fact[];
+  history: Fact[];
+};
+
+export type MemoryCounterparty = { ref: string; out: number; in: number; first_at: string | null; last_at: string | null };
+
+export type RelationshipItem = {
+  id?: number;
+  kind?: string;
+  /** the API nests the endpoints; flat source_ref/target_ref are accepted too */
+  source?: { kind?: string; ref?: string };
+  target?: { kind?: string; ref?: string };
+  source_ref?: string;
+  target_ref?: string;
+  basis?: string;
+  confidence?: number;
+  status?: string;
+  /** supporting transactions: [{kind: "transaction", chain, ref}] */
+  evidence?: unknown;
+  [extra: string]: unknown;
+};
+
+export type MemoryCandidate = {
+  id: number;
+  title: string;
+  detector_id: string;
+  score: number;
+  status: SignalStatus;
+  review_state: ReviewState;
+};
+
+export type MemoryProfile = {
+  chain: string;
+  ref: string;
+  in_memory: boolean;
+  entity: MemoryEntity | null;
+  counterparties: MemoryCounterparty[];
+  relationships: { items: RelationshipItem[]; total?: number; scope?: string; [extra: string]: unknown };
+  candidates: MemoryCandidate[];
+  data_origin: DataOrigin;
+  note: string;
+};
+
+export type MemoryRefresh = {
+  chain: string;
+  rows_read: Record<string, number>;
+  entities_touched: number;
+  facts_new: number;
+  facts_changed: number;
+  facts_confirmed: number;
+  contradictions: number;
+  facts_outdated: number;
+  truncated_sources: string[];
+  source: string;
+  finished_at: string;
+};
+
+export type ExpansionPolicyId = "shared_neighbourhood" | "deployer_network";
+export type ExpansionPolicy = { id: string; objective: string; seeds: string; stopping: string };
+export type ExpansionBudgets = {
+  max_depth: number;
+  max_entities: number;
+  max_relationship_rows: number;
+  max_seeds: number;
+  cooldown_days: number;
+};
+
+export type DiscoveryRunSummary = {
+  policy?: { id: string; objective?: string; seeds?: string };
+  seeds_used?: number;
+  entities_examined?: number;
+  relationship_rows_read?: number;
+  truncated?: string[];
+  detectors?: Record<string, { created?: number; merged?: number; [extra: string]: unknown }>;
+  [extra: string]: unknown;
+};
+export type DiscoveryRunRecord = {
+  id: number;
+  chain: string | null;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  summary: DiscoveryRunSummary | null;
+};
+export type DiscoveryRunList = DiscoveryEnvelope & { items: DiscoveryRunRecord[] };
+export type ExpansionOverview = DiscoveryEnvelope & {
+  policies: ExpansionPolicy[];
+  budgets: ExpansionBudgets;
+  scheduled: boolean;
+  source: string;
+  runs: DiscoveryRunRecord[];
+};
+export type ExpansionResult = DiscoveryRunSummary & { run_id?: number; status?: string };
+export type MemorySearch = {
+  items: { chain: string; ref: string; kind: string; first_seen_at: string | null; last_seen_at: string | null }[];
+  last_refresh: Record<string, unknown> | null;
+  data_origin: DataOrigin;
+};

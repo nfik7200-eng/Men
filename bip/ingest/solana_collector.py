@@ -40,6 +40,8 @@ from bip.config.settings import Settings
 from bip.contracts.provenance import Finality
 from bip.core.logging import get_logger
 from bip.db import schema
+from bip.db.checkpoints import CheckpointStatus, CheckpointStore, CoverageStatus, StreamRef
+from bip.db.errors import DatabaseError
 from bip.db.repository import Repository
 from bip.db.types import utcnow
 from bip.router.router import (
@@ -64,11 +66,15 @@ ATTEMPTS_KEY = "collector:solana:attempts"
 LAST_RUN_KEY = "collector:solana:last_run"
 COLLECTOR_VERSION = "1"
 MAX_GAPS_KEPT = 50
+STREAM = StreamRef("solana", "collector")
 LAMPORTS_PER_SOL = 10**9
 
 NOT_COVERED = (
     "pools created by programs other than Raydium AMM v4 and Orca Whirlpools (initialize_pool)",
-    "SPL token transfers, holders, balances and liquidity/reserve changes",
+    "SPL token transfers of mints outside solana_collector.spl_mint_allowlist (none stored when "
+    "it is empty); token-account owners are not resolved; Token-2022 TransferCheckedWithFee and "
+    "other extension instructions are not decoded",
+    "SPL holders, balances and liquidity/reserve changes",
     "program upgrades and any slot before the cursor",
     "ordinary transactions (counted, not stored)",
 )
@@ -87,11 +93,36 @@ def _deterministic(exc: BaseException) -> bool:
     return False
 
 
+def _token_mints(meta: dict[str, Any]) -> set[str]:
+    """Mints that appear in a transaction's token balances (a cheap pre-filter: a transfer of a
+    mint always shows that mint in the pre or post token balances)."""
+    out: set[str] = set()
+    for key in ("preTokenBalances", "postTokenBalances"):
+        for b in as_list(meta.get(key)) or []:
+            entry = as_dict(b)
+            if entry is not None and isinstance(entry.get("mint"), str):
+                out.add(str(entry["mint"]))
+    return out
+
+
 class SolanaCollector:
-    def __init__(self, router: ProviderRouter, repo: Repository, settings: Settings) -> None:
+    def __init__(
+        self,
+        router: ProviderRouter,
+        repo: Repository,
+        settings: Settings,
+        *,
+        legacy_gaps: bool = True,
+    ) -> None:
         self._router = router
         self._repo = repo
         self._cfg = settings.solana_collector
+        self._checkpoints = CheckpointStore(repo)
+        self._mints = frozenset(self._cfg.spl_mint_allowlist)
+        self._legacy_gaps = legacy_gaps
+        """The live collector also keeps the old ``collector:solana:gaps`` list; the backfill,
+        which reuses the per-slot scan, records coverage only."""
+        self._spl_capped_reported = 0
 
     def status(self) -> dict[str, Any]:
         raw = self._repo.get_meta(LAST_RUN_KEY)
@@ -124,6 +155,7 @@ class SolanaCollector:
     def run(self) -> dict[str, Any]:
         """Scan the next finalized slots once; always returns a manifest, never raises."""
         cfg = self._cfg
+        self._spl_capped_reported = 0
         budget = CallBudget.create(cfg.max_rpc_calls_per_run, cfg.run_deadline_s)
         adapter = SolanaAdapter(self._router, budget=budget)
         m: dict[str, Any] = {
@@ -140,6 +172,8 @@ class SolanaCollector:
             "pools_found": 0,
             "discoveries_stored": 0,
             "large_transfers_stored": 0,
+            "spl_transfers_stored": 0,
+            "spl_transfers_over_cap": 0,
             "stored_transactions_over_cap": 0,
             "rejected": 0,
             "continuity_mismatches": 0,
@@ -152,6 +186,12 @@ class SolanaCollector:
             "not_covered": list(NOT_COVERED),
         }
         stored_txs = 0
+        error_category: str | None = None
+        if self._checkpoints.is_paused(STREAM, "live"):
+            m["status"] = "paused"
+            m["message"] = "Live collection is paused by an operator; nothing was read."
+            return self._finish(m, adapter)
+        self._checkpoints.start_run(STREAM, "live", decoder_version=COLLECTOR_VERSION)
         try:
             head = adapter.slot("finalized")
             m["finalized_head"] = head
@@ -160,11 +200,16 @@ class SolanaCollector:
             prev: tuple[int, str] | None = None
             if raw_cursor is None:
                 start = fresh
-            elif head - int(raw_cursor) > cfg.max_lag_slots:
-                start = max(fresh, int(raw_cursor) + 1)
-                self._record_gap(int(raw_cursor) + 1, start - 1, "lag exceeded max_lag_slots", m)
-                # Moving the cursor now keeps a repeated failure from recording the same gap
-                # again, and the old blockhash no longer links to the first slot we read.
+            elif head - int(raw_cursor) > cfg.max_lag_slots and fresh > int(raw_cursor) + 1:
+                # Too far behind and the head is out of reach of one run: jump, and record the
+                # slots passed over as skipped (never as read or empty), in one transaction with
+                # the cursor move. The old blockhash no longer links to the first slot read.
+                start = fresh
+                reason = "lag exceeded max_lag_slots"
+                self._checkpoints.skip_to(
+                    STREAM, start - 1, decoder_version=COLLECTOR_VERSION, reason=reason
+                )
+                self._record_gap(int(raw_cursor) + 1, start - 1, reason, m, CoverageStatus.SKIPPED)
                 self._repo.set_meta(CURSOR_KEY, str(start - 1))
                 self._repo.set_meta(HASH_KEY, "")
             else:
@@ -186,6 +231,7 @@ class SolanaCollector:
                         # A provider outage must never burn the slot's attempts: stop and retry.
                         m["status"] = "partial"
                         m["message"] = redact_text(f"{type(exc).__name__}: {exc}")[:300]
+                        error_category = "provider_unavailable"
                         break
                     n = attempts.get(str(slot), 0) + 1
                     attempts[str(slot)] = n
@@ -196,17 +242,20 @@ class SolanaCollector:
                             f"Slot {slot} failed ({type(exc).__name__}); retried next run "
                             f"({n}/{cfg.max_slot_attempts})."
                         )
+                        error_category = "read_failed"
                         break
-                    self._record_gap(slot, slot, f"given up after {n} failed reads", m)
+                    self._record_gap(
+                        slot, slot, f"given up after {n} failed reads", m, CoverageStatus.FAILED
+                    )
                     m["slots_given_up"] += 1
                     attempts.pop(str(slot), None)
                     self._repo.set_meta(ATTEMPTS_KEY, json.dumps(attempts))
-                    self._advance(slot, None)
+                    self._advance(slot, None, adapter)
                     continue
                 attempts.pop(str(slot), None)
                 if pair is None:
                     m["slots_skipped"] += 1  # the node said the slot was skipped (-32007)
-                    self._advance(slot, None)
+                    self._advance(slot, None, adapter, CoverageStatus.CONFIRMED_EMPTY)
                     continue
                 block, src = pair
                 blockhash = str(block["blockhash"])
@@ -218,7 +267,13 @@ class SolanaCollector:
                     m["continuity_mismatches"] += 1
                 stored_txs += self._scan_block(slot, block, src, stored_txs, m)
                 prev = (slot, blockhash)
-                self._advance(slot, f"{slot}:{blockhash}")
+                self._advance(
+                    slot,
+                    f"{slot}:{blockhash}",
+                    adapter,
+                    CoverageStatus.PROCESSED,
+                    src.provider_id,
+                )
                 m["slots_scanned"] += 1
                 m["first_slot"] = m["first_slot"] if m["first_slot"] is not None else slot
                 m["last_slot"] = slot
@@ -228,13 +283,31 @@ class SolanaCollector:
         except NoEligibleProviderError as exc:
             m["status"] = "blocked"
             m["message"] = redact_text(f"No eligible provider: {exc}")[:300]
+            error_category = "no_eligible_provider"
         except (RoutingFailedError, RpcError, TransportError, ParseError) as exc:
             m["status"] = "partial" if m["slots_scanned"] else "failed"
             m["message"] = redact_text(f"{type(exc).__name__}: {exc}")[:300]
+            error_category = "provider_unavailable"
         except Exception as exc:  # the manifest must always be written
             log.exception("solana collector run failed unexpectedly")
             m["status"] = "failed"
             m["message"] = f"unexpected {type(exc).__name__}"
+            error_category = "internal_error"
+        if error_category is not None:
+            try:
+                self._checkpoints.mark(
+                    STREAM,
+                    "live",
+                    CheckpointStatus.BLOCKED
+                    if error_category == "no_eligible_provider"
+                    else CheckpointStatus.STALLED,
+                    decoder_version=COLLECTOR_VERSION,
+                    error_category=error_category,
+                    detail=m["message"],
+                    providers=adapter.providers_used,
+                )
+            except DatabaseError:
+                log.warning("could not record the solana collector checkpoint status")
         if not m["message"]:
             m["message"] = (
                 f"Scanned {m['slots_scanned']} finalized slot(s) "
@@ -252,15 +325,61 @@ class SolanaCollector:
         m["providers"] = sorted(adapter.providers_used)
         m["finished_at"] = utcnow().isoformat()
         self._repo.set_meta(LAST_RUN_KEY, json.dumps(m))
+        try:
+            self._checkpoints.finish_run(STREAM, "live", head_seen=m["finalized_head"])
+        except DatabaseError:
+            log.warning("could not finish the solana collector checkpoint run")
         return m
 
-    def _advance(self, slot: int, blockhash: str | None) -> None:
+    def _advance(
+        self,
+        slot: int,
+        blockhash: str | None,
+        adapter: SolanaAdapter,
+        status: CoverageStatus | None = None,
+        provider_id: str | None = None,
+    ) -> None:
+        """Move past ``slot`` after its data is committed. ``status`` is recorded as coverage
+        (``None`` when the slot was already recorded as a gap)."""
+        with self._repo.transaction() as conn:
+            if status is not None:
+                self._checkpoints.record_range(
+                    STREAM,
+                    slot,
+                    slot,
+                    status,
+                    decoder_version=COLLECTOR_VERSION,
+                    provider_id=provider_id,
+                    conn=conn,
+                )
+            self._checkpoints.commit_batch(
+                STREAM,
+                "live",
+                from_pos=slot,
+                to_pos=slot,
+                decoder_version=COLLECTOR_VERSION,
+                cursor_hash=blockhash.partition(":")[2] if blockhash else None,
+                providers=adapter.providers_used,
+                conn=conn,
+            )
         self._repo.set_meta(CURSOR_KEY, str(slot))
         if blockhash is not None:
             self._repo.set_meta(HASH_KEY, blockhash)
 
-    def _record_gap(self, first: int, last: int, reason: str, m: dict[str, Any]) -> None:
+    def _record_gap(
+        self,
+        first: int,
+        last: int,
+        reason: str,
+        m: dict[str, Any],
+        status: CoverageStatus = CoverageStatus.INCOMPLETE,
+    ) -> None:
         if last < first:
+            return
+        self._checkpoints.record_range(
+            STREAM, first, last, status, decoder_version=COLLECTOR_VERSION, reason=reason
+        )
+        if not self._legacy_gaps:
             return
         gaps: list[Any] = json.loads(self._repo.get_meta(GAPS_KEY) or "[]")
         gaps.append(
@@ -289,6 +408,7 @@ class SolanaCollector:
         min_lamports = cfg.min_sol_transfer * LAMPORTS_PER_SOL
         stored = 0
         dropped = 0
+        spl_dropped = 0
         for tx in txs:
             m["transactions_seen"] += 1
             if not isinstance(tx, dict):
@@ -304,7 +424,8 @@ class SolanaCollector:
                 continue
             found = decode_discoveries(entry)
             big = [t for t in system_transfers(entry) if t[2] >= min_lamports]
-            if not found and not big:
+            spl = bool(self._mints) and bool(self._mints & _token_mints(meta))
+            if not found and not big and not spl:
                 continue
             for d in found:
                 m[
@@ -331,15 +452,34 @@ class SolanaCollector:
                 m["stored_transactions_over_cap"] += 1
                 if big:
                     dropped += 1
+                elif spl:
+                    spl_dropped += 1
                 self._store_discoveries(parsed, blockhash, found, m)  # tiny: never capped
                 continue
             self._store(parsed, blockhash, found, m)
             stored += 1
+        if m["spl_transfers_over_cap"] > self._spl_capped_reported:
+            self._record_gap(slot, slot, "SPL transfer(s) not stored (per-run cap)", m)
+            self._spl_capped_reported = m["spl_transfers_over_cap"]
+        if spl_dropped:
+            m["spl_transactions_over_cap"] = m.get("spl_transactions_over_cap", 0) + spl_dropped
+            self._record_gap(
+                slot,
+                slot,
+                "transaction(s) with allowlisted SPL transfers not stored (per-run cap)",
+                m,
+            )
         if dropped:
             self._record_gap(
                 slot, slot, f"{dropped} large SOL transfer(s) not stored (per-run cap)", m
             )
         return stored
+
+    def scan_block(self, slot: int, block: dict[str, object], src: Any, m: dict[str, Any]) -> int:
+        """Public for the backfill and recovery: handle one finalized block's transactions
+        (idempotent, no cursor). Returns how many transactions were stored."""
+        self._spl_capped_reported = m.get("spl_transfers_over_cap", 0)
+        return self._scan_block(slot, block, src, m.get("_stored", 0), m)
 
     @staticmethod
     def _fee_payer(entry: dict[str, Any]) -> str | None:
@@ -367,7 +507,18 @@ class SolanaCollector:
         )
         for transfer, kind in parsed.transfers:
             if transfer.standard.value != "native":
-                continue  # SPL movements are not collected here
+                mint = transfer.token.address if transfer.token is not None else None
+                if mint is None or mint not in self._mints:
+                    continue  # only allowlisted mints are collected
+                if m["spl_transfers_stored"] >= self._cfg.max_spl_transfers_per_run:
+                    m["spl_transfers_over_cap"] += 1
+                    continue
+                if self._repo.store_transfer(
+                    transfer,
+                    extras={"observation_kind": kind, "block_time": tx.block_time, "raw_ref": None},
+                ):
+                    m["spl_transfers_stored"] += 1
+                continue
             lamports = transfer.amount_raw
             if (
                 lamports >= self._cfg.min_sol_transfer * LAMPORTS_PER_SOL

@@ -8,10 +8,12 @@ is refused rather than modified.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from sqlalchemy import URL, Engine, create_engine, event, insert, select, text
 from sqlalchemy.engine import Connection
@@ -21,6 +23,7 @@ from bip.config.settings import Settings
 from bip.db import schema
 from bip.db.errors import DatabaseError
 from bip.db.types import utcnow
+from bip.security.secrets import redact_text
 from bip.storage.paths import Layer, StorageRoot
 
 
@@ -176,6 +179,135 @@ def _label_requester(conn: Connection) -> None:
         conn.exec_driver_sql("ALTER TABLE entity_labels ADD COLUMN requested_by VARCHAR(80)")
 
 
+_LEGACY_COLLECTORS = (
+    # chain, network, position kind, cursor key, hash key, gaps key, range field prefix
+    (
+        "ethereum",
+        "mainnet",
+        "block",
+        "collector:ethereum:last_block",
+        "collector:ethereum:last_block_hash",
+        "collector:ethereum:gaps",
+        "block",
+    ),
+    (
+        "solana",
+        "mainnet-beta",
+        "slot",
+        "collector:solana:last_slot",
+        "collector:solana:last_blockhash",
+        "collector:solana:gaps",
+        "slot",
+    ),
+)
+
+
+def _legacy_gap_status(reason: str) -> str:
+    if reason.startswith("given up"):
+        return "failed"
+    if reason.startswith("lag exceeded"):
+        return "skipped"
+    return "incomplete"
+
+
+def _checkpoints_and_coverage(conn: Connection) -> None:
+    """v16: BIP-owned checkpoints and coverage ranges. Additive and idempotent.
+
+    Existing collector cursors and gap lists in ``app_metadata`` are copied in (and left in place),
+    so a database that already collected does not look unprocessed. Copied rows carry decoder
+    version ``pre-v16`` because the old records did not say which decoder produced them.
+    """
+    for table in schema.V16_TABLES:
+        table.create(conn, checkfirst=True)
+    meta = schema.app_metadata
+    cp = schema.ingestion_checkpoints
+    cov = schema.coverage_ranges
+    now = utcnow()
+    for chain, network, kind, cursor_key, hash_key, gaps_key, field in _LEGACY_COLLECTORS:
+        values = dict(
+            conn.execute(
+                select(meta.c.key, meta.c.value).where(
+                    meta.c.key.in_([cursor_key, hash_key, gaps_key])
+                )
+            ).all()
+        )
+        raw_cursor = values.get(cursor_key)
+        exists = conn.execute(
+            select(cp.c.chain).where(
+                cp.c.chain == chain, cp.c.stream == "collector", cp.c.direction == "live"
+            )
+        ).first()
+        if raw_cursor and raw_cursor.isdecimal() and exists is None:
+            # The checkpoint's hash must belong to its cursor. Only the Solana key records which
+            # slot its hash is for; the Ethereum key can hold an earlier block's hash (when the
+            # last block was given up), so it is not copied.
+            raw_hash: str | None = None
+            if kind == "slot":
+                slot, _, h = (values.get(hash_key) or "").partition(":")
+                raw_hash = h if h and slot == raw_cursor else None
+            conn.execute(
+                insert(cp).values(
+                    chain=chain,
+                    network=network,
+                    stream="collector",
+                    direction="live",
+                    position_kind=kind,
+                    cursor=int(raw_cursor),
+                    cursor_hash=raw_hash,
+                    status="idle",
+                    decoder_version="pre-v16",
+                    recovery_json=json.dumps({"seeded_from": "app_metadata"}),
+                    updated_at=now,
+                )
+            )
+        try:
+            gaps = json.loads(values.get(gaps_key) or "[]")
+        except ValueError:
+            gaps = []
+        already = conn.execute(
+            select(cov.c.id).where(cov.c.chain == chain, cov.c.stream == "collector")
+        ).first()
+        if already is not None:
+            continue
+        entries: list[object] = cast("list[object]", gaps) if isinstance(gaps, list) else []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            gap = cast("dict[str, object]", entry)
+            lo, hi = gap.get(f"from_{field}"), gap.get(f"to_{field}")
+            if not (isinstance(lo, int) and isinstance(hi, int)) or hi < lo:
+                continue
+            reason = redact_text(str(gap.get("reason") or ""))[:300]
+            conn.execute(
+                insert(cov).values(
+                    chain=chain,
+                    network=network,
+                    stream="collector",
+                    position_kind=kind,
+                    from_pos=lo,
+                    to_pos=hi,
+                    status=_legacy_gap_status(reason),
+                    decoder_version="pre-v16",
+                    reason=reason or None,
+                    attempts=0,
+                    first_recorded_at=now,
+                    last_recorded_at=now,
+                )
+            )
+
+
+def _provider_usage(conn: Connection) -> None:
+    """v17: per-provider daily request counts. Additive, idempotent."""
+    for table in schema.V17_TABLES:
+        table.create(conn, checkfirst=True)
+
+
+def _memory(conn: Connection) -> None:
+    """v18: entity registry, fact history, review decisions, expansion log. Additive."""
+    for table in schema.V18_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -194,6 +326,9 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(13, "Solana discoveries", _solana_discoveries),
     Migration(14, "reviewed entity labels", _entity_labels),
     Migration(15, "label requester", _label_requester),
+    Migration(16, "ingestion checkpoints and coverage ranges", _checkpoints_and_coverage),
+    Migration(17, "provider daily usage", _provider_usage),
+    Migration(18, "intelligence memory, review decisions, expansion log", _memory),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

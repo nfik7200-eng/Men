@@ -162,6 +162,27 @@ class DiscoveryService:
         self._finish_run(run_id, status, summary)
         return {"run_id": run_id, "status": status, **summary}
 
+    def run_producer(
+        self, det: Any, output: DetectorOutput, chain: str, extra: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Store candidates from a bounded producer other than the detector loop (for example a
+        relationship expansion policy) through the same scoring, deduplication, cooldown and
+        alerting, and record it as a discovery run with ``extra`` in its summary."""
+        now = self._clock()
+        run_id = self._start_run(now, chain)
+        stats, created = self._store_output(det, output, chain, now, run_id)
+        summary: dict[str, Any] = {
+            "discovery_version": DISCOVERY_VERSION,
+            "scoring": SCORING_DESCRIPTION,
+            "chains": [chain],
+            "detectors": {f"{det.info.id}:{chain}": stats},
+            "errors": [],
+            **extra,
+        }
+        summary["alerts_created"] = self._evaluate_alerts(created, now)
+        self._finish_run(run_id, "succeeded", summary)
+        return {"run_id": run_id, "status": "succeeded", **summary}
+
     def _chains_with_data(self) -> list[str]:
         t = schema.transactions
         with self._repo.transaction() as conn:
@@ -705,9 +726,23 @@ class DiscoveryService:
         sort: str = "score",
         limit: int = 50,
         offset: int = 0,
+        review_state: str | None = None,
     ) -> dict[str, Any]:
         s = schema.signals
         conds = [s.c.id > 0]
+        if review_state:
+            d = schema.signal_decisions
+            if review_state == "new":
+                conds.append(s.c.id.not_in(select(d.c.signal_id)))
+            else:
+                latest = select(func.max(d.c.id).label("last")).group_by(d.c.signal_id).subquery()
+                conds.append(
+                    s.c.id.in_(
+                        select(d.c.signal_id).where(
+                            d.c.id.in_(select(latest.c.last)), d.c.to_state == review_state
+                        )
+                    )
+                )
         if status:
             conds.append(s.c.status == status)
         if family:

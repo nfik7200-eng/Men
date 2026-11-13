@@ -789,6 +789,20 @@ class ObservationStore:
                 .values(status="invalidated", note=reason[:300])
             )
             rel_invalidated += int(result.rowcount or 0)
+        # Intelligence memory (v18): facts resting on these transactions stop being current. The
+        # rows stay, so the history shows what was believed and why it was withdrawn.
+        ef = schema.entity_facts
+        for start in range(0, len(tx_ids), 400):
+            conn.execute(
+                update(ef)
+                .where(
+                    ef.c.source_chain == chain,
+                    ef.c.source_tx.in_(tx_ids[start : start + 400]),
+                    ef.c.status.in_(("current", "superseded")),
+                )
+                .values(status="invalidated")
+            )
+        _requeue_memory(conn, chain, tx_ids, addresses, now)
         return stale, invalidated, rel_invalidated
 
 
@@ -814,3 +828,40 @@ def owned_token_accounts(chain: str, owner: str) -> Select[tuple[str]]:
     return select(bc.c.account).where(
         bc.c.chain == chain, bc.c.owner == owner, bc.c.account != owner
     )
+
+
+def _requeue_memory(
+    conn: Connection, chain: str, tx_ids: list[str], addresses: set[str], now: datetime
+) -> None:
+    """After a reorg, undo kind upgrades that rested on the orphaned transactions and queue the
+    affected addresses so the next memory refresh recomputes their measurements (activity counts
+    have no single transaction to invalidate)."""
+    e, ef, m = schema.entities, schema.entity_facts, schema.app_metadata
+    for start in range(0, len(tx_ids), 400):
+        rows = conn.execute(
+            select(ef.c.entity_id, ef.c.value_json).where(
+                ef.c.fact_key == "kind",
+                ef.c.source_chain == chain,
+                ef.c.source_tx.in_(tx_ids[start : start + 400]),
+                ef.c.status == "invalidated",
+            )
+        ).all()
+        for entity_id, value_json in rows:
+            value = json.loads(value_json)
+            previous, upgraded = value.get("from"), value.get("to")
+            if previous and upgraded:  # only undo an upgrade that is still in place
+                conn.execute(
+                    update(e).where(e.c.id == entity_id, e.c.kind == upgraded).values(kind=previous)
+                )
+    if not addresses:
+        return
+    key = f"memory:pending:{chain}"
+    raw = conn.execute(select(m.c.value).where(m.c.key == key)).scalar_one_or_none()
+    pending: dict[str, str] = json.loads(raw) if raw else {}
+    for a in addresses:
+        pending.setdefault(a, "wallet")
+    value = json.dumps(pending)
+    if raw is None:
+        conn.execute(insert(m).values(key=key, value=value, updated_at=now))
+    else:
+        conn.execute(update(m).where(m.c.key == key).values(value=value, updated_at=now))

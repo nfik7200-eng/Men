@@ -32,6 +32,8 @@ class ChainAdapter:
         self._provider_id = provider_id
         self.calls = 0
         self.providers_used: set[str] = set()
+        self.last_provider: str | None = None
+        """The provider that answered the most recent call (``None`` before the first)."""
 
     def call(
         self, method: str, params: list[object] | dict[str, object]
@@ -41,6 +43,7 @@ class ChainAdapter:
         )
         self.calls += 1
         self.providers_used.add(outcome.provider_id)
+        self.last_provider = outcome.provider_id
         sha = (
             self._sink.store_raw(self.chain, outcome.provider_id, method, outcome.raw)
             if self._sink

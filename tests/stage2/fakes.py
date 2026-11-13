@@ -344,6 +344,10 @@ class FakeSolNode:
     """Slots whose ``getBlock`` fails with an internal node error (-32603: an outage)."""
     unavailable_slots: set[int] = field(default_factory=set[int])
     """Slots whose ``getBlock`` says "block not available" (-32004), not "skipped" (-32007)."""
+    history_floor_slot: int | None = None
+    history_floor_code: int = -32009
+    """-32009 ("skipped, or missing in long-term storage", ambiguous) or -32001 (cleaned up)."""
+    """Slots below this answer -32009 "missing in long-term storage", like a pruned node."""
 
     def __post_init__(self) -> None:
         self.recipient = key(2)
@@ -492,6 +496,17 @@ class FakeSolNode:
                 raise _RpcFaultError(-32603, "internal node error")
             if slot in self.unavailable_slots:
                 raise _RpcFaultError(-32004, f"Block not available for slot {slot}")
+            if (
+                self.history_floor_slot is not None
+                and isinstance(slot, int)
+                and slot < self.history_floor_slot
+            ):
+                raise _RpcFaultError(
+                    self.history_floor_code,
+                    f"Slot {slot} was skipped, or missing in long-term storage"
+                    if self.history_floor_code == -32009
+                    else f"Block {slot} cleaned up, does not exist on node",
+                )
             if isinstance(opts, dict) and opts.get("transactionDetails") == "full":
                 if slot in self.blocks:
                     return self.blocks[slot]  # type: ignore[index]

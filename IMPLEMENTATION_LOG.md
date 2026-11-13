@@ -831,3 +831,191 @@ $ gitleaks dir . / git --staged  -> no leaks found
 **CI.** Head `cf07957`: backend `checks`, `frontend` and `secret-scan` each concluded `success` in both the push run and the pull-request run (explicit check-run conclusions, read after the jobs completed). Local re-run on the same commit: `uv run ruff check .` and `ruff format --check .` clean, `uv run pyright` 0 errors, `uv run pytest` 836 passed in 161 s. (A first attempt used the system Python instead of the project `.venv` and showed meaningless errors; it was discarded.)
 
 **Documentation fix.** `CURRENT_STATE.md` still carried statements from earlier passes that the finished work contradicts: "nothing is committed", "the frontend has no sign-in screen", "no authentication", the Solana collector and reserve detection listed as blocked, "commit, push, PR not done", and the RPC hosts listed as denied. They were corrected to match the code and the live checks already recorded. No code changed.
+
+## 2026-11-13 — Five-stage programme, Stage 1: Intelligence Foundation and Control Plane
+
+**Constraints for this stage (owner):** no commit, push, merge or PR; no live provider calls; no VPS or operational database changes; extend, don't replace. All work is in the working tree of `claude/modest-fermi-0yklvj` on top of `0da1ec1`.
+
+**Audit.** Four read-only investigators (architecture, ingestion, security, quality gates), with contradictions checked against the source. Baseline before changes: `uv run ruff check .` clean, `uv run pyright` 0 errors, `uv run pytest` exit 0 (836 passed on this commit).
+
+| Capability | State before Stage 1 | Evidence |
+|---|---|---|
+| Provider registry (id, chains, network, methods, archive, range limit, credentials via env, docs and check dates) | Implemented and verified | `bip/providers/registry.toml`, `registry.py`, ADR-017 |
+| Provider health, lifecycle, last success/failure, consecutive failures | Implemented and verified | `bip/providers/state.py`, `status.py`, `provider_checks` |
+| Capability and reliability observations | Implemented and verified | `provider_capability_observations`, `provider_reliability_observations`, prober |
+| Per-run call budgets, deadlines, retries, backoff, 429 cooldown | Implemented and verified | `bip/router/router.py` (`CallBudget`), settings caps 150 calls / 90 s |
+| Circuit breaker | Missing (flag defined, never read) | `settings.py` `circuit_breakers_enabled` |
+| Persistent provider quota accounting across runs | Missing | per-run only |
+| Chain contracts preserving block vs slot, log index vs instruction path, finality | Implemented and verified | `bip/contracts/blockchain.py`, `events.py`, `provenance.py` |
+| Event identity finer than tx hash/signature | Implemented (transfers, pool events) | `transfers` unique `(chain, tx_id, event_key)` |
+| Provider observations and verification history | Partial (per transaction, not per event) | `provider_observations`, `evidence_verifications` |
+| BIP-owned checkpoints, historical vs live | Partial (cursor keys in `app_metadata`; live only; wallet cursors separate) | `collector.py`, `solana_collector.py`, `wallet_cursors` |
+| Coverage and gap records with distinct statuses | Partial (capped JSON gap list, free-text reasons) | `collector:<chain>:gaps` |
+| Reorg and finality | Implemented for Ethereum wallet path; collectors read finalized only | ADR-036 |
+| Read-only status routes for checkpoints, coverage, budgets | Missing | — |
+| Live backfill workers, failover across many providers, wallet profiles, review centre, Ollama agents | Deferred to Stages 2–5 | — |
+
+**Built.**
+- Migration v16 (additive): `ingestion_checkpoints` and `coverage_ranges`. It seeds both from the existing `app_metadata` cursors and gap lists, labelled `pre-v16`, with reasons redacted and a hash copied only when it provably belongs to the cursor. Legacy keys stay and are still written.
+- `bip/db/checkpoints.py` `CheckpointStore`:
+  - **Checkpoints:** the live and historical cursors move independently, only after commit, and only in their own direction. A provider failure changes status (`stalled` or `blocked`) and never resets the cursor. `cursor_hash` always belongs to `cursor`.
+  - **Runs:** `start_run` and `finish_run` give each run a lifecycle, and `finish_run` stores `head_seen`, so lag is read without contacting a provider. `skip_to` moves past positions that were deliberately not read, and `set_boundary` lets a historical cursor end as `complete`.
+  - **Coverage ranges:** statuses are `processed`, `confirmed_empty`, `incomplete`, `failed`, `skipped` and `provider_unavailable`. Rows with the same meaning that touch or overlap are merged. Gaps that a later read fully covers are marked resolved. Unobserved ranges are never shown as empty.
+- **Collectors:** both write coverage and the live checkpoint after each batch is committed and before the legacy key. The Solana lag jump now runs only when the head is out of reach of one run (this fixes a failure loop found in review).
+- **Router circuit breaker:** it is derived from persisted `provider_checks`, so it survives restarts. It allows a single half-open trial call, claimed only for the provider actually sent to. Probes and admin health checks bypass it.
+- **Read-only routes:** `GET /ingestion/checkpoints`, `GET /ingestion/coverage/{chain}` and `GET /system/budgets`. `/settings` now returns the configured `authentication` mode instead of a stale placeholder, and the frontend type was updated to match.
+- **Docs:** ADR-041 and ADR-042 (Proposed), the five-stage programme in `docs/IMPLEMENTATION_ROADMAP.md`, an as-built note in `docs/DATA_ARCHITECTURE.md` §6.4, `.env.example` circuit settings, and the regenerated `docs/API_REFERENCE.md`.
+
+**Independent review (four reviewers on the real diff).**
+- **Security:** no Critical, High or Medium findings. Three Low findings, all fixed: the half-open burst, probe interaction documented, and legacy reasons redacted.
+- **Architecture, data integrity and tests: Important findings, all fixed in repair round 1:**
+  - rescan duplicates in merged ranges;
+  - no rule for superseding a gap;
+  - the Solana lag-branch failure loop;
+  - a cursor hash from another position;
+  - the API parsing the collector manifest;
+  - the half-open burst;
+  - stale statuses;
+  - eleven missing tests.
+- **Repair round 2:** the round-1 re-review found the half-open token was claimed for every candidate, not only the provider called (it would have broken corroboration's pinned calls). Fixed and confirmed by a scoped re-review, with no new Critical or Important findings; the one suggested test was added. Its remaining notes are minor and accepted: a claim taken just before a budget stop expires on its own.
+- **Rulings kept, and agreed by the re-reviewer:**
+  - the migration seeding uses frozen literals;
+  - the legacy dual-write is ordered, not atomic;
+  - probe failures share the failure counter;
+  - the `/settings` authentication fix stays.
+
+**Verification (after repair round 2).**
+- `uv run ruff check .`: All checks passed. `uv run ruff format --check .`: 241 files already formatted.
+- `uv run pyright`: 0 errors, 0 warnings.
+- `uv run pytest`: 880 passed in 167 s. This is 836 before the stage plus 44 new: store semantics, collector wiring, migration seeding and edge cases, router circuit (including pinned-call isolation), routes and required-mode protection.
+- `uv run python -m bip.tools.api_contract`: regenerated; the guard test passes.
+- Frontend: `npm run typecheck` clean; `npm test` 245 passed.
+- **Not run:** Playwright e2e (no UI behaviour changed; only a TypeScript type), and live provider calls (forbidden for this stage).
+- **Not done:** commit, push, PR, VPS changes.
+
+**Deferred to Stage 2:**
+- the collectors still read their cursor from `app_metadata`; the checkpoint table is not yet the source of truth;
+- per-event provider observations;
+- a `network` column and decoder version on canonical event rows;
+- persistent per-provider quota accounting;
+- moving wallet cursors into checkpoints;
+- coverage-row compaction when providers alternate;
+- a Solana orphan path outside the finalized-only collector.
+
+## 2026-11-13 — Five-stage programme, Stage 2: Multi-chain Data Acquisition
+
+**Constraints (owner):** no commit, push or merge; no live ingestion, large backfill or VPS deployment; fixtures and isolated databases only. Nothing in this stage contacted a real provider; the only external access was reading official provider documentation pages.
+
+**Audit (four read-only investigators).**
+
+| Capability | Before Stage 2 | After |
+|---|---|---|
+| Provider registry | Implemented; quotas partly search-derived | Re-checked against official pages 2026-11-13 (Ankr, Alchemy, Infura, Helius, Solana public, PublicNode, Etherscan, BigQuery); Blockscout catalogue entry |
+| Ethereum adapter | Implemented: head/finalized, blocks, receipts, adaptive range-splitting logs, ERC-20/721 decoding, deployments, native transfers | Reused; allowlisted ERC-20 transfers (live and address-filtered backfill) |
+| Solana adapter | Implemented: finalized getBlock (v0/v1), instruction paths, SPL Transfer/TransferChecked decoding (stored only in the wallet path) | SPL transfers of allowlisted mints stored by the collector; pruned vs ambiguous history classified |
+| Multiple providers / failover | Implemented (router health ranking, retries, 429 cooldown, circuit breaker from Stage 1) | Plus BIP's own daily usage counts and optional per-provider caps (v17) |
+| Historical backfill | Missing | Bounded backward workers per chain |
+| Live ingestion | Implemented (forward finalized collectors) | Pausable per direction |
+| Persistent checkpoints | Stage 1 tables; historical direction unused | Used by the backfill |
+| Deduplication | Implemented (unique event keys, idempotent stores) | Unchanged |
+| Gap recovery | Missing (gaps recorded only) | Bounded recovery worker |
+| Reorg handling | Wallet path (finality upgrade, orphaning); collectors read finalized only | Unchanged; backfill windows sit below the finalized head and check parent links |
+| Coverage | Stage 1 coverage ranges | Historical extent, boundary and basis in `/ingestion/coverage/{chain}` |
+| Resource controls | Per-run budgets, caps 150 calls / 90 s, disk guard | Plus live priority, feed-call reserve, daily caps, skip retry |
+
+**Built:** see ADR-043 and ADR-044. Files:
+- **New:** `bip/ingest/backfill.py`.
+- **Changed:** `bip/ingest/solana_collector.py`, `bip/ingest/collector.py`, `bip/ingest/ethereum_events.py`, `bip/db/checkpoints.py`, `bip/db/schema.py`, `bip/db/engine.py` (v17), `bip/providers/state.py`, `bip/providers/registry.toml`, `bip/router/router.py`, `bip/rpc/jsonrpc.py`, `bip/chains/base.py`, `bip/config/settings.py`, `bip/api/routes/ingestion.py`, `bip/api/routes/system.py`, `bip/api/deps.py`, `bip/api/app.py`, `bip/ops/jobs.py`, `bip/ops/scheduler.py`.
+- **Docs:** OPERATIONS.md, `.env.example`, the roadmap, and `API_REFERENCE.md` (regenerated).
+
+**Independent review (four reviewers, then two scoped re-reviews).**
+- **Round 1:** no Critical findings. Two High (Ethereum), seven Medium and several Low. All fixed with tests:
+  - the receipt cap emptied a window;
+  - after a provider fallback, receipts and logs still came from the pruned provider;
+  - backfill had a narrower scope than live;
+  - an unrecorded gap appeared when backfill started before live;
+  - a window costlier than the budget never advanced;
+  - the fallback misidentified providers;
+  - the transaction cap dropped SPL transfers without recording a gap;
+  - an ambiguous `-32009` was treated as a hard floor;
+  - a live job skipped by a busy lock waited a full interval;
+  - a stale live RUNNING status blocked historical work;
+  - probes bypassed the daily budget;
+  - one recovery job held the lock for both chains.
+- **Round 2:** the re-review confirmed all 16 addressed and found three new Medium issues, all fixed with tests:
+  - ambiguous slots would starve recovery;
+  - `-32001` was reclassified for EVM too;
+  - disk-full skips retried every minute.
+- **Round 3:** a final scoped re-review confirmed the round-2 fixes and found that the ambiguous-slot filter ran after the 50-row limit. It now runs in the query, and a test puts 60 ambiguous rows above a real failure. That was the last of the three allowed repair rounds; no Critical, High or Medium finding is open.
+- **Rulings kept:**
+  - The SPL cap cannot double-count, because each slot is scanned once per run.
+  - The identity-mismatch double count and a slight daily-cap overshoot from in-call failover are documented.
+  - Coverage compaction is deferred.
+
+**Verification (after round 2).**
+- `uv run ruff check .`: All checks passed. `uv run ruff format --check .`: clean.
+- `uv run pyright`: 0 errors.
+- `uv run pytest`: 915 passed. This is 880 before the stage plus 35 new: backfill, recovery, pause, history floors, fallback, SPL, allowlist, budgets, failover, auth error, scheduler, migration v17.
+- `python -m bip.tools.api_contract`: regenerated; the guard test passes.
+- Frontend: only the Stage 1 type change, not re-run in Stage 2.
+- **Live connectivity:** NOT tested in this stage.
+
+**What the tests do and do not prove:** every Stage 2 path is exercised against local fake nodes (`tests/stage2/fakes.py`). That proves the logic, not live connectivity or the completeness of any real provider's data.
+
+## 2026-11-13 — Five-stage programme, Stage 3: Intelligence Memory and Autonomous Discovery
+
+**Constraints (owner):**
+- No commit, push, merge or deploy.
+- No live ingestion, and discovery off or in test mode by default.
+- No Ralph loop: the owner chose "No loop" when asked, given the programme's rule against unlimited loops.
+
+**Audit (two read-only agents, checked against the source).**
+- **Already present:** relationships with evidence and reorg invalidation, ten explainable detectors with scoring, discovery runs, signals with promote and dismiss, reviewed labels, cases, and the wallet workspace.
+- **Missing:**
+  - persistent identities beyond wallets;
+  - any fact history;
+  - a review lifecycle with reasons;
+  - discovery seeded from no supplied address beyond the fixed detectors;
+  - UI for memory, review history, run history and policies.
+- **Stage 2 interfaces consumed:** stored transactions, transfers, pool events, Solana discoveries, signals, relationships, classifications and labels. All are local reads, so no fake integrations were needed.
+
+**Built:**
+- **Migration v18:** `entities`, `entity_facts`, `signal_decisions`, `discovery_examined`.
+- **Services:** `bip/intel/memory.py` (MemoryService), `bip/discovery/review.py` (ReviewService), `bip/discovery/expansion.py` (ExpansionEngine), and `DiscoveryService.run_producer`.
+- **Endpoints:**
+  - `GET /entities/memory/search`, `GET /entities/memory/{chain}/{ref}`, `POST /entities/memory/refresh/{chain}`;
+  - `POST /signals/{id}/review`, `GET /signals/{id}/decisions`, plus a `review_state` filter and field on the signals list;
+  - `GET /discovery/expansion` and `POST /discovery/expand/{chain}`.
+- **Jobs:** `memory_refresh` and `discovery_expansion`, both off by default.
+- **Frontend (by a subagent owning `frontend/`):**
+  - Workspace Memory tab;
+  - SignalDetail Review and Decision history panels;
+  - Signals review filter and column;
+  - Coverage run history and expansion policies panels;
+  - tests and the e2e layout route.
+
+**Independent review.**
+- **First reviews:**
+  - **Security, limits and tests:** no Critical. Medium findings for lock, aggregate truncation, transaction length, rotating reads and test gaps.
+  - **Correctness:** two High findings (deployments upgraded in place were skipped; funder facts flip-flopped) and several Medium (reorg left count and kind facts standing, expansion cooldown blocked cross-run matches, seed spread beyond the depth limit).
+  - **Frontend:** no High or Medium, seven Low.
+- **Repair round 1:** fixed everything above with tests. It also fixed an e2e regression: the policy cards were `article` elements and were counted as detectors.
+- **Round 2:** the re-review found two findings partly fixed and three new Medium (lost queued work, the queue never emptying, the wrong kind for requeued addresses). All fixed with tests.
+- **Round 3, the last allowed:** lock-first pending queue, and a guarded kind revert. No Critical, High or Medium finding is open.
+- **Rulings:**
+  - Confirmations from an orphaned transaction are not withdrawn.
+  - Analysts may run refresh and expansion, which use local data only.
+  - The review state name "accepted" is kept, documented as never a verified fact.
+
+**Verification (final).**
+- **Backend:** `uv run ruff format --check .` clean; `uv run ruff check .` all passed; `uv run pyright` 0 errors; `uv run pytest` 945 passed. This is 915 after Stage 2 plus 30 Stage 3 memory, review and expansion tests, with migration v18 covered in the forward-migration tests.
+- **Frontend:** `npm run typecheck`, `npm run lint` and `npm run build` clean; `npm test` 25 files, 269 tests; `npm run e2e` 221/221 checks at 390x844, 820x1180 and 1366x850.
+- **Live:** nothing in this stage contacts a provider.
+
+**Known limitations:**
+- Memory reflects only stored data, and measurements are BIP's stored counts.
+- Contradiction detection covers reviewed labels only.
+- Facts have no retention.
+- Expansion sees only stored, active relationships.
+- `opportunity_candidates` and `anomaly_observations` are not merged into the review lifecycle.
+- The frontend Memory tab exists for wallets, inside the wallet workspace. Contracts, tokens and pools are reachable through the API and search, but have no dedicated page.

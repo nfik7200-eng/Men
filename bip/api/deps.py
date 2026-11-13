@@ -10,13 +10,17 @@ from fastapi import Depends, Request
 
 from bip.config.settings import Settings
 from bip.db.repository import Repository
+from bip.discovery.expansion import ExpansionEngine
+from bip.discovery.review import ReviewService
 from bip.discovery.service import DiscoveryService
 from bip.entities.cases import CaseService
 from bip.entities.labels import EntityLabelService
 from bip.entities.relationships import RelationshipService
+from bip.ingest.backfill import Backfill, GapRecovery
 from bip.ingest.collector import ChainCollector
 from bip.ingest.solana_collector import SolanaCollector
 from bip.ingest.wallet import WalletIngestor
+from bip.intel.memory import MemoryService
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
 from bip.ml.labels import LabelStore
@@ -73,6 +77,11 @@ class AppContext:
     relationships: RelationshipService
     collector: ChainCollector
     solana_collector: SolanaCollector
+    backfill: Backfill
+    gap_recovery: GapRecovery
+    memory: MemoryService
+    review: ReviewService
+    expansion: ExpansionEngine
     entity_labels: EntityLabelService
     cases: CaseService
     scheduler: Scheduler | None

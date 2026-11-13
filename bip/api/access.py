@@ -39,6 +39,8 @@ ANALYST_WRITE = tuple(
         r"^/alerts/",
         r"^/alert-rules(/|$)",
         r"^/discovery/run$",
+        r"^/discovery/expand/",
+        r"^/entities/memory/refresh/",
         r"^/relationships/rebuild$",
         r"^/entities/labels(/|$)",
     )

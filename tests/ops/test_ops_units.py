@@ -339,3 +339,30 @@ def test_same_second_backups_sort_by_creation_and_pruning_keeps_the_newest(
     assert [b.name for b in svc.list()] == list(reversed(created))
     svc.prune(keep=1)
     assert [b.name for b in svc.list()] == [created[-1]]
+
+
+def test_a_job_that_found_its_lock_held_retries_after_a_minute_not_an_interval(
+    engine: Engine,
+) -> None:
+    clock = Clock()
+    results = iter(["skipped: an ingestion run is in progress", "did it"])
+    live = Job("chain_scan", timedelta(minutes=30), lambda: next(results))
+    sched = make(engine, clock, live)
+    clock.advance(seconds=61)
+    assert sched.tick() == ["chain_scan"]  # skipped: the lock was held by a backfill
+    clock.advance(seconds=61)
+    assert sched.tick() == ["chain_scan"]  # tried again a minute later, not 30 minutes
+    status = {s["job"]: s for s in sched.status()}
+    assert status["chain_scan"]["last_run"]["detail"] == "did it"
+
+
+def test_a_storage_refusal_waits_the_normal_interval(engine: Engine) -> None:
+    clock = Clock()
+    job = Job(
+        "chain_scan", timedelta(minutes=30), lambda: "skipped: storage guard refused (SYNTHETIC)"
+    )
+    sched = make(engine, clock, job)
+    clock.advance(seconds=61)
+    assert sched.tick() == ["chain_scan"]
+    clock.advance(seconds=61)
+    assert sched.tick() == []  # not every minute while the disk is full

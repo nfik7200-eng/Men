@@ -8,16 +8,19 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Path, Query, Response, status
+from fastapi import APIRouter, Path, Query, Request, Response, status
 
 from bip.api.deps import INGEST_RESERVE_BYTES, Context, WritableContext
 from bip.api.errors import error_response
+from bip.api.routes.chains import _require_chain  # pyright: ignore[reportPrivateUsage]
 from bip.api.schemas import (
     AlertRuleCreate,
     AlertRuleUpdate,
     DiscoveryRunRequest,
+    ExpansionRun,
     SignalDismiss,
     SignalPromote,
+    SignalReview,
 )
 from bip.discovery import DISCOVERY_VERSION
 
@@ -135,45 +138,135 @@ def list_signals(
     sort: Literal["score", "recent"] = "score",
     limit: Limit = 50,
     offset: Offset = 0,
+    review_state: Literal[
+        "new", "pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"
+    ]
+    | None = None,
 ) -> dict[str, Any]:
-    return _envelope(
-        ctx,
-        ctx.discovery.list_signals(
-            status=status_,
-            family=family,
-            chain=chain,
-            severity=severity,
-            detector_id=detector,
-            subject_ref=subject,
-            min_score=min_score,
-            sort=sort,
-            limit=limit,
-            offset=offset,
-        ),
+    body = ctx.discovery.list_signals(
+        status=status_,
+        family=family,
+        chain=chain,
+        severity=severity,
+        detector_id=detector,
+        subject_ref=subject,
+        min_score=min_score,
+        sort=sort,
+        limit=limit,
+        offset=offset,
+        review_state=review_state,
     )
+    states = ctx.review.states([int(i["id"]) for i in body["items"]])
+    for item in body["items"]:
+        item["review_state"] = states.get(int(item["id"]), "new")
+    return _envelope(ctx, body)
 
 
 @router.get("/signals/{signal_id}")
 def get_signal(ctx: Context, signal_id: Id) -> dict[str, Any]:
-    return _envelope(ctx, ctx.discovery.get_signal(signal_id))
+    body = ctx.discovery.get_signal(signal_id)
+    body["review_state"] = ctx.review.state(signal_id)
+    body["decisions"] = ctx.review.history(signal_id)
+    return _envelope(ctx, body)
+
+
+def _actor(request: Request) -> str:
+    user = request.scope.get("state", {}).get("user")
+    return str(user.username) if user is not None else "local"
+
+
+@router.get("/signals/{signal_id}/decisions")
+def signal_decisions(ctx: Context, signal_id: Id) -> dict[str, Any]:
+    """The candidate's review history: every state change, its reason, who and when."""
+    ctx.discovery.get_signal(signal_id)  # 404 for an unknown signal
+    return _envelope(
+        ctx,
+        {
+            "signal_id": signal_id,
+            "review_state": ctx.review.state(signal_id),
+            "items": ctx.review.history(signal_id),
+        },
+    )
+
+
+@router.post("/signals/{signal_id}/review")
+def review_signal(
+    ctx: WritableContext, request: Request, signal_id: Id, body: SignalReview
+) -> dict[str, Any]:
+    """Record a review decision with a required reason (and a note for 'other'). Accepting a
+    candidate is a judgement about it; it never turns it into a verified fact."""
+    return _envelope(
+        ctx,
+        ctx.review.decide(signal_id, body.state, body.reason_code, body.note, _actor(request)),
+    )
 
 
 @router.post("/signals/{signal_id}/dismiss")
-def dismiss_signal(ctx: WritableContext, signal_id: Id, body: SignalDismiss) -> dict[str, Any]:
-    return _envelope(ctx, ctx.discovery.dismiss(signal_id, body.note))
+def dismiss_signal(
+    ctx: WritableContext, request: Request, signal_id: Id, body: SignalDismiss
+) -> dict[str, Any]:
+    result = ctx.discovery.dismiss(signal_id, body.note)
+    ctx.review.record(signal_id, "rejected", "dismissed", body.note, _actor(request))
+    return _envelope(ctx, result)
 
 
 @router.post("/signals/{signal_id}/promote")
-def promote_signal(ctx: WritableContext, signal_id: Id, body: SignalPromote) -> dict[str, Any]:
+def promote_signal(
+    ctx: WritableContext, request: Request, signal_id: Id, body: SignalPromote
+) -> dict[str, Any]:
     """Move a signal into a watchlist (the subject is watched) or a case (it becomes an
     unverified finding with its evidence). The signal is marked ``promoted``."""
     if body.target == "watchlist":
         assert body.watchlist_id is not None  # noqa: S101 - enforced by the schema
         result = ctx.discovery.promote_to_watchlist(signal_id, body.watchlist_id, body.note)
+        ctx.review.record(
+            signal_id, "monitoring", "promoted_to_watchlist", body.note, _actor(request)
+        )
     else:
         assert body.investigation_id is not None  # noqa: S101 - enforced by the schema
         result = ctx.discovery.promote_to_investigation(signal_id, body.investigation_id)
+        ctx.review.record(
+            signal_id, "investigating", "promoted_to_investigation", body.note, _actor(request)
+        )
     return _envelope(ctx, result)
+
+
+# ----------------------------------------------------------------------------- expansion
+
+
+@router.get("/discovery/expansion")
+def expansion_policies(ctx: Context) -> dict[str, Any]:
+    """Bounded expansion policies, their budgets and recent expansion runs (read-only)."""
+    runs: list[dict[str, Any]] = []
+    for r in ctx.discovery.runs(50):
+        summary: dict[str, Any] = r.get("summary") or {}
+        if summary.get("producer") == "relationship_expansion":
+            runs.append(r)
+    runs = runs[:20]
+    return _envelope(
+        ctx,
+        {
+            "policies": ctx.expansion.policies(),
+            "budgets": ctx.expansion.budgets(),
+            "scheduled": ctx.settings.workers.expansion_enabled,
+            "source": "local database only; never contacts a provider",
+            "runs": runs,
+        },
+    )
+
+
+@router.post("/discovery/expand/{chain}", status_code=status.HTTP_201_CREATED)
+def run_expansion(
+    ctx: WritableContext, chain: Annotated[str, Path(max_length=32)], body: ExpansionRun
+) -> Any:
+    """Run one bounded expansion policy over stored relationships (local database only)."""
+    _require_chain(ctx, chain)
+    if not ctx.discovery_lock.acquire(blocking=False):
+        return error_response(409, "discovery_busy", "A discovery pass is running. Try again.")
+    try:
+        return _envelope(ctx, ctx.expansion.run(body.policy, chain))
+    finally:
+        ctx.discovery_lock.release()
 
 
 # ----------------------------------------------------------------------------- alerts

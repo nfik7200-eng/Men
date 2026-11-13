@@ -80,6 +80,9 @@ reports `skipped:` and does not count as a failure.
 | `watchlist_refresh` | **off** | **yes** | re-ingest the least recently refreshed watchlist wallets |
 | `chain_scan` | **off** | **yes** | read the next finalized Ethereum blocks for contract creations and large native transfers |
 | `solana_scan` | **off** | **yes** | read the next finalized Solana slots for new mints, programs, pools and large SOL transfers |
+| `ethereum_backfill` | **off** | **yes** | read one bounded window of Ethereum history backward (ADR-043) |
+| `solana_backfill` | **off** | **yes** | read one bounded window of Solana history backward (ADR-043) |
+| `gap_recovery` | **off** | **yes** | re-read a few positions of unresolved coverage gaps on both chains |
 
 `watchlist_refresh`, `chain_scan` and `solana_scan` are the jobs that spend provider quota. `solana_scan` needs `BIP_WORKERS__SOLANA_COLLECTOR_ENABLED=true` and reads at most `solana_collector.blocks_per_run` (10) finalized slots, one `getBlock` request each, within 150 requests and 90 s. Public Solana endpoints rate-limit and blocks are large: each invocation covers seconds of chain, so the collector reports its lag and records a gap whenever it has to jump ahead. It needs
 `BIP_WORKERS__WATCHLIST_REFRESH_ENABLED=true`, takes at most `watchlist_refresh_wallets_per_tick` (2)
@@ -90,6 +93,17 @@ lock). `chain_scan` needs `BIP_WORKERS__COLLECTOR_ENABLED=true` and reads at mos
 it implies.
 
 Run a job now: `POST /api/v1/system/jobs/<name>/run` (admin). Status: `GET /api/v1/system/jobs`.
+
+### Historical backfill, recovery and pause (Stage 2)
+
+- **Limits:** backfill and recovery run at most `backfill.max_rpc_calls_per_run` (100) calls and `backfill.run_deadline_s` (60 s) per run. Each backfill run reads `blocks_per_run` / `slots_per_run` (10) positions backward.
+- **Live priority:** they report `deferred` while live collection is running, or is more than `max_live_lag_blocks` (100) / `max_live_lag_slots` (3,000) behind as of its last run.
+- **Manual runs (admin):** `POST /api/v1/ingestion/backfill/{chain}` and `POST /api/v1/ingestion/recovery/{chain}`.
+- **Pause and resume (admin):** `POST /api/v1/ingestion/streams/{chain}/{live|historical}/pause` (or `/resume`). No cursor moves; the other direction keeps running.
+- **Status:** `GET /api/v1/ingestion/checkpoints` shows live and historical cursors, the boundary, status and lag. `GET /api/v1/ingestion/coverage/{chain}` shows processed, empty and gap ranges, and how far back history has been processed.
+- **History floor:** a run that reports `blocked` with `history_unavailable` has reached history that no configured provider serves. Add a provider that has it, or accept the recorded limit. BIP never shortens the period silently.
+- **Provider quotas:** `GET /api/v1/system/budgets` shows BIP's own per-provider request counts for today. `BIP_RPC__DAILY_REQUEST_BUDGETS` can cap a provider per UTC day.
+- **Provider terms:** check each provider's terms before enabling these jobs. PublicNode, the solana.com site terms and Etherscan Free restrict bulk or automated collection (recorded in `bip/providers/registry.toml`).
 
 ## Health
 

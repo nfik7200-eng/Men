@@ -1,6 +1,6 @@
 // Small pieces shared by the discovery pages (signals, alerts, coverage, attribution).
 import { Link } from "react-router-dom";
-import type { LabelEvidence, Severity, SignalStatus } from "../api/types";
+import type { EvidenceClass, LabelEvidence, ReviewState, Severity, SignalStatus } from "../api/types";
 import { addressUrl, txUrl } from "../lib/explorer";
 import { ExternalLink } from "./ExternalLink";
 import { Pill, type Tone } from "./ui";
@@ -73,4 +73,28 @@ export function LabelEvidenceList({ items, chain }: { items: LabelEvidence[]; ch
       ))}
     </ul>
   );
+}
+
+const REVIEW_TONE: Record<ReviewState, Tone> = {
+  new: "idle", pending_review: "warn", accepted: "ok", rejected: "idle", monitoring: "info", investigating: "info", archived: "idle",
+};
+export const REVIEW_STATES: ReviewState[] = ["new", "pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"];
+
+/** Analyst review state of a candidate. "accepted" means a person judged it worth keeping, not that it is a fact. */
+export function ReviewStatePill({ state }: { state: ReviewState }) {
+  return <Pill tone={REVIEW_TONE[state] ?? "idle"}>{`review: ${humanLabel(state)}`}</Pill>;
+}
+
+const CLASS_TONE: Record<EvidenceClass, Tone> = { observed: "ok", reviewed: "ok", statistical: "warn", heuristic: "warn", hypothesis: "warn" };
+const CLASS_TEXT: Record<EvidenceClass, string> = {
+  observed: "Observed",
+  reviewed: "Reviewed by a person",
+  statistical: "Statistical signal (not verified)",
+  heuristic: "Heuristic (not verified)",
+  hypothesis: "Hypothesis (not verified)",
+};
+
+/** Evidence class of a remembered fact. Only observed and reviewed facts are not flagged as unverified. */
+export function EvidenceClassBadge({ value }: { value: EvidenceClass }) {
+  return <Pill tone={CLASS_TONE[value] ?? "idle"}>{CLASS_TEXT[value] ?? humanLabel(String(value))}</Pill>;
 }

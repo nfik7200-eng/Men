@@ -203,7 +203,8 @@ class PublicSettings(Out):
     database_engine: Literal["sqlite"]
     database_schema_version: int
     storage: StorageOut | None
-    authentication: Literal["not_implemented"]
+    authentication: Literal["disabled", "required"]
+    """The configured authentication mode (``BIP_AUTH__MODE``)."""
     ingest_default_limit: int
     ingest_max_limit: int
     ethereum_lookback_blocks: int
@@ -222,6 +223,28 @@ class DiscoveryRunRequest(Body):
 
 class SignalDismiss(Body):
     note: Note | None = None
+
+
+class SignalReview(Body):
+    state: Literal[
+        "pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"
+    ]
+    reason_code: Literal[
+        "evidence_sufficient",
+        "evidence_insufficient",
+        "needs_more_data",
+        "false_positive",
+        "duplicate",
+        "known_entity",
+        "out_of_scope",
+        "reopened",
+        "other",
+    ]
+    note: Note | None = None
+
+
+class ExpansionRun(Body):
+    policy: Literal["shared_neighbourhood", "deployer_network"]
 
 
 class SignalPromote(Body):

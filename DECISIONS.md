@@ -411,3 +411,141 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 
 **Addendum (2026-11-10, ADR-032).** The security review's remaining finding, that any local process can reach a loopback TCP listener and spoof the client address, is closed by `BIP_API__UNIX_SOCKET`: the API can listen on a socket created 0660, reachable only by the proxy's group. uvicorn `chmod`s its own sockets to 0666, so BIP binds the socket itself. The TCP listener remains for local development.
 
+
+---
+
+## ADR-041 BIP-owned ingestion checkpoints and coverage ranges (Proposed; Stage 1 of the five-stage programme, 2026-11-13)
+**Context.**
+- The audit for Stage 1 found that collector progress lived in `app_metadata` string keys (`collector:<chain>:last_*`) and coverage gaps in a capped JSON list. Nothing separated live from historical progress, gaps were not linked to a provider or a decoder version, and "never read", "read and empty", "provider down" and "given up" could not be told apart in storage. ADR-019 (wallet cursors) and ADR-038/039 (the collectors) did not cover this.
+- No existing ADR is changed by this one.
+
+**Decision.**
+- Migration v16 adds two tables (additive; the old keys are kept and still written):
+  - `ingestion_checkpoints`, keyed by `(chain, network, stream, direction)`. `direction` is `live` (forward toward the head) or `historical` (backward toward `boundary`), so the two progress independently. `cursor` is a block number on Ethereum and a slot on Solana (`position_kind`). Providers are provenance (`last_providers_json`), never part of the key. A failure changes `status` (`stalled`, `blocked`) and `last_error_category`, never the cursor. The cursor moves only in its own direction, so a rescan cannot lose progress. `cursor_hash` always belongs to `cursor` (`NULL` when that position has no known hash, for example a given-up block or a skipped slot). Each run sets `running` at its start and `finish_run` turns a still-running status into `idle` and stores `head_seen`, the head that run observed. `skip_to` moves a live cursor over deliberately unread positions and records them as `skipped` in the same transaction, without claiming a committed batch. `set_boundary` gives a historical checkpoint its end; reaching it sets `complete`.
+  - `coverage_ranges`, with status `processed`, `confirmed_empty`, `incomplete`, `failed`, `skipped` or `provider_unavailable`, plus provider, decoder version, attempts and a redacted reason. Rows with the same meaning that touch or overlap merge into one, so a rescan adds nothing. A `processed` range sets `resolved_at` on the `failed`, `skipped` and `provider_unavailable` rows it fully covers; they stay as history and leave the gap list. `incomplete` is never resolved that way: it qualifies a processed read of the same positions. A range with no row is *not observed*; a range beyond the live cursor is *not yet processed*; neither is ever shown as empty.
+- `bip/db/checkpoints.py` (`CheckpointStore`) is the only writer. Both collectors write coverage and the checkpoint after the batch's data is committed, and before the legacy key, so a crash in between means an idempotent rescan.
+- The migration copies existing collector cursors and gap lists in, labelled decoder version `pre-v16`, with reasons redacted. A hash is copied only when it provably belongs to the cursor (Solana's key records its slot; Ethereum's does not, so it is left `NULL`). The seeding uses frozen literals on purpose: a migration must not change behaviour when collector constants or wording change later.
+- Read-only routes: `GET /ingestion/checkpoints`, `GET /ingestion/coverage/{chain}`. Lag is `head_seen - cursor`, the head the last run stored; a status read never contacts a provider.
+
+**Consequences.**
+- Two sources of the collector cursor exist until Stage 2 moves the collectors to read the checkpoint table. They can only disagree if someone edits `app_metadata` by hand; the checkpoint never moves backward because of that.
+- Stage 2 historical backfill and recovery workers can use `direction='historical'` and the gap statuses without another migration.
+- Not done here: wallet ingestion (`wallet_cursors`) is not moved into this table, and nothing reads `provider_unavailable` yet (the collectors stop and stall rather than move past an outage).
+
+## ADR-042 Circuit breaker derived from persisted provider state (Proposed; Stage 1, 2026-11-13)
+**Context.**
+- `router.circuit_breakers_enabled` existed in settings but nothing read it. A provider with many consecutive failures was only ranked lower and still tried, and the router's in-memory cooldowns are lost on restart.
+
+**Decision.**
+- When the flag is on (the default), routine routing skips a provider once `rpc.circuit_failure_threshold` (default 5) consecutive failures are recorded, until `rpc.circuit_open_s` (default 120 s) has passed since the last one. Then exactly one call is let through (half-open), using an in-memory trial token per provider held under the router lock and expiring after the request deadline. A success resets the count and closes the circuit; a failure reopens it. Only `ProviderRouter.call` claims the token, and only for the provider it is about to send to; listing eligible providers (the corroborator does this before its pinned calls) never claims one. If every candidate's trial is held by another caller, the call fails with "no eligible provider".
+- The state is derived from `provider_checks` (persisted), so it survives a restart. No new table.
+- Capability probes and admin health checks bypass it, so an operator can still test a provider whose circuit is open. Their failures count in the same `consecutive_failures`, so a failed admin probe can extend an open window (by at most `circuit_open_s`). Accepted: probes are admin-only and bounded.
+- `GET /system/budgets` reports the per-run budgets, retry policy, circuit policy, storage limits and scheduler switches. It states that provider quotas are not tracked across runs.
+
+**Consequences.**
+- With only one keyless provider per chain, an open circuit means the collectors report `blocked` for up to two minutes instead of hammering a failing endpoint. The checkpoint keeps its place.
+- Persistent per-provider quota accounting is still missing (Stage 2).
+
+---
+
+## ADR-043 Bounded historical backfill, gap recovery and per-direction pause (Proposed; Stage 2, 2026-11-13)
+**Context.**
+- The live collectors only read forward. Stage 2 asks for bounded history (targets of about 180 days of Ethereum and 90 days of Solana), independent live and historical control, and recoverable gaps, without full-chain replication and without new infrastructure.
+
+**Decision.**
+- `bip/ingest/backfill.py` adds two workers. **`Backfill`** reads a small window (default 10 positions, at most 100 calls and 60 s per run) *backward* on the same `collector` stream, with `direction='historical'` (ADR-041).
+  - **Start:** it waits until live collection has started. Its first anchor is the lowest processed position, so no range between the two directions goes unrecorded.
+  - **Boundary:** set once from the target days times an estimated rate (7,200 blocks/day, 216,000 slots/day). The basis is recorded on the checkpoint.
+  - **Cursor:** moves down only after the window's data and event feeds are committed. A block that does not fit the receipt cap, or the call budget kept for the feeds, ends the window and starts the next run. It is never half-stored behind earlier blocks.
+  - **Failures:** a position that keeps failing becomes `failed` after `max_attempts`. An outage stalls the run with the cursor unchanged.
+  - **Missing history:** if the provider that answered does not serve a position, every other eligible provider is asked once, pinned. The one that has it serves the rest of the run, receipts and logs included, because a pruned node's empty log answer would look complete. A provider failing during that fallback makes the read transient, never "no history".
+    - A position nobody serves (Ethereum null block, Solana `-32001`/"cleaned up") is recorded `provider_unavailable` and the run stops `blocked`, rather than shortening the period.
+    - Solana's `-32009` ("skipped, or missing in long-term storage") cannot tell a skipped slot from pruned history. Such a slot is recorded `provider_unavailable` with that ambiguity stated, and passed. A window in which nothing is readable is treated as the floor.
+- **`GapRecovery`** re-reads a few positions of unresolved `failed`, `skipped` and `provider_unavailable` ranges. A success resolves the gap. It never moves a checkpoint.
+- **Same scope as live:** both run the same per-block scan and event feeds as the live collectors, so `processed` means the same thing whoever wrote it.
+  - The token-statistics feed counts only positions above its own cursor, so a backward window stores transfers but never recounts.
+  - With the token scan off, allowlisted tokens are read with an address filter.
+- **Live priority:** both wait (`deferred`) while the live checkpoint is running (a `running` status older than 180 s counts as a crashed run), or is more than `max_live_lag_blocks` / `max_live_lag_slots` behind as of its last run.
+  - Their jobs are registered after the live jobs and share the single ingestion lock.
+  - A job that finds the lock held retries after a minute, not a full interval.
+- **Pause:** a new checkpoint status `paused`, set per chain and direction through admin endpoints. It survives in-flight status updates and is re-checked right after a run starts. Pausing `historical` also pauses recovery. The live and historical directions are independent.
+- **Defaults:** scheduler jobs `ethereum_backfill`, `solana_backfill`, `ethereum_gap_recovery` and `solana_gap_recovery` are off by default, behind their own switches. Manual admin endpoints: `POST /ingestion/backfill/{chain}`, `POST /ingestion/recovery/{chain}`, `POST /ingestion/streams/{chain}/{direction}/pause|resume`.
+
+**Consequences.**
+- History older than the configured providers serve is visible as `provider_unavailable` with a reason, never silently missing.
+- The estimate-based boundary is approximate.
+- At 10 blocks per run, 180 days of Ethereum is about 130,000 runs. Reaching the targets needs either much larger runs or a bulk source (BigQuery, Old Faithful), which is an owner decision.
+- Coverage rows split when providers alternate, and resolved gaps are kept. There is no compaction yet.
+- Not done: WebSocket subscriptions (live stays bounded polling), BigQuery or Old Faithful sources (catalogue only), and per-event multi-provider observations.
+
+## ADR-044 BIP's own per-provider daily request counts and optional budgets (Proposed; Stage 2, 2026-11-13)
+**Context.**
+- Provider quotas were tracked only per run, and quota figures in the registry were partly search-derived.
+
+**Decision.**
+- **Usage table:** migration v17 adds `provider_usage_daily`. The router counts every attempt it records (requests and failures) per provider per UTC day.
+- **Budgets:** `rpc.daily_request_budgets` (empty by default) caps requests per provider per day. A provider at its cap is skipped in routing before anything is sent. The operator sets the caps from the provider's documented quota; BIP never assumes one.
+- **Visibility:** `GET /system/budgets` shows the caps and today's counts.
+- **Registry:** entries for Ankr, Alchemy, Infura, Helius, Solana public RPC, PublicNode, Etherscan and BigQuery were re-checked against official pages on 2026-11-13 (documentation basis `official_docs` with sources). Ankr's 1,000-block and Alchemy Free's 10-block `eth_getLogs` ranges are now structured limits. Terms that restrict bulk collection (PublicNode, Solana site terms, Etherscan Free) are recorded. Blockscout is added as a catalogue-only indexer.
+
+**Consequences.**
+- The counts are BIP's own requests, not the provider's billing units: compute-unit and credit plans weigh methods differently.
+- Per-method weighting is not modelled.
+
+---
+
+## ADR-045 Intelligence memory: entity registry and append-only fact history (Proposed; Stage 3, 2026-11-13)
+**Context.**
+- Stage 3 asks BIP to retain evidence-backed knowledge about entities and to evolve it without losing history.
+- The audit found that only wallets had a persistent row. Classifications were versioned (`wallet_classifications`), but everything else was derived on read or overwritten in place: signals, relationships and labels.
+
+**Decision.**
+- **Schema:** migration v18 adds `entities` and `entity_facts`.
+  - **Identity:** one entity per chain address. Two addresses are never merged because they behave alike.
+  - **Kind:** moves only toward better evidence (a wallet becomes a contract once a deployment is observed), and that change is itself a fact.
+  - **Facts are append-only:**
+    - the same value raises `confirmations`, or does nothing when the same source repeats;
+    - a different value appends a `changed` fact that supersedes the old one;
+    - approved labels of different categories append a `contradiction`, and both stay visible;
+    - a label no longer approved becomes `outdated`;
+    - a fact resting on an orphaned transaction becomes `invalidated` inside the existing reorg path (`observations._invalidate_derived`).
+  - **Evidence:** every fact carries an evidence class (observed, statistical, heuristic, hypothesis, reviewed), its source table and the transaction it rests on.
+- **`MemoryService.refresh(chain)`:** reads only the local database, per source (deployments, transfers, pools, Solana discoveries, signals, funding relationships, classifications, labels).
+  - **Cursors:** append-only sources (transfers, pools, discoveries, classifications, new signals) use an id cursor. Sources whose rows change in place (deployment rows upgraded in place, relationships, labels, signal statuses) use a rotating window, so no row is starved by the cap.
+  - **Transactions:** each source is one transaction (rows, facts and cursor together). Entities whose measurements must be recomputed are queued durably and carried past the per-run cap (default 500).
+  - **Concurrency:** a lock refuses concurrent refreshes (409).
+  - **Funders:** each funder of a wallet is its own fact.
+  - **Reorgs:** a reorg also reverts kind upgrades that rested on the orphaned transaction, and queues the affected addresses for recompute.
+  - Activity is recorded as levels (powers of two), so history records changes in behaviour, not every transfer.
+- **Access:**
+  - Read: `GET /entities/memory/search` and `GET /entities/memory/{chain}/{ref}`. The latter returns facts, history, contradictions, counterparties, relationships with evidence, and the candidates naming the entity with their review state.
+  - Refresh: `POST /entities/memory/refresh/{chain}`, for analysts, since it uses local data only.
+  - Job: `memory_refresh` is off by default.
+
+**Consequences.**
+- Memory is only as complete as the stored data. A wallet's measurements are BIP's stored counts, not its on-chain totals.
+- Contradiction detection covers reviewed labels only, not classifications against labels.
+- Facts are kept forever; there is no retention yet.
+
+## ADR-046 Candidate review lifecycle and bounded relationship expansion (Proposed; Stage 3, 2026-11-13)
+**Context.**
+- Candidates (signals) had only machine statuses and a free-text note.
+- Discovery could not start from entities nobody named except through the fixed detectors.
+
+**Decision.**
+- **Review:** `signal_decisions` (v18) records every human decision: from-state, to-state (new, pending_review, accepted, rejected, monitoring, investigating, archived), a required reason code (plus a note for "other"), the actor from the session, and the time.
+  - The review state is the latest decision. It is separate from the machine status, and accepting a candidate never makes it a fact.
+  - Existing dismiss and promote actions record `rejected`, `monitoring` or `investigating`.
+  - Routes: `POST /signals/{id}/review` (analyst), `GET /signals/{id}/decisions`, a `review_state` filter on `GET /signals`, and the review state on each signal.
+- **Expansion:** `ExpansionEngine` runs named policies (`shared_neighbourhood`, `deployer_network`) from seeds BIP chooses: subjects of strong or reviewed candidates, or recent deployers.
+  - It walks stored, active relationships both ways, bounded by depth (at most 3, default 2), entities reached, relationship rows read and seeds.
+  - **Seeds:** the chosen seeds are expanded every run, so two seeds can meet within one run. A seed counts for an entity only within the depth limit, and is passed on when it reaches an entity late.
+  - **Cooldown:** `discovery_examined` records whose edges were read. Within its cooldown, an intermediate entity is not read again (busy hubs), but it can still be reached and become a candidate. The log is written only after the candidates are stored.
+  - An entity reached from two or more seeds becomes a normal discovery signal through `DiscoveryService.run_producer`, with the same scoring, deduplication, cooldown and alerts. It is labelled a hypothesis with confidence capped at 0.4, and its explanation lists the seeds and paths.
+  - It is local-database only and never contacts a provider.
+  - Routes: `GET /discovery/expansion` (policies, budgets, runs) and `POST /discovery/expand/{chain}`, for analysts and under the discovery lock.
+  - Job: `discovery_expansion` is off by default.
+
+**Consequences.**
+- Expansion sees only relationships the builders stored. Shared links are leads, not proof of common control.
+- Older candidate tables (`opportunity_candidates`, `anomaly_observations`) are not merged into this lifecycle yet.

@@ -1,13 +1,14 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, api } from "../../api/client";
-import type { Signal, SignalDetail as SignalDetailData } from "../../api/types";
+import type { ReasonCode, ReviewDecision, ReviewTarget, Signal, SignalDetail as SignalDetailData } from "../../api/types";
 import { RoleHint } from "../../auth/RoleHint";
 import { useCan } from "../../auth/useAuth";
 import { DataTable } from "../../components/DataTable";
 import {
   ExplorerRef,
   LabelEvidenceList,
+  ReviewStatePill,
   SeverityPill,
   SignalStatusPill,
   fmtConfidence,
@@ -240,7 +241,125 @@ function Actions({ signal, onChanged }: { signal: Signal; onChanged: () => void 
   );
 }
 
-function Body({ signal, origin, reload }: { signal: Signal; origin: SignalDetailData["data_origin"]; reload: () => void }) {
+const REVIEW_TARGETS: ReviewTarget[] = ["pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"];
+const REASONS: { code: ReasonCode; label: string }[] = [
+  { code: "evidence_sufficient", label: "Evidence is sufficient" },
+  { code: "evidence_insufficient", label: "Evidence is insufficient" },
+  { code: "needs_more_data", label: "Needs more data" },
+  { code: "false_positive", label: "False positive" },
+  { code: "duplicate", label: "Duplicate" },
+  { code: "known_entity", label: "Known entity" },
+  { code: "out_of_scope", label: "Out of scope" },
+  { code: "reopened", label: "Reopened" },
+  { code: "other", label: "Other (note required)" },
+];
+
+function ReviewPanel({ signal, onChanged }: { signal: Signal; onChanged: () => void }) {
+  const can = useCan("POST", `/signals/${signal.id}/review`);
+  const [state, setState] = useState<ReviewTarget | "">("");
+  const [reason, setReason] = useState<ReasonCode | "">("");
+  const [note, setNote] = useState("");
+  const [invalid, setInvalid] = useState<{ field: "state" | "reason" | "note"; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const stateRef = useRef<HTMLSelectElement>(null);
+  const reasonRef = useRef<HTMLSelectElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const fail = (field: "state" | "reason" | "note", message: string) => {
+    setInvalid({ field, message });
+    setError(null);
+    (field === "state" ? stateRef : field === "reason" ? reasonRef : noteRef).current?.focus();
+  };
+  const props = (field: "state" | "reason" | "note") =>
+    invalid?.field === field ? { "aria-invalid": true as const, "aria-describedby": "signal-review-invalid" } : {};
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!can.allowed) return;
+    setDone(null);
+    if (state === "") return fail("state", "Choose the review state to move this candidate to.");
+    if (state === signal.review_state) return fail("state", "The candidate is already in that review state.");
+    if (reason === "") return fail("reason", "Choose a reason.");
+    if (reason === "other" && note.trim() === "") return fail("note", "A note is required when the reason is Other.");
+    setBusy(true);
+    setInvalid(null);
+    setError(null);
+    try {
+      const trimmed = note.trim();
+      await api.reviewSignal(signal.id, trimmed ? { state, reason_code: reason, note: trimmed } : { state, reason_code: reason });
+      setDone("Review state updated.");
+      setNote("");
+      onChanged();
+    } catch (err) {
+      setError(message(err, "The review could not be saved."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel title="Review">
+      <p>
+        Current review state: <ReviewStatePill state={signal.review_state} />
+      </p>
+      <p className="muted">Review records a person's judgement about this lead. Accepting a candidate does not make it a fact or attribute an address to anyone.</p>
+      <form className="form" onSubmit={(e) => void submit(e)} noValidate aria-label="Review candidate">
+        <label className="field">
+          <span>Move to</span>
+          <select ref={stateRef} {...props("state")} value={state} onChange={(e) => setState(e.target.value as ReviewTarget | "")}>
+            <option value="">Choose a state</option>
+            {REVIEW_TARGETS.map((t) => (
+              <option key={t} value={t}>{humanLabel(t)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Reason</span>
+          <select ref={reasonRef} {...props("reason")} value={reason} onChange={(e) => setReason(e.target.value as ReasonCode | "")}>
+            <option value="">Choose a reason</option>
+            {REASONS.map((r) => (
+              <option key={r.code} value={r.code}>{r.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>{reason === "other" ? "Note (required)" : "Note (optional)"}</span>
+          <textarea ref={noteRef} {...props("note")} rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+        <RoleHint can={can} />
+        <button type="submit" className="btn btn-primary" disabled={busy || !can.allowed} title={can.reason}>
+          Save review
+        </button>
+      </form>
+      <FieldError id="signal-review-invalid" message={invalid?.message ?? null} />
+      <FieldError id="signal-review-error" message={error} />
+      {done ? <p role="status" className="ok-text">{done}</p> : null}
+    </Panel>
+  );
+}
+
+function DecisionHistory({ items }: { items: ReviewDecision[] }) {
+  // The API lists oldest first; show the newest decision first.
+  const rows = [...items].sort((a, b) => b.decided_at.localeCompare(a.decided_at) || b.id - a.id);
+  return (
+    <Panel title="Decision history">
+      <DataTable
+        caption="Review decisions"
+        rows={rows}
+        rowKey={(d) => String(d.id)}
+        empty="No review decision has been recorded yet."
+        columns={[
+          { key: "when", header: "Decided", priority: 1, render: (d) => fmtTime(d.decided_at) },
+          { key: "move", header: "Change", priority: 2, render: (d) => `${humanLabel(d.from_state)} to ${humanLabel(d.to_state)}` },
+          { key: "reason", header: "Reason", priority: 2, render: (d) => humanLabel(d.reason_code) },
+          { key: "note", header: "Note", priority: 2, render: (d) => d.note ?? <span className="muted">none</span> },
+          { key: "actor", header: "By", priority: 2, render: (d) => d.actor },
+        ]}
+      />
+    </Panel>
+  );
+}
+
+function Body({ signal, origin, decisions, reload }: { signal: Signal; origin: SignalDetailData["data_origin"]; decisions: ReviewDecision[]; reload: () => void }) {
   const ex = signal.explanation;
   const components = Array.isArray(ex.score_components) ? ex.score_components : [];
   const cov = signal.coverage;
@@ -255,6 +374,7 @@ function Body({ signal, origin, reload }: { signal: Signal; origin: SignalDetail
           <div className="row-inline">
             <SeverityPill severity={signal.severity} />
             <SignalStatusPill status={signal.status} />
+            <ReviewStatePill state={signal.review_state} />
             <Grade kind="statistical_signal" />
           </div>
           <dl className="kv">
@@ -361,6 +481,8 @@ function Body({ signal, origin, reload }: { signal: Signal; origin: SignalDetail
           </dl>
         </Panel>
 
+        <ReviewPanel key={`review-${signal.id}`} signal={signal} onChanged={reload} />
+        <DecisionHistory items={decisions} />
         <Actions key={signal.id} signal={signal} onChanged={reload} />
       </div>
     </>
@@ -377,7 +499,7 @@ export default function SignalDetailPage() {
       <PageHeader title={title} lede="A candidate for review, not a finding." actions={<Link className="btn" to="/signals">All signals</Link>} docTitle={`Signal ${id}`} />
       {detail.status === "loading" ? <Loading /> : null}
       {detail.status === "error" ? <ErrorState error={detail.error} onRetry={detail.reload} /> : null}
-      {detail.status === "ready" ? <Body signal={detail.data} origin={detail.data.data_origin} reload={detail.reload} /> : null}
+      {detail.status === "ready" ? <Body signal={detail.data} origin={detail.data.data_origin} decisions={detail.data.decisions ?? []} reload={detail.reload} /> : null}
     </>
   );
 }

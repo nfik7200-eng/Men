@@ -37,7 +37,7 @@ def get_public_settings(ctx: Context) -> PublicSettings:
         database_engine="sqlite",
         database_schema_version=SCHEMA_VERSION,
         storage=storage,
-        authentication="not_implemented",
+        authentication=s.auth.mode,
         ingest_default_limit=s.ingest.default_limit,
         ingest_max_limit=s.ingest.max_limit,
         ethereum_lookback_blocks=s.ingest.ethereum_lookback_blocks,

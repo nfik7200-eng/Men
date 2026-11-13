@@ -27,6 +27,10 @@ from bip.db.types import utcnow
 from bip.security.secrets import redact_text
 
 log = get_logger("bip.ops.scheduler")
+
+SKIPPED_RETRY = timedelta(minutes=1)
+"""How soon a job that found the ingestion lock held is tried again. Other skips (a full disk) wait
+the normal interval."""
 FIRST_RUN_DELAY = timedelta(seconds=60)
 
 
@@ -150,6 +154,10 @@ class Scheduler:
             if status == "error":
                 state.failures += 1
                 delay = min(job.interval * (2**state.failures), self._max_backoff)
+            elif status == "skipped" and "in progress" in detail:
+                # A busy ingestion lock is not this job's failure, and waiting a whole interval
+                # would let live collection fall behind while a historical run held the lock.
+                delay = min(job.interval, SKIPPED_RETRY)
             else:
                 state.failures = 0
                 delay = job.interval

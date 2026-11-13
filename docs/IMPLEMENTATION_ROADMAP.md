@@ -4,6 +4,19 @@ Version 0.1 (2026-11-03). Status: **Draft, awaiting approval.**
 
 Each stage is small, independently testable, and ends with green checks recorded in `IMPLEMENTATION_LOG.md`. "Live" means touching real providers. Stages 1–3 need **no network and no accounts**.
 
+## Five-stage improvement programme (owner instruction, 2026-11-13)
+
+This programme runs on top of the existing build. Its stage numbers are **its own** and do not
+renumber the original stages in the tables below.
+
+| # | Stage | Scope | Status |
+|---|---|---|---|
+| 1 | **Intelligence Foundation and Control Plane** | Codebase audit, architecture alignment, provider abstractions, unified event contracts, ingestion state, provenance, coverage and resource controls | **Done offline (2026-11-13), uncommitted at the owner's instruction.** Audit found the provider registry, chain contracts, provenance, provider observations, health, budgets and finality handling already built. Added: BIP-owned checkpoints and coverage ranges (migration v16, ADR-041), a persisted-state circuit breaker (ADR-042), read-only status routes. See `IMPLEMENTATION_LOG.md` |
+| 2 | Multi-chain Data Acquisition | Real Ethereum and Solana providers, historical and live workers, failover, deduplication, reorganization handling, gap recovery | **Done offline (2026-11-13), uncommitted at the owner's instruction.** Bounded backward backfill and gap recovery per chain, per-direction pause, history-floor handling with fallback to other providers, SPL and ERC-20 allowlist storage, per-provider daily usage and budgets, provider facts re-checked against official docs (ADR-043, ADR-044, migration v17). Fixture-tested only; no live provider was contacted in this stage. Not done: WebSocket streaming, BigQuery/Old Faithful sources, per-event multi-provider observations |
+| 3 | Intelligence Memory and Autonomous Discovery | Compact historical memory, wallet profiles, relationship graphs, statistical detectors, discovery inbox, longer-horizon opportunity candidates | **Done offline (2026-11-13), uncommitted at the owner's instruction.** Entity registry and append-only fact history with evidence classes and reorg invalidation (ADR-045), candidate review lifecycle with required reasons and bounded relationship expansion (ADR-046), memory tab, review panels, run history and policies in the UI. Local database only; jobs off by default |
+| 4 | Human Supervision and Machine Learning | Review centre, human-confirmed labels, active learning, training datasets, model evaluation, controlled retraining | Not started (reviewed entity labels exist, ADR-040) |
+| 5 | Local AI, Opportunity Intelligence and Production | Ollama research agents, retrieval, opportunity analysis, reports, alerts, authentication, security hardening, production operations | Not started (auth, alerts and the deploy kit exist from earlier work; Ollama is not configured) |
+
 ## Progress
 
 | Stage | Status | Evidence |

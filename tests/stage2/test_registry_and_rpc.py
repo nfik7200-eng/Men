@@ -242,3 +242,10 @@ def test_transport_distinguishes_dns_failure_from_unsafe_address() -> None:
     with pytest.raises(TransportError) as info2:
         mixed.post_json(ep, b"{}", timeout_s=1, max_bytes=10)
     assert info2.value.kind == "unsafe_destination"
+
+
+def test_minus_32001_means_cleaned_up_on_solana_but_stays_retryable_on_evm() -> None:
+    from bip.rpc.jsonrpc import classify_error
+
+    assert classify_error(-32001, "Block 5 cleaned up", "getBlock") == "not_available"
+    assert classify_error(-32001, "resource not found", "eth_getBlockByNumber") == "transient"

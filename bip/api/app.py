@@ -47,13 +47,17 @@ from bip.core.logging import get_logger
 from bip.db.engine import create_db_engine
 from bip.db.errors import DatabaseError
 from bip.db.repository import Repository
+from bip.discovery.expansion import ExpansionEngine
+from bip.discovery.review import ReviewService
 from bip.discovery.service import DiscoveryService
 from bip.entities.cases import CaseService
 from bip.entities.labels import EntityLabelService
 from bip.entities.relationships import RelationshipService
+from bip.ingest.backfill import Backfill, GapRecovery
 from bip.ingest.collector import ChainCollector
 from bip.ingest.solana_collector import SolanaCollector
 from bip.ingest.wallet import WalletIngestor
+from bip.intel.memory import MemoryService
 from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
 from bip.ml.labels import LabelStore
@@ -168,6 +172,11 @@ def create_app(
             relationships=RelationshipService(repo, cfg),
             collector=ChainCollector(router, repo, cfg),
             solana_collector=SolanaCollector(router, repo, cfg),
+            backfill=Backfill(router, repo, cfg),
+            gap_recovery=GapRecovery(router, repo, cfg),
+            memory=MemoryService(repo, cfg.memory),
+            review=cast(ReviewService, None),  # set below (shared with the expansion engine)
+            expansion=cast(ExpansionEngine, None),
             entity_labels=EntityLabelService(
                 repo,
                 separate_reviewer=cfg.auth.mode == "required",
@@ -177,6 +186,8 @@ def create_app(
             scheduler=None,
         )
         ctx = app.state.bip
+        ctx.review = ReviewService(repo)
+        ctx.expansion = ExpansionEngine(repo, cfg, ctx.discovery, ctx.review)
         ctx.research = ResearchManager(ctx, llm_provider or build_provider(cfg.ai, environ))
         if cfg.workers.enabled:
             ctx.scheduler = Scheduler(

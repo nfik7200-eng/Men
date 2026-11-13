@@ -1,8 +1,26 @@
 # Current State
 
-_Last updated: 2026-11-10 (autonomous build complete locally; CI green on `cf07957`; for owner review)_
+_Last updated: 2026-11-13 (Stage 1 of the five-stage programme done offline and uncommitted; earlier build on `0da1ec1` CI green)_
 
 ## Phase
+**Five-stage programme, Stage 3 (Intelligence Memory and Autonomous Discovery), 2026-11-13: done offline, NOT committed (owner instruction).**
+- **Memory:** an intelligence-memory registry and append-only fact history (migration v18; `bip/intel/memory.py`). It is filled from stored data only, bounded and resumable.
+- **Review:** candidate review decisions with required reasons and an actor (`bip/discovery/review.py`).
+- **Expansion:** bounded relationship expansion from seeds BIP chooses, producing hypothesis-labelled candidates (`bip/discovery/expansion.py`).
+- **UI:** the wallet workspace has a Memory tab, the signal detail page has Review and Decision history panels, the Signals queue filters by review state, and Coverage has run history and expansion policies.
+- **Status:** ADR-045 and ADR-046 (Proposed). Memory refresh and expansion jobs are off by default; nothing in this stage contacts a provider.
+- **Tests:** 945 backend tests, ruff and pyright clean; 269 frontend tests, 221/221 browser checks.
+
+**Five-stage programme, Stage 2 (Multi-chain Data Acquisition), 2026-11-13: done offline, NOT committed (owner instruction).**
+- **Backfill and recovery:** bounded backward backfill and gap recovery for Ethereum and Solana (`bip/ingest/backfill.py`).
+  - Live work has priority. Live and historical can each be paused (admin endpoints).
+  - History no configured provider serves is recorded `provider_unavailable` and stops the backfill. Other providers are asked first.
+- **Collectors:** the Solana collector stores allowlisted SPL transfers, and the Ethereum collector stores allowlisted ERC-20 transfers.
+- **Providers:** the router counts BIP's own per-provider daily requests (migration v17) and honours optional daily caps. Provider facts were re-checked against official pages on 2026-11-13.
+- **Status:** ADR-043 and ADR-044 (Proposed). Jobs are off by default. Everything is tested with local fakes only; no live provider was contacted in this stage.
+
+**Five-stage programme, Stage 1 (Intelligence Foundation and Control Plane), 2026-11-13: done offline, NOT committed (owner instruction: no commit, push or PR for this stage).** Audit by four read-only investigators, then a small additive build: migration v16 (`ingestion_checkpoints`, `coverage_ranges`), `bip/db/checkpoints.py`, both collectors wired to it, a persisted-state circuit breaker with a single half-open trial, read-only `GET /ingestion/checkpoints`, `GET /ingestion/coverage/{chain}`, `GET /system/budgets`, and `/settings` now reports the real auth mode. ADR-041 and ADR-042 (Proposed). 880 backend tests pass, ruff and pyright strict clean, frontend tsc and 245 tests pass. Four independent reviews and two repair rounds; see `IMPLEMENTATION_LOG.md`. The programme itself is recorded in `docs/IMPLEMENTATION_ROADMAP.md`.
+
 **Autonomous build (2026-11-09/10): complete locally, committed and pushed to `claude/modest-fermi-0yklvj` (draft PR #2). CI on `cf07957`: backend `checks`, `frontend` and `secret-scan` all concluded success. Not deployed. Remaining items need a real host, rare live events or owner approval (see the BLOCKED register).** Verified locally: 836 backend tests, ruff and pyright strict clean, 245 frontend unit tests, 221 Playwright checks at 390x844, 820x1180 and 1366x850, `deploy/rehearse.sh` 11/11.
 
 Earlier pass, **Backend completion pass (2026-11-08): implemented and verified offline.**
@@ -13,7 +31,7 @@ Earlier pass, **Backend completion pass (2026-11-08): implemented and verified o
 - **Operations**: detailed health and RPC usage, API metrics, verified backups, an in-process scheduler (off by default), retention.
 - **ML**: feature drift monitoring and detector review statistics. Models are still only rules plus a synthetic-trained demo model; no real reviewed labels exist.
 - **API reference** generated from OpenAPI and guarded by a test: `docs/API_REFERENCE.md`.
-- Migrations v7 to v14 (additive; v11 `pool_events`, v12 `token_stats` and `pool_reserves`, v13 `solana_discoveries`, v14 `entity_labels`, v15 `entity_labels.requested_by`). ADR-032 to ADR-038 (all Proposed).
+- Migrations v7 to v16 (additive; v16 `ingestion_checkpoints` and `coverage_ranges`; v11 `pool_events`, v12 `token_stats` and `pool_reserves`, v13 `solana_discoveries`, v14 `entity_labels`, v15 `entity_labels.requested_by`). ADR-032 to ADR-038 (all Proposed).
 
 Earlier in this pass: **Stage 1 ingestion correctness (2026-11-08)**
 - Solana transaction versions legacy, 0 and 1 are requested and parsed. Previously, v1 transactions (live on mainnet since 2026-09-15) produced placeholder rows.

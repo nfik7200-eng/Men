@@ -27,11 +27,13 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from bip.chains.identity import EXPECTED_IDENTITY, identity_matches
 from bip.config.settings import Settings
 from bip.core.exceptions import BIPError
 from bip.core.logging import get_logger
+from bip.db.types import utcnow
 from bip.providers.registry import ProviderSpec, Registry, is_write_capable
 from bip.providers.state import ProviderState, ProviderStateStore
 from bip.providers.status import ProviderView, compute_view
@@ -123,6 +125,8 @@ class ProbeResponse:
 class _ProviderRuntime:
     next_slot: float = 0.0
     cooldown_until: float = 0.0
+    half_open_until: float = 0.0
+    """While set in the future, a half-open trial call is in flight; others must wait."""
     identity_ok_at: float | None = None
     identity_failed: bool = False
     unsupported: set[str] = field(default_factory=set[str])
@@ -140,15 +144,18 @@ class ProviderRouter:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         rng: Callable[[], float] = random.random,
+        wall_clock: Callable[[], datetime] = utcnow,
     ) -> None:
         self._registry = registry
         self._cfg = settings.rpc
+        self._circuits = settings.router.circuit_breakers_enabled
         self._transport = transport
         self._state = state
         self._environ = environ
         self._clock = clock
         self._sleep = sleep
         self._rng = rng
+        self._wall_clock = wall_clock
         self._runtime: dict[str, _ProviderRuntime] = {}
         self._lock = threading.Lock()
         self._next_id = 0
@@ -165,12 +172,30 @@ class ProviderRouter:
     def _states(self) -> dict[str, ProviderState]:
         return self._state.states() if self._state is not None else {}
 
+    def _count_only(self, provider_id: str) -> None:
+        if self._state is not None:
+            try:
+                self._state.count_request(provider_id, ok=False)
+            except Exception:  # noqa: BLE001 - accounting must never break a call
+                log.warning("could not count a request for %s", provider_id)
+
+    def _usage_today(self) -> dict[str, int]:
+        if self._state is None or not self._cfg.daily_request_budgets:
+            return {}
+        return self._state.usage_today()
+
     def view(self, spec: ProviderSpec, states: Mapping[str, ProviderState]) -> ProviderView:
         return compute_view(spec, states.get(spec.id), self._environ)
 
     def eligible(self, chain: str, method: str) -> tuple[list[ProviderView], dict[str, str]]:
+        """Providers that may serve ``method`` now, and why the others may not.
+
+        Listing never claims a half-open circuit's trial call; :meth:`call` claims it only for
+        the provider it is about to send to.
+        """
         states = self._states()
         now = self._clock()
+        used = self._usage_today()
         usable: list[ProviderView] = []
         reasons: dict[str, str] = {}
         for spec in self._registry.for_chain(chain):
@@ -190,10 +215,60 @@ class ProviderRouter:
                 reasons[spec.id] = "network identity mismatch"
             elif rt.cooldown_until > now:
                 reasons[spec.id] = f"rate-limited for {rt.cooldown_until - now:.0f}s"
+            elif (left := self._circuit_open_for(states.get(spec.id))) is not None:
+                reasons[spec.id] = f"circuit open for {left:.0f}s after repeated failures"
+            elif (cap := self._cfg.daily_request_budgets.get(spec.id)) is not None and used.get(
+                spec.id, 0
+            ) >= cap:
+                reasons[spec.id] = f"daily request budget reached ({cap} requests)"
+            elif self._trial_in_flight(spec.id, states.get(spec.id), now):
+                reasons[spec.id] = "circuit half-open: a trial call is already in flight"
             else:
                 usable.append(v)
         usable.sort(key=lambda v: (_RANK.get(v.lifecycle, 9), v.state.consecutive_failures))
         return usable, reasons
+
+    def _circuit_open_for(self, state: ProviderState | None) -> float | None:
+        """Seconds left on an open circuit, or ``None`` when calls may go through.
+
+        The circuit is derived from persisted state (consecutive failures and the time of the last
+        one), so it survives a restart. Once ``circuit_open_s`` has passed since the last failure
+        the next call is let through (half-open); its outcome closes or reopens the circuit.
+        """
+        if not self._circuits or state is None or state.last_failure_at is None:
+            return None
+        if state.consecutive_failures < self._cfg.circuit_failure_threshold:
+            return None
+        elapsed = (self._wall_clock() - state.last_failure_at).total_seconds()
+        left = self._cfg.circuit_open_s - elapsed
+        return left if left > 0 else None
+
+    def _tripped(self, state: ProviderState | None) -> bool:
+        return (
+            self._circuits
+            and state is not None
+            and state.last_failure_at is not None
+            and state.consecutive_failures >= self._cfg.circuit_failure_threshold
+        )
+
+    def _trial_in_flight(self, provider_id: str, state: ProviderState | None, now: float) -> bool:
+        if not self._tripped(state):
+            return False
+        with self._lock:
+            return self._rt(provider_id).half_open_until > now
+
+    def _claim_half_open(self, provider_id: str, state: ProviderState | None, now: float) -> bool:
+        """Let exactly one trial call through a half-open circuit (a tripped circuit whose open
+        window has passed). The claim expires after the request deadline, so a lost call cannot
+        keep the circuit shut; the trial's outcome closes or reopens the circuit."""
+        if not self._tripped(state):
+            return True
+        with self._lock:
+            rt = self._rt(provider_id)
+            if rt.half_open_until > now:
+                return False
+            rt.half_open_until = now + self._cfg.timeout_s * 3
+            return True
 
     # ------------------------------------------------------------------ calls
 
@@ -222,6 +297,11 @@ class ProviderRouter:
         while attempt < self._cfg.max_attempts and candidates:
             view = candidates[index % len(candidates)]
             spec = view.spec
+            if not self._claim_half_open(spec.id, self._states().get(spec.id), self._clock()):
+                # another caller holds this provider's half-open trial call
+                reasons[spec.id] = "circuit half-open: a trial call is already in flight"
+                candidates = [c for c in candidates if c.spec.id != spec.id]
+                continue
             attempt += 1
             try:
                 self._ensure_identity(chain, view, budget)
@@ -231,6 +311,7 @@ class ProviderRouter:
                 raise
             except RpcError as exc:
                 attempts.append(f"{spec.id}: {exc.error_class} ({exc})")
+                exc.provider_id = spec.id
                 if exc.error_class in {"invalid_request", "not_available", "range_too_large"}:
                     raise
                 if exc.error_class == "method_unsupported":
@@ -263,6 +344,8 @@ class ProviderRouter:
                     continue
                 self._backoff(attempt)
                 index += 1
+        if not attempts:  # every candidate's half-open trial was held by another caller
+            raise NoEligibleProviderError(chain, method, reasons)
         raise RoutingFailedError(chain, method, attempts)
 
     def _backoff(self, attempt: int) -> None:
@@ -372,6 +455,9 @@ class ProviderRouter:
         endpoint = view.resolution.endpoint
         if not spec.has_adapter or endpoint is None:
             return ProbeResponse(spec.id, method, False, refused="provider not configured")
+        cap = self._cfg.daily_request_budgets.get(spec.id)
+        if cap is not None and self._usage_today().get(spec.id, 0) >= cap:
+            return ProbeResponse(spec.id, method, False, refused="daily request budget reached")
         rt = self._rt(spec.id)
         interval = max(1.0 / spec.client_rps if spec.client_rps else 0.25, min_interval_s)
         with self._lock:
@@ -404,6 +490,7 @@ class ProviderRouter:
             if http_class == "rate_limited":
                 cooldown = retry_after if retry_after is not None else 10.0
                 rt.cooldown_until = self._clock() + min(cooldown, self._cfg.max_retry_after_s)
+                self._count_only(spec.id)
             else:  # a rate limit is a usage policy, not an outage: lifecycle stays unchanged
                 self._record(
                     spec.id,
@@ -429,6 +516,7 @@ class ProviderRouter:
             )  # Solana reports node lag on getHealth with -32005; that is not a rate limit
             if exc.error_class == "rate_limited" and not unhealthy:
                 rt.cooldown_until = self._clock() + min(10.0, self._cfg.max_retry_after_s)
+                self._count_only(spec.id)
             else:
                 self._record(
                     spec.id,

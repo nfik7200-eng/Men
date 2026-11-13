@@ -53,6 +53,8 @@ class RouterFlags(BaseModel):
     """Master switch for real provider requests. No code path uses it yet; it must stay False
     until the capability prober (Stage 4) exists."""
     circuit_breakers_enabled: bool = True
+    """Skip a provider in routine routing after ``rpc.circuit_failure_threshold`` consecutive
+    failures, for ``rpc.circuit_open_s``. Probes and admin health checks still reach it."""
     cross_verification_sample_rate: Annotated[float, Field(ge=0.0, le=1.0)] = 0.01
 
 
@@ -129,6 +131,16 @@ class RpcSettings(BaseModel):
     max_retry_after_s: Annotated[float, Field(ge=0, le=600)] = 60.0
     """Longest Retry-After BIP will honour inline; longer waits mark the provider rate-limited."""
     max_response_bytes: Annotated[int, Field(ge=1024, le=64 * 1024 * 1024)] = 8 * 1024 * 1024
+    circuit_failure_threshold: Annotated[int, Field(ge=2, le=50)] = 5
+    """Consecutive failed calls after which routine routing stops choosing a provider (its
+    circuit opens). Used only when ``router.circuit_breakers_enabled`` is on."""
+    circuit_open_s: Annotated[float, Field(ge=10, le=3600)] = 120.0
+    """How long an open circuit stays open after the last failure. After that one call is let
+    through (half-open): a success closes it, a failure opens it again."""
+    daily_request_budgets: dict[str, Annotated[int, Field(ge=1)]] = {}
+    """Optional per-provider cap on requests BIP sends per UTC day, keyed by provider id (for
+    example ``{"helius-sol": 30000}``). Empty means no cap. Set it from the provider's own
+    documented quota; BIP never assumes one. A provider at its cap is skipped in routing."""
     use_env_proxy: bool = False
     """Send requests through HTTPS_PROXY. Disables local IP pinning (the proxy resolves hosts)."""
 
@@ -236,6 +248,20 @@ class WorkersSettings(BaseModel):
     solana_collector_enabled: bool = False
     """Contacts providers (``solana_scan`` job). Requires explicit approval."""
     solana_collector_interval_minutes: Annotated[int, Field(ge=1, le=24 * 60)] = 5
+    ethereum_backfill_enabled: bool = False
+    """Contacts providers (``ethereum_backfill`` job). Requires explicit approval."""
+    solana_backfill_enabled: bool = False
+    """Contacts providers (``solana_backfill`` job). Requires explicit approval."""
+    backfill_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 60
+    gap_recovery_enabled: bool = False
+    """Contacts providers (``gap_recovery`` job). Requires explicit approval."""
+    gap_recovery_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 120
+    memory_enabled: bool = False
+    """Refresh intelligence memory from stored data (``memory_refresh`` job; local only)."""
+    memory_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 60
+    expansion_enabled: bool = False
+    """Bounded relationship expansion (``discovery_expansion`` job; local only). Off by default."""
+    expansion_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 120
     max_backoff_hours: Annotated[int, Field(ge=1, le=72)] = 24
     closed_signal_retention_days: Annotated[int, Field(ge=1, le=3650)] = 90
     job_history_days: Annotated[int, Field(ge=1, le=3650)] = 90
@@ -282,6 +308,10 @@ class CollectorSettings(BaseModel):
     max_tracked_tokens: Annotated[int, Field(ge=1000, le=5_000_000)] = 500_000
     """Rows in ``token_stats``; new tokens beyond this are counted as a gap, not tracked."""
     max_block_attempts: Annotated[int, Field(ge=1, le=10)] = 3
+    token_allowlist: tuple[str, ...] = ()
+    """ERC-20 token contracts whose transfers are always stored (live: from the block's Transfer
+    scan; backfill: with an address-filtered eth_getLogs). Lower-case 0x addresses chosen by the
+    operator. Their transfers still count against ``max_token_transfers_per_run``."""
     """Failed reads of one block (a malformed or oversize response, a hard provider error) before
     it is given up as a recorded gap, so one bad block cannot stall the cursor forever."""
 
@@ -337,10 +367,62 @@ class SolanaCollectorSettings(BaseModel):
     min_sol_transfer: Annotated[int, Field(ge=1, le=10_000_000)] = 500
     """A System Program transfer of at least this many SOL is stored (with its transaction)."""
     max_stored_transactions_per_run: Annotated[int, Field(ge=0, le=500)] = 100
+    spl_mint_allowlist: tuple[str, ...] = ()
+    """SPL token mints whose transfers are stored (Token and Token-2022, TransferChecked and
+    Transfer). Empty means SPL transfers are not stored: storing every token transfer on mainnet
+    is not a goal. Addresses are base58 mints chosen by the operator."""
+    max_spl_transfers_per_run: Annotated[int, Field(ge=0, le=2000)] = 200
+    """SPL transfers stored per run; any beyond are recorded as an incomplete coverage range."""
     max_slot_attempts: Annotated[int, Field(ge=1, le=10)] = 3
     """Failed reads of one slot before it is given up as a recorded gap (e.g. an oversize block)."""
     max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=150)] = 150
     run_deadline_s: Annotated[float, Field(gt=0, le=90)] = 90.0
+
+
+class BackfillSettings(BaseModel):
+    """Bounded historical backfill and gap recovery (``BIP_BACKFILL__*``).
+
+    Each run reads a small window of blocks or slots *backward* from the historical checkpoint,
+    toward a boundary set once from the target period. The per-day rates are estimates (12 s
+    Ethereum slots, about 0.4 s Solana slots) used only to place that boundary; the boundary is
+    recorded on the checkpoint, so nothing silently shortens the period later.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    ethereum_target_days: Annotated[int, Field(ge=1, le=3650)] = 180
+    solana_target_days: Annotated[int, Field(ge=1, le=3650)] = 90
+    ethereum_blocks_per_day_estimate: Annotated[int, Field(ge=1, le=100_000)] = 7_200
+    solana_slots_per_day_estimate: Annotated[int, Field(ge=1, le=1_000_000)] = 216_000
+    blocks_per_run: Annotated[int, Field(ge=1, le=100)] = 10
+    slots_per_run: Annotated[int, Field(ge=1, le=100)] = 10
+    max_rpc_calls_per_run: Annotated[int, Field(ge=1, le=150)] = 100
+    run_deadline_s: Annotated[float, Field(gt=0, le=90)] = 60.0
+    max_attempts: Annotated[int, Field(ge=1, le=10)] = 3
+    """Failed reads of one position before it is given up as a ``failed`` coverage range."""
+    max_live_lag_blocks: Annotated[int, Field(ge=1, le=100_000)] = 100
+    max_live_lag_slots: Annotated[int, Field(ge=1, le=1_000_000)] = 3_000
+    """Live work has priority: backfill and recovery wait while live is further behind than this
+    (as of its last run) or is running."""
+    recovery_positions_per_run: Annotated[int, Field(ge=1, le=100)] = 10
+
+
+class MemorySettings(BaseModel):
+    """Intelligence memory and bounded expansion discovery (``BIP_MEMORY__*``). Both read only the
+    local database; nothing here contacts a provider."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_rows_per_source: Annotated[int, Field(ge=10, le=20_000)] = 2_000
+    """Source rows (transfers, deployments, pools, signals...) folded into memory per run."""
+    max_entities_per_run: Annotated[int, Field(ge=10, le=20_000)] = 500
+    """Entities whose aggregate facts (activity, deployer counts) are recomputed per run."""
+    expansion_max_depth: Annotated[int, Field(ge=1, le=3)] = 2
+    expansion_max_entities: Annotated[int, Field(ge=1, le=500)] = 100
+    expansion_max_rows: Annotated[int, Field(ge=10, le=50_000)] = 5_000
+    expansion_max_seeds: Annotated[int, Field(ge=1, le=100)] = 20
+    expansion_cooldown_days: Annotated[int, Field(ge=1, le=365)] = 7
+    """An entity examined by a policy is not examined again by it for this long."""
 
 
 class DiscoverySettings(BaseModel):
@@ -486,6 +568,8 @@ class Settings(BaseSettings):
     intel: IntelSettings = IntelSettings()
     discovery: DiscoverySettings = DiscoverySettings()
     collector: CollectorSettings = CollectorSettings()
+    backfill: BackfillSettings = BackfillSettings()
+    memory: MemorySettings = MemorySettings()
     solana_collector: SolanaCollectorSettings = SolanaCollectorSettings()
     auth: AuthSettings = AuthSettings()
     workers: WorkersSettings = WorkersSettings()

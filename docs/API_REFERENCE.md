@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-137 routes in 15 groups.
+151 routes in 15 groups.
 
 ### auth
 
@@ -158,14 +158,18 @@ Parameters: `chain` (path, required): string (len>=1, len<=32)
 | GET | `/api/v1/discovery/collector` | viewer | Collector Status: Cursor, limits, the last run's manifest and what the collector does not cover. |
 | GET | `/api/v1/discovery/collector/solana` | viewer | Solana Collector Status: Cursor, coverage gaps, limits, recognised programs (with sources) and the last run. |
 | GET | `/api/v1/discovery/detectors` | viewer | Detectors: Every detector with its method, coverage, limitations, refresh frequency and cost. |
+| POST | `/api/v1/discovery/expand/{chain}` | analyst | Run Expansion: Run one bounded expansion policy over stored relationships (local database only). |
+| GET | `/api/v1/discovery/expansion` | viewer | Expansion Policies: Bounded expansion policies, their budgets and recent expansion runs (read-only). |
 | GET | `/api/v1/discovery/feed` | viewer | Discovery Feed: Open signals ranked by score, with the freshness of the pass behind them. |
 | GET | `/api/v1/discovery/performance` | viewer | Detector Performance: Per-detector outcomes of analyst review (a false-positive proxy, with its caveats). |
 | POST | `/api/v1/discovery/run` | analyst | Run Discovery: Run all detectors once over stored data. Reads the database only: no provider is called. |
 | GET | `/api/v1/discovery/runs` | viewer | Discovery Runs |
 | GET | `/api/v1/signals` | viewer | List Signals |
 | GET | `/api/v1/signals/{signal_id}` | viewer | Get Signal |
+| GET | `/api/v1/signals/{signal_id}/decisions` | viewer | Signal Decisions: The candidate's review history: every state change, its reason, who and when. |
 | POST | `/api/v1/signals/{signal_id}/dismiss` | analyst | Dismiss Signal |
 | POST | `/api/v1/signals/{signal_id}/promote` | analyst | Promote Signal: Move a signal into a watchlist (the subject is watched) or a case (it becomes an |
+| POST | `/api/v1/signals/{signal_id}/review` | analyst | Review Signal: Record a review decision with a required reason (and a note for 'other'). Accepting a |
 
 <details><summary><code>POST /api/v1/alert-rules</code></summary>
 
@@ -199,6 +203,14 @@ Parameters: `alert_id` (path, required): integer (>=1, <=9007199254740992)
 
 </details>
 
+<details><summary><code>POST /api/v1/discovery/expand/{chain}</code></summary>
+
+Parameters: `chain` (path, required): string (len<=32)
+
+Body (`*` required): `policy` *: `shared_neighbourhood` | `deployer_network`
+
+</details>
+
 <details><summary><code>GET /api/v1/discovery/feed</code></summary>
 
 Parameters: `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000)
@@ -219,11 +231,17 @@ Parameters: `limit` (query): integer (>=1, <=50)
 
 <details><summary><code>GET /api/v1/signals</code></summary>
 
-Parameters: `status` (query): `open` | `dismissed` | `promoted` | `invalidated` | `expired` or null; `family` (query): null or string (len<=40); `chain` (query): null or string (len<=32); `severity` (query): `low` | `medium` | `high` or null; `detector` (query): null or string (len<=64); `subject` (query): null or string (len<=100); `min_score` (query): null or number (>=0, <=100); `sort` (query): `score` | `recent`; `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000)
+Parameters: `status` (query): `open` | `dismissed` | `promoted` | `invalidated` | `expired` or null; `family` (query): null or string (len<=40); `chain` (query): null or string (len<=32); `severity` (query): `low` | `medium` | `high` or null; `detector` (query): null or string (len<=64); `subject` (query): null or string (len<=100); `min_score` (query): null or number (>=0, <=100); `sort` (query): `score` | `recent`; `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000); `review_state` (query): `new` | `pending_review` | `accepted` | `rejected` | `monitoring` | `investigating` | `archived` or null
 
 </details>
 
 <details><summary><code>GET /api/v1/signals/{signal_id}</code></summary>
+
+Parameters: `signal_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+<details><summary><code>GET /api/v1/signals/{signal_id}/decisions</code></summary>
 
 Parameters: `signal_id` (path, required): integer (>=1, <=9007199254740992)
 
@@ -245,6 +263,14 @@ Body (`*` required): `target` *: `watchlist` | `investigation`; `watchlist_id`: 
 
 </details>
 
+<details><summary><code>POST /api/v1/signals/{signal_id}/review</code></summary>
+
+Parameters: `signal_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `state` *: `pending_review` | `accepted` | `rejected` | `monitoring` | `investigating` | `archived`; `reason_code` *: `evidence_sufficient` | `evidence_insufficient` | `needs_more_data` | `false_positive` | `duplicate` | `known_entity` | `out_of_scope` | `reopened` | `other`; `note`: null or string (len<=500)
+
+</details>
+
 ### entities
 
 | Method | Path | Role | Summary |
@@ -254,6 +280,9 @@ Body (`*` required): `target` *: `watchlist` | `investigation`; `watchlist_id`: 
 | POST | `/api/v1/entities/labels` | analyst | Propose Label: Propose an attribution to an organisation or protocol. It stays a proposal until reviewed. |
 | POST | `/api/v1/entities/labels/suggest` | analyst | Suggest Labels: Ask the configured local model for label proposals grounded in stored signals. |
 | POST | `/api/v1/entities/labels/{label_id}/review` | analyst | Review Label: A person approves or rejects a proposal. Approval needs human-added evidence and a note. |
+| POST | `/api/v1/entities/memory/refresh/{chain}` | analyst | Memory Refresh: Fold newly stored data into intelligence memory once (local database only, bounded). |
+| GET | `/api/v1/entities/memory/search` | viewer | Memory Search: Entities in intelligence memory, most recently seen first (prefix search on the address). |
+| GET | `/api/v1/entities/memory/{chain}/{ref}` | viewer | Memory Entity: What BIP remembers about one entity: current facts with their evidence class, the full |
 | GET | `/api/v1/entities/{chain}/{ref}/labels` | viewer | Entity Labels |
 | GET | `/api/v1/entities/{chain}/{ref}/relationships` | viewer | Relationships |
 | GET | `/api/v1/investigations/{investigation_id}/notes` | viewer | List Notes |
@@ -294,6 +323,24 @@ Body (`*` required): `chain` *: string (len>=1, len<=32); `ref` *: string (len>=
 Parameters: `label_id` (path, required): integer (>=1, <=9007199254740992)
 
 Body (`*` required): `decision` *: `approve` | `reject`; `note` *: string (len>=10, len<=500); `evidence`: list of EvidenceIn
+
+</details>
+
+<details><summary><code>POST /api/v1/entities/memory/refresh/{chain}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32)
+
+</details>
+
+<details><summary><code>GET /api/v1/entities/memory/search</code></summary>
+
+Parameters: `chain` (query): null or string (len<=32); `kind` (query): `wallet` | `contract` | `token` | `pool` | `program` or null; `q` (query): null or string (len>=2, len<=100); `limit` (query): integer (>=1, <=200)
+
+</details>
+
+<details><summary><code>GET /api/v1/entities/memory/{chain}/{ref}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `ref` (path, required): string (len>=3, len<=100)
 
 </details>
 
@@ -357,9 +404,33 @@ Parameters: `chain` (path, required): string (len>=1, len<=32); `tx_id` (path, r
 
 | Method | Path | Role | Summary |
 |---|---|---|---|
+| POST | `/api/v1/ingestion/backfill/{chain}` | admin | Run Backfill: Read one bounded window of history backward once. Admin only: this CONTACTS PROVIDERS. |
+| GET | `/api/v1/ingestion/checkpoints` | viewer | List Checkpoints: BIP-owned ingestion progress per chain, network, stream and direction (read-only). |
+| GET | `/api/v1/ingestion/coverage/{chain}` | viewer | Coverage: Coverage ranges and gaps for one stream, from storage only (read-only). |
 | GET | `/api/v1/ingestion/jobs` | viewer | List Jobs |
 | GET | `/api/v1/ingestion/jobs/{job_id}` | viewer | Get Job |
+| POST | `/api/v1/ingestion/recovery/{chain}` | admin | Run Recovery: Re-read a few positions of unresolved coverage gaps once. Admin only: CONTACTS PROVIDERS. |
+| POST | `/api/v1/ingestion/streams/{chain}/{direction}/pause` | admin | Pause Stream: Pause live or historical work of one chain (admin). The other direction keeps running and |
+| POST | `/api/v1/ingestion/streams/{chain}/{direction}/resume` | admin | Resume Stream: Resume a paused stream direction (admin). |
 | POST | `/api/v1/ingestion/wallet/{chain}/{address}` | admin | Ingest Wallet: Run one bounded, synchronous, read-only ingestion for a wallet. |
+
+<details><summary><code>POST /api/v1/ingestion/backfill/{chain}</code></summary>
+
+Parameters: `chain` (path, required): string (len<=32)
+
+</details>
+
+<details><summary><code>GET /api/v1/ingestion/checkpoints</code></summary>
+
+Parameters: `chain` (query): null or string (len<=32)
+
+</details>
+
+<details><summary><code>GET /api/v1/ingestion/coverage/{chain}</code></summary>
+
+Parameters: `chain` (path, required): string (len<=32); `stream` (query): string (len>=1, len<=40); `limit` (query): integer (>=1, <=500)
+
+</details>
 
 <details><summary><code>GET /api/v1/ingestion/jobs</code></summary>
 
@@ -370,6 +441,24 @@ Parameters: `limit` (query): integer (>=1, <=50); `chain` (query): null or strin
 <details><summary><code>GET /api/v1/ingestion/jobs/{job_id}</code></summary>
 
 Parameters: `job_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+<details><summary><code>POST /api/v1/ingestion/recovery/{chain}</code></summary>
+
+Parameters: `chain` (path, required): string (len<=32)
+
+</details>
+
+<details><summary><code>POST /api/v1/ingestion/streams/{chain}/{direction}/pause</code></summary>
+
+Parameters: `chain` (path, required): string (len<=32); `direction` (path, required): `live` | `historical`
+
+</details>
+
+<details><summary><code>POST /api/v1/ingestion/streams/{chain}/{direction}/resume</code></summary>
+
+Parameters: `chain` (path, required): string (len<=32); `direction` (path, required): `live` | `historical`
 
 </details>
 
@@ -816,6 +905,7 @@ Parameters: `run_id` (path, required): string
 | GET | `/api/v1/system/backups` | viewer | List Backups |
 | POST | `/api/v1/system/backups` | admin | Create Backup |
 | POST | `/api/v1/system/backups/{name}/verify` | admin | Verify Backup |
+| GET | `/api/v1/system/budgets` | viewer | Budgets: Configured request, run and storage budgets and the circuit-breaker policy (read-only). |
 | GET | `/api/v1/system/health` | viewer | Detailed Health |
 | GET | `/api/v1/system/jobs` | viewer | Jobs |
 | POST | `/api/v1/system/jobs/{name}/run` | admin | Run Job |

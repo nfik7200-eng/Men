@@ -218,6 +218,16 @@ Bronze --(normalizer vN, chain adapter)--> Silver --(feature jobs)--> Gold --(de
 - **Completeness:** reported with every metric. For example, "holder count (coverage 97.2%, from block X)". UIs and reports must display it.
 - **Null discipline:** unknown means `NULL` plus a reason. Aggregates over incomplete coverage carry `is_partial = true`.
 
+### 6.4 As built (Stage 1 of the five-stage programme, 2026-11-13)
+What the code does today; §6.1–6.3 describe the target design.
+- **Contracts.** `bip/contracts/` keeps the chains apart: `BlockPosition` vs `SlotPosition`, `EvmLog` (`log_index`) vs `SolanaInstruction` (`outer_index`, `inner_index`), and a `Provenance` envelope with finality `observed | confirmed | finalized | orphaned`. Event rows are keyed finer than the transaction: `transfers` by `(chain, tx_id, event_key)` where `event_key` is `log:<index>`, `ix:<path>` or `native`; `pool_events` and `pool_reserves` by `(chain, tx_id, log_index)`.
+- **Observations.** `provider_observations` and the append-only `evidence_verifications` hold what each provider returned and whether it agreed (`unverified`, `cross_verified`, `conflict`, `invalidated`). An unavailable second provider leaves a record `unverified`, never false. Conflicts stay visible. Observations are per transaction today, not per event (Stage 2).
+- **Checkpoints (v16, ADR-041).** `ingestion_checkpoints` per `(chain, network, stream, direction)`; `live` and `historical` progress independently; the cursor is a block or a slot; it moves only after commit and only in its own direction; a failure sets `stalled`/`blocked` and never resets it.
+- **Coverage (v16, ADR-041).** `coverage_ranges` with `processed`, `confirmed_empty`, `incomplete`, `failed`, `skipped`, `provider_unavailable`. No row means *not observed*; beyond the live cursor means *not yet processed*. Neither is ever treated as empty.
+- **Provider health and budgets.** Persisted `provider_checks` (consecutive failures, last outcome) drive lifecycle ranking and the circuit breaker (ADR-042). Per-run call budgets and deadlines are capped at 150 calls and 90 s. Provider quotas are not tracked across runs yet.
+- **Retention.** Raw payloads are content-addressed and optional; canonical rows are never deleted on a reorg (marked `orphaned` and excluded from derived reads on the wallet path). Coverage and checkpoint rows are small and are kept.
+- **Known gaps (Stage 2).** No `network` column on `blocks`, `transfers` or `pool_events`; no decoder version on canonical event rows (it is on coverage ranges and checkpoints); the Ethereum event key uses `tx_id` while the contract's natural key uses `block_hash`; Solana has no orphan path outside the finalized-only collector.
+
 ## 7. Technology selection (smallest viable stack)
 
 | Tech | Decision | Rationale |

@@ -9,8 +9,9 @@ description.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, func, select
 
@@ -89,7 +90,109 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 contacts_providers=True,
             )
         )
+    if w.memory_enabled:
+        jobs.append(
+            Job(
+                "memory_refresh",
+                timedelta(minutes=w.memory_interval_minutes),
+                lambda: _memory(ctx),
+                "Fold newly stored data into intelligence memory. Local database only.",
+            )
+        )
+    if w.expansion_enabled:
+        jobs.append(
+            Job(
+                "discovery_expansion",
+                timedelta(minutes=w.expansion_interval_minutes),
+                lambda: _expand(ctx),
+                "Bounded relationship expansion from seeds BIP chose. Local database only.",
+            )
+        )
+    # Historical work is registered after the live collectors, so on a shared tick the live
+    # jobs run first; backfill and recovery also wait while live is running or behind.
+    for chain, enabled in (
+        ("ethereum", w.ethereum_backfill_enabled),
+        ("solana", w.solana_backfill_enabled),
+    ):
+        if enabled:
+            jobs.append(
+                Job(
+                    f"{chain}_backfill",
+                    timedelta(minutes=w.backfill_interval_minutes),
+                    lambda c=chain: _bounded(ctx, lambda: ctx.backfill.run(c)),
+                    f"Read one bounded window of {chain} history backward. CONTACTS PROVIDERS.",
+                    contacts_providers=True,
+                )
+            )
+    if w.gap_recovery_enabled:
+        for chain in ("ethereum", "solana"):
+            if chain not in ctx.settings.enabled_chains:
+                continue
+            jobs.append(
+                Job(
+                    f"{chain}_gap_recovery",
+                    timedelta(minutes=w.gap_recovery_interval_minutes),
+                    lambda c=chain: _bounded(ctx, lambda: ctx.gap_recovery.run(c)),
+                    f"Re-read a few positions of unresolved {chain} coverage gaps. "
+                    "CONTACTS PROVIDERS.",
+                    contacts_providers=True,
+                )
+            )
     return jobs
+
+
+def _memory(ctx: AppContext) -> str:
+    from bip.intel.memory import MemoryBusyError
+
+    parts: list[str] = []
+    for chain in ("ethereum", "solana"):
+        if chain not in ctx.settings.enabled_chains:
+            continue
+        try:  # one chain failing must not stop the other
+            r = ctx.memory.refresh(chain)
+        except MemoryBusyError:
+            return "skipped: a memory refresh is in progress"
+        except Exception as exc:  # noqa: BLE001 - reported in the job detail
+            parts.append(f"{chain}: failed ({type(exc).__name__})")
+            continue
+        parts.append(
+            f"{chain}: {r['entities_touched']} entities, {r['facts_new']} new, "
+            f"{r['facts_changed']} changed facts"
+        )
+    return "; ".join(parts)
+
+
+def _expand(ctx: AppContext) -> str:
+    if not ctx.discovery_lock.acquire(blocking=False):
+        return "skipped: a discovery pass is in progress"
+    try:
+        parts: list[str] = []
+        for chain in ("ethereum", "solana"):
+            if chain not in ctx.settings.enabled_chains:
+                continue
+            for policy in ("shared_neighbourhood", "deployer_network"):
+                r = ctx.expansion.run(policy, chain)
+                stats = next(iter(r["detectors"].values()))
+                parts.append(f"{chain}/{policy}: {stats['created']} new candidate(s)")
+        return "; ".join(parts)
+    finally:
+        ctx.discovery_lock.release()
+
+
+def _bounded(ctx: AppContext, run: Callable[[], dict[str, Any]]) -> str:
+    from bip.api.deps import INGEST_RESERVE_BYTES
+
+    try:
+        ctx.disk_guard.require(INGEST_RESERVE_BYTES)
+    except StorageLimitError as exc:
+        return f"skipped: storage guard refused ({exc})"
+    if not ctx.ingest_lock.acquire(blocking=False):
+        return "skipped: an ingestion run is in progress"
+    try:
+        m = run()
+    finally:
+        ctx.ingest_lock.release()
+    return f"{m['chain']} {m['worker']} {m['status']}: {m['message']}"[:300]
 
 
 def _discovery(ctx: AppContext) -> str:

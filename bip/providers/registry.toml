@@ -41,12 +41,12 @@ rate_limit = "Not published; shared per-IP limits apply (third-party sources)."
 docs_url = "https://ethereum.org/developers/tools/publicnode-allnodes/"
 terms_url = "https://www.publicnode.com/"
 sources = ["https://ethereum.org/developers/tools/publicnode-allnodes/", "https://main.net/status/ethereum/"]
-notes = "Free, keyless (ethereum.org listing). Hostname confirmed by a third-party monitor, not by PublicNode's own docs. Archive depth and eth_getLogs range limit unknown."
+notes = "PublicNode terms (publicnode.com/terms, checked 2026-11-13) forbid data mining, robots, scraping and similar extraction: use only for small, bounded checks, not bulk collection. Free, keyless (ethereum.org listing). Hostname confirmed by a third-party monitor, not by PublicNode's own docs. Archive depth and eth_getLogs range limit unknown."
 
 [[provider]]
 id = "ankr-eth"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 infrastructure = "ankr"
 name = "Ankr Ethereum"
 operator = "Ankr"
@@ -62,18 +62,20 @@ methods = ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBal
            "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
            "eth_getTransactionCount", "eth_getCode"]
 client_rps = 4.0
-rate_limit = "Public/Freemium: about 1,800 requests/minute (Ankr service-plans page, via search)."
+rate_limit = "Public and Freemium: about 1,800 requests/minute; eth_getLogs max 1,000 blocks (Public), max 200,000 logs per response, batch size 10 (Public). WebSocket on Premium only (Ankr service plans, checked 2026-11-13)."
 docs_url = "https://www.ankr.com/docs/api-reference/"
 terms_url = "https://www.ankr.com/terms/"
-sources = ["https://www.ankr.com/docs/rpc-service/service-plans"]
+sources = ["https://www.ankr.com/docs/rpc-service/service-plans/"]
+max_log_block_range = 1000
+archive = "yes"
 notes = "Current docs put an API key in the URL path (https://rpc.ankr.com/eth/<KEY>). Whether the bare URL still works without a key is unconfirmed, so it is treated as credentialed."
 
 # ---------------------------------------------------------------- Ethereum, credentialed
 
 [[provider]]
 id = "alchemy-eth"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 infrastructure = "alchemy"
 name = "Alchemy Ethereum"
 operator = "Alchemy"
@@ -89,16 +91,17 @@ methods = ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBal
            "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
            "eth_getTransactionCount", "eth_getCode"]
 client_rps = 5.0
-rate_limit = "Free plan: 30M compute units/month; throughput figures conflict (25 RPS / 300-500 CU/s)."
+rate_limit = "Free: 30M compute units/month, 300 CU/s (about 15 requests/s); eth_getLogs costs 60 CU and is limited to a 10-block range on Free (Alchemy pricing and eth_getLogs reference, checked 2026-11-13)."
 docs_url = "https://www.alchemy.com/docs"
 terms_url = "https://www.alchemy.com/terms-conditions/terms"
-sources = ["https://www.alchemy.com/pricing", "https://www.alchemy.com/support/free-tier-details"]
+sources = ["https://www.alchemy.com/pricing", "https://www.alchemy.com/docs/reference/eth-getlogs"]
+max_log_block_range = 10
 notes = "URL format https://eth-mainnet.g.alchemy.com/v2/<KEY> (third-party sources). Requires a free account."
 
 [[provider]]
 id = "infura-eth"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 infrastructure = "consensys"
 name = "Infura Ethereum"
 operator = "Consensys (MetaMask)"
@@ -114,10 +117,10 @@ methods = ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBal
            "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
            "eth_getTransactionCount", "eth_getCode"]
 client_rps = 5.0
-rate_limit = "Free tier: 3,000,000 credits/day, 500 credits/s (Infura docs, via search)."
+rate_limit = "Free: 3,000,000 credits/day and 500 credits/s; eth_getLogs costs 255 credits, returns at most 10,000 results within 10 s, 5,000 parameters per request, no block-range cap (Infura pricing and eth_getLogs reference, checked 2026-11-13)."
 docs_url = "https://docs.infura.io/api/networks/ethereum"
 terms_url = "https://consensys.io/terms-of-use"
-sources = ["https://docs.infura.io/get-started/pricing/", "https://docs.infura.io/api/networks/ethereum/choose-a-network"]
+sources = ["https://docs.infura.io/get-started/pricing/", "https://docs.metamask.io/services/reference/ethereum/json-rpc-methods/eth_getlogs/"]
 notes = "URL format https://mainnet.infura.io/v3/<API-KEY> (Infura docs). Requires a free account."
 
 [[provider]]
@@ -149,8 +152,8 @@ notes = "Per-endpoint URL issued in the QuickNode dashboard. The trial may not b
 
 [[provider]]
 id = "solana-public"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 infrastructure = "solana-labs"
 name = "Solana public mainnet RPC"
 operator = "Solana Labs / Solana Foundation"
@@ -166,11 +169,11 @@ methods = ["getHealth", "getGenesisHash", "getSlot", "getBlock", "getBalance",
            "getSignaturesForAddress", "getTransaction", "getTokenAccountsByOwner", "getVersion", "getBlockHeight",
            "getLatestBlockhash"]
 client_rps = 3.0
-rate_limit = "100 requests per 10 s per IP; 40 requests per 10 s per IP for a single RPC (official Solana docs, via search; documented as not guaranteed current)."
+rate_limit = "100 requests per 10 s per IP, 40 per 10 s per IP for a single RPC, 40 concurrent connections, 40 new connections per 10 s, 100 MB per 30 s (Solana clusters page, checked 2026-11-13). Not for production use."
 docs_url = "https://solana.com/docs/references/clusters"
 terms_url = "https://solana.com/tos"
 sources = ["https://solana.com/docs/core/clusters", "https://docs.anza.xyz/clusters/available"]
-notes = "Official docs call it rate-limited and not intended for production. Current docs name api.mainnet.solana.com; older docs use api.mainnet-beta.solana.com. Historical depth served is unknown. getTokenAccountsByOwner is listed in the official RPC reference (solana.com/docs/rpc/http, read 2026-11-08); not probed live."
+notes = "The solana.com site terms forbid systematic retrieval to compile a database and automated use; whether they cover the public RPC endpoint is unclear, so keep runs small and occasional. Official docs call it rate-limited and not intended for production. Current docs name api.mainnet.solana.com; older docs use api.mainnet-beta.solana.com. Historical depth served is unknown. getTokenAccountsByOwner is listed in the official RPC reference (solana.com/docs/rpc/http, read 2026-11-08); not probed live."
 
 [[provider]]
 id = "publicnode-sol"
@@ -195,14 +198,14 @@ rate_limit = "Not published; shared per-IP limits apply (third-party sources)."
 docs_url = "https://www.publicnode.com/"
 terms_url = "https://www.publicnode.com/"
 sources = ["https://onfinality.io/en/rpc-assistant/publicnode-solana-rpc-endpoint"]
-notes = "Keyless, but sources disagree on the hostname (rpc.publicnode.com vs solana.publicnode.com), so no endpoint is built in. Set BIP_PROVIDER_PUBLICNODE_SOL_URL after confirming it on publicnode.com."
+notes = "PublicNode terms (publicnode.com/terms, checked 2026-11-13) forbid data mining, robots, scraping and similar extraction: use only for small, bounded checks, not bulk collection. Keyless, but sources disagree on the hostname (rpc.publicnode.com vs solana.publicnode.com), so no endpoint is built in. Set BIP_PROVIDER_PUBLICNODE_SOL_URL after confirming it on publicnode.com."
 
 # ---------------------------------------------------------------- Solana, credentialed
 
 [[provider]]
 id = "helius-sol"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 infrastructure = "helius"
 name = "Helius Solana"
 operator = "Helius"
@@ -218,16 +221,16 @@ methods = ["getHealth", "getGenesisHash", "getSlot", "getBlock", "getBalance",
            "getSignaturesForAddress", "getTransaction", "getVersion", "getBlockHeight",
            "getLatestBlockhash"]
 client_rps = 5.0
-rate_limit = "Free plan: 1M credits/month, 10 RPC requests/s (Helius billing docs, via search)."
+rate_limit = "Free: 1M credits/month, 10 RPC requests/s, 2 requests/s for DAS and Enhanced APIs; getBlock, getSignaturesForAddress and getTransaction are archival methods (depth not stated); standard WebSocket included with 5 connections (Helius plans and rate limits, checked 2026-11-13)."
 docs_url = "https://www.helius.dev/docs/rpc/quickstart"
 terms_url = "https://www.helius.dev/terms-of-service"
-sources = ["https://helius.dev/docs/billing/plans", "https://www.helius.dev/docs/rpc/quickstart"]
+sources = ["https://www.helius.dev/docs/billing/plans", "https://www.helius.dev/docs/billing/rate-limits"]
 notes = "URL format https://mainnet.helius-rpc.com/?api-key=<KEY> (Helius docs). Requires a free account."
 
 [[provider]]
 id = "alchemy-sol"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 infrastructure = "alchemy"
 name = "Alchemy Solana"
 operator = "Alchemy"
@@ -243,7 +246,7 @@ methods = ["getHealth", "getGenesisHash", "getSlot", "getBlock", "getBalance",
            "getSignaturesForAddress", "getTransaction", "getVersion", "getBlockHeight",
            "getLatestBlockhash"]
 client_rps = 5.0
-rate_limit = "Shares the Alchemy account quota (30M compute units/month on the free plan)."
+rate_limit = "Free: 30M compute units/month, 300 CU/s (about 15 requests/s) (Alchemy pricing, checked 2026-11-13). Solana archive depth not stated."
 docs_url = "https://www.alchemy.com/docs"
 terms_url = "https://www.alchemy.com/terms-conditions/terms"
 sources = ["https://www.alchemy.com/pricing"]
@@ -278,8 +281,8 @@ notes = "Per-endpoint URL issued in the QuickNode dashboard."
 
 [[provider]]
 id = "etherscan"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 name = "Etherscan API V2"
 operator = "Etherscan"
 kind = "indexer_api"
@@ -289,16 +292,35 @@ access = "credentials"
 endpoint_env = "BIP_PROVIDER_ETHERSCAN_KEY"
 enabled = true
 methods = []
-rate_limit = "Free: 3 calls/s, 100,000 calls/day, selected chains (older page: 5/s)."
+rate_limit = "Free: 3 calls/s, up to 100,000 calls/day, Ethereum mainnet included (Etherscan rate limits, checked 2026-11-13)."
 docs_url = "https://docs.etherscan.io/"
-terms_url = "https://etherscan.io/terms"
+terms_url = "https://etherscan.io/apiterms"
 sources = ["https://docs.etherscan.io/resources/rate-limits"]
-notes = "Planned for deployer and verified-source metadata (Stage 10)."
+notes = "Free tier is for personal and research use only; bulk download, mirroring or archiving is prohibited and displayed output needs \"Powered by Etherscan.io APIs\" attribution. Planned for deployer and verified-source metadata only; no adapter."
+
+[[provider]]
+id = "blockscout"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
+name = "Blockscout PRO API"
+operator = "Blockscout"
+kind = "indexer_api"
+protocol = "none"
+chains = ["ethereum"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_BLOCKSCOUT_KEY"
+enabled = true
+methods = []
+rate_limit = "Free: 100K credits/day, 5 requests/s, all chains; key from dev.blockscout.com (Blockscout PRO API docs, checked 2026-11-13)."
+docs_url = "https://docs.blockscout.com/devs/pro-api"
+terms_url = "https://docs.blockscout.com/devs/pro-api"
+sources = ["https://docs.blockscout.com/devs/pro-api"]
+notes = "Indexed API, not an independent RPC source. Catalogue entry only; no adapter. Version 12 (2026-10-07) changed the API."
 
 [[provider]]
 id = "bigquery"
-documentation_basis = "search_derived"
-documentation_checked = "2026-11-03"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-13"
 name = "Google BigQuery public datasets"
 operator = "Google Cloud"
 kind = "dataset"
@@ -308,11 +330,11 @@ access = "credentials"
 endpoint_env = "BIP_PROVIDER_GCP_PROJECT"
 enabled = true
 methods = []
-rate_limit = "Sandbox: 1 TiB query scanning/month, 10 GiB storage, 60-day table expiry."
+rate_limit = "First 1 TiB of query data processed per month free, then $6.25/TiB on demand; sandbox needs no billing account but has a lifetime 10 GiB storage limit (BigQuery pricing and sandbox pages, checked 2026-11-13)."
 docs_url = "https://cloud.google.com/bigquery/docs/sandbox"
 terms_url = "https://cloud.google.com/terms"
-sources = ["https://cloud.google.com/bigquery/docs/sandbox"]
-notes = "Planned for narrow historical slices (Stage 10)."
+sources = ["https://cloud.google.com/bigquery/pricing", "https://cloud.google.com/bigquery/docs/sandbox", "https://docs.cloud.google.com/blockchain-analytics/docs/overview"]
+notes = "Datasets: bigquery-public-data.goog_blockchain_ethereum_mainnet_us (Google-managed, real-time, Pre-GA, coverage start not stated), bigquery-public-data.crypto_ethereum (community), crypto_solana_mainnet_us (community, hourly, coverage start not stated). Not configured; no adapter. Every query must be bounded by block or time range and its provenance stored."
 
 [[provider]]
 id = "old-faithful"

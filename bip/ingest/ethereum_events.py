@@ -86,6 +86,10 @@ def _no_gap(first: int, last: int, reason: str) -> None:
     """Default gap recorder: ignore."""
 
 
+_ADDRESS_CHUNK = 50
+"""Addresses per address-filtered eth_getLogs request (keeps request bodies small)."""
+
+
 class EventFeeds:
     def __init__(
         self,
@@ -97,6 +101,7 @@ class EventFeeds:
         self._cfg = cfg
         self._gap: Callable[[int, int, str], None] = record_gap or _no_gap
         self._trusted = sorted(KNOWN_FACTORY_ADDRESSES | set(cfg.extra_factories))
+        self._allow = frozenset(a.lower() for a in cfg.token_allowlist)
 
     def run(
         self,
@@ -256,11 +261,12 @@ class EventFeeds:
         for r in rows:
             for t in (str(r.token0), str(r.token1)):
                 pools_of.setdefault(t, set()).add(str(r.pool))
-        return {
+        pooled = {
             t
             for t, pools in pools_of.items()
             if t not in BASE_ASSET_ADDRESSES and len(pools) < self._cfg.hub_pool_threshold
         }
+        return pooled | self._allow  # the operator's allowlist is always stored
 
     def tokens(
         self,
@@ -325,6 +331,52 @@ class EventFeeds:
             dropped = m["token_transfers_over_cap"] - over_before
             self._gap(start, end, f"{dropped} transfer(s) of pooled tokens over the per-run cap")
         self._update_token_stats(adapter, seen, headers, m, max(end, counted_through))
+
+    def allowlisted_transfers(
+        self,
+        adapter: EthereumAdapter,
+        start: int,
+        end: int,
+        headers: dict[int, eth.BlockHeader],
+        m: dict[str, Any],
+    ) -> None:
+        """Store transfers of allowlisted tokens over ``start..end`` with an address-filtered
+        ``eth_getLogs`` (range splitting on provider limits). Used by the backfill, which must not
+        touch the forward-only token statistics. Logs must belong to the headers read."""
+        m.setdefault("allowlisted_transfers_stored", 0)
+        m.setdefault("token_transfers_over_cap", 0)
+        if not self._allow:
+            return
+        stored = 0
+        over_before = m["token_transfers_over_cap"]
+        allow = sorted(self._allow)
+        for i in range(0, len(allow), _ADDRESS_CHUNK):
+            found, _notes = adapter.event_logs_adaptive(
+                start, end, topics=(TRANSFER_TOPIC,), addresses=tuple(allow[i : i + _ADDRESS_CHUNK])
+            )
+            self._oversize(adapter, "allowlisted ERC-20 Transfer", m)
+            for raw, src in found:
+                lg = self._log(raw, src, headers, m)
+                if lg is None:
+                    continue
+                transfer, _ = eth.decode_transfer_log(lg)
+                if transfer is None or transfer.standard is not TokenStandard.ERC20:
+                    continue
+                if stored >= self._cfg.max_token_transfers_per_run:
+                    m["token_transfers_over_cap"] += 1
+                elif self._repo.store_transfer(
+                    transfer,
+                    extras={
+                        "observation_kind": "erc20_transfer_log",
+                        "block_time": headers[lg.block_number].timestamp,
+                        "raw_ref": None,
+                    },
+                ):
+                    stored += 1
+        m["allowlisted_transfers_stored"] += stored
+        if m["token_transfers_over_cap"] > over_before:
+            dropped = m["token_transfers_over_cap"] - over_before
+            self._gap(start, end, f"{dropped} allowlisted transfer(s) over the per-run cap")
 
     def _update_token_stats(
         self,

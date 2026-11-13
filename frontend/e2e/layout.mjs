@@ -29,6 +29,7 @@ export const ROUTES = [
   `/wallets/ethereum/${ETH}/research`,
   `/wallets/ethereum/${ETH}/cases`,
   `/wallets/ethereum/${ETH}/evidence`,
+  `/wallets/ethereum/${ETH}/memory`,
   `/wallets/ethereum/0x${"12".repeat(20)}`,
   "/flows",
   "/graph",

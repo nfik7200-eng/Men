@@ -3,10 +3,10 @@ import { RoleHint } from "../auth/RoleHint";
 import { useCan } from "../auth/useAuth";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../api/client";
-import type { DiscoveryFeed, Freshness, Severity, Signal, SignalPage, SignalQuery, SignalStatus } from "../api/types";
+import type { DiscoveryFeed, Freshness, ReviewState, Severity, Signal, SignalPage, SignalQuery, SignalStatus } from "../api/types";
 import { Address } from "../components/Address";
 import { DataTable } from "../components/DataTable";
-import { SeverityPill, SignalStatusPill, fmtConfidence, fmtScore, humanLabel } from "../components/discovery";
+import { REVIEW_STATES, ReviewStatePill, SeverityPill, SignalStatusPill, fmtConfidence, fmtScore, humanLabel } from "../components/discovery";
 import { DataOriginBanner } from "../components/intel";
 import { EmptyState, ErrorState, Loading, PageHeader, Panel } from "../components/ui";
 import { CHAINS, chainLabel } from "../lib/address";
@@ -19,6 +19,7 @@ const SEVERITIES: Severity[] = ["high", "medium", "low"];
 
 type Filters = {
   status: SignalStatus;
+  review: "" | ReviewState;
   severity: "" | Severity;
   chain: string;
   family: string;
@@ -26,12 +27,13 @@ type Filters = {
   minScore: string;
   sort: "score" | "recent";
 };
-const DEFAULTS: Filters = { status: "open", severity: "", chain: "", family: "", detector: "", minScore: "", sort: "score" };
+const DEFAULTS: Filters = { status: "open", review: "", severity: "", chain: "", family: "", detector: "", minScore: "", sort: "score" };
 
 const isDefault = (f: Filters) => JSON.stringify(f) === JSON.stringify(DEFAULTS);
 
 function toQuery(f: Filters, offset: number): SignalQuery {
   const q: SignalQuery = { status: f.status, sort: f.sort, limit: PAGE_SIZE, offset };
+  if (f.review) q.review_state = f.review;
   if (f.severity) q.severity = f.severity;
   if (f.chain) q.chain = f.chain;
   if (f.family) q.family = f.family;
@@ -175,6 +177,12 @@ export default function Signals() {
                 <option key={s} value={s}>{s}</option>
               ))}
             </Filter>
+            <Filter label="Review state" value={filters.review} onChange={(v) => change({ review: v as Filters["review"] })}>
+              <option value="">All review states</option>
+              {REVIEW_STATES.map((s) => (
+                <option key={s} value={s}>{humanLabel(s)}</option>
+              ))}
+            </Filter>
             <Filter label="Severity" value={filters.severity} onChange={(v) => change({ severity: v as Filters["severity"] })}>
               <option value="">All severities</option>
               {SEVERITIES.map((s) => (
@@ -258,6 +266,7 @@ function Results({ loaded, filtered, offset, onPage }: { loaded: Loaded; filtere
           { key: "subject", header: "Subject", priority: 2, render: (s) => <SubjectCell signal={s} /> },
           { key: "det", header: "Detector", priority: 3, render: (s) => `${s.detector.id} v${s.detector.version}` },
           { key: "status", header: "Status", priority: 2, render: (s) => <SignalStatusPill status={s.status} /> },
+          { key: "review", header: "Review", priority: 2, render: (s) => <ReviewStatePill state={s.review_state} /> },
           { key: "seen", header: "Last seen", priority: 3, render: (s) => fmtTime(s.last_seen_at) },
           { key: "n", header: "Occurrences", priority: 3, numeric: true, render: (s) => fmtInt(s.occurrences) },
         ]}

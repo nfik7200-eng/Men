@@ -40,10 +40,11 @@ class Rig:
         self.auth = AuthService(self.repo, self.settings.auth)
         self.eth = FakeEthNode()
         self.sol = FakeSolNode()
+        self.transport = FakeTransport({ETH_HOST: self.eth.handle, SOL_HOST: self.sol.handle})
         self.app: FastAPI = create_app(
             self.settings,
             engine=self.engine,
-            transport=FakeTransport({ETH_HOST: self.eth.handle, SOL_HOST: self.sol.handle}),
+            transport=self.transport,
             disk_guard=roomy_guard(self.settings.resolved_data_root),
             environ={},
             rpc_sleep=lambda _s: None,

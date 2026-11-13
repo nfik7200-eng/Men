@@ -7,6 +7,11 @@ import type {
   CollectorManifest,
   CollectorStatus,
   Detector,
+  DiscoveryRunRecord,
+  ExpansionOverview,
+  Fact,
+  MemoryProfile,
+  ReviewDecision,
   EntityLabel,
   Freshness,
   LabelEvidence,
@@ -38,6 +43,12 @@ export type DiscoveryState = {
   /** make one route answer an error: key is "METHOD /path" without query */
   failures: Record<string, { status: number; code: string; message: string }>;
   collectResult: CollectorManifest;
+  /** review decisions per signal id */
+  decisions: Record<number, ReviewDecision[]>;
+  /** remembered entities keyed "chain:ref"; anything else is not in memory */
+  memory: Record<string, MemoryProfile>;
+  runs: DiscoveryRunRecord[];
+  expansion: Omit<ExpansionOverview, "data_origin" | "discovery_version" | "runs">;
   calls: DiscoveryCall[];
 };
 
@@ -93,9 +104,35 @@ export function makeSignal(over: Partial<Signal> = {}): Signal {
       labels: {},
       note: "Only labels a person approved with evidence are shown. No label means unattributed, not 'not an exchange'.",
     },
+    review_state: "new",
     ...over,
   };
 }
+
+export function makeFact(over: Partial<Fact> = {}): Fact {
+  return {
+    id: 1, key: "first_funder", value: { ref: SYNTHETIC_ADDR_2 }, evidence_class: "observed", change: "new", status: "current",
+    source: "stored_transfers", source_tx: SYNTHETIC_TX, observed_at: "2026-11-09T12:00:00+00:00", recorded_at: "2026-11-09T12:05:00+00:00",
+    confirmed_at: null, confirmations: 1, supersedes_id: null, ...over,
+  };
+}
+
+export function makeMemory(over: Partial<MemoryProfile> = {}): MemoryProfile {
+  return {
+    chain: "ethereum", ref: SYNTHETIC_ADDR, in_memory: false, entity: null, counterparties: [], relationships: { items: [], total: 0 }, candidates: [],
+    data_origin: "stored_observations", note: "SYNTHETIC note: memory is derived from stored data only.", ...over,
+  };
+}
+
+export const SYNTHETIC_EXPANSION: DiscoveryState["expansion"] = {
+  policies: [
+    { id: "shared_neighbourhood", objective: "SYNTHETIC objective: find wallets sharing counterparties", seeds: "SYNTHETIC seeds: recent candidates", stopping: "SYNTHETIC stopping: depth or entity budget" },
+    { id: "deployer_network", objective: "SYNTHETIC objective: contracts from one deployer", seeds: "SYNTHETIC seeds: new deployments", stopping: "SYNTHETIC stopping: row budget" },
+  ],
+  budgets: { max_depth: 2, max_entities: 200, max_relationship_rows: 5000, max_seeds: 20, cooldown_days: 7 },
+  scheduled: false,
+  source: "local database only; never contacts a provider",
+};
 
 export function makeAlert(over: Partial<Alert> = {}): Alert {
   return { id: 1, rule_id: 1, signal_id: 1, severity: "high", title: "SYNTHETIC alert: large transfer", created_at: "2026-11-09T12:06:00+00:00", read_at: null, delivery: "in_app", ...over };
@@ -171,6 +208,10 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
     system: defaultSystem(),
     failures: {},
     collectResult: manifest(),
+    decisions: {},
+    memory: {},
+    runs: [],
+    expansion: SYNTHETIC_EXPANSION,
     calls: [],
     ...initial,
   };
@@ -193,7 +234,7 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
     const q = new URLSearchParams(qs);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
-    const mine = /^\/(signals|alerts|alert-rules|discovery|system|entities\/labels)/.test(path);
+    const mine = /^\/(signals|alerts|alert-rules|discovery|system|entities\/labels|entities\/memory)/.test(path);
     if (!mine) return base(input, init);
     state.calls.push({ method, path: full, body });
     const failure = state.failures[`${method} ${path}`];
@@ -207,6 +248,27 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
         errors: [], expired: 0, alerts_created: 1,
       });
     }
+    if (path === "/discovery/runs") return json(200, { ...env(), items: state.runs.slice(0, Number(q.get("limit") ?? 10)) });
+    if (path === "/discovery/expansion") {
+      return json(200, { ...env(), ...state.expansion, runs: state.runs.filter((r) => r.summary?.policy !== undefined) });
+    }
+    const expand = /^\/discovery\/expand\/(\w+)$/.exec(path);
+    if (expand && method === "POST") {
+      const summary = { policy: { id: String(body.policy) }, seeds_used: 3, entities_examined: 12, relationship_rows_read: 40, truncated: [] as string[], detectors: { "shared_neighbourhood:ethereum": { created: 1, merged: 0 } } };
+      const run: DiscoveryRunRecord = { id: nextId++, chain: expand[1] ?? null, status: "succeeded", started_at: NOW, finished_at: NOW, summary };
+      state.runs.unshift(run);
+      return json(201, { ...env(), ...summary, run_id: run.id, status: "succeeded" });
+    }
+    if (path === "/entities/memory/search") return json(200, { items: [], last_refresh: null, data_origin: state.origin });
+    const refresh = /^\/entities\/memory\/refresh\/(\w+)$/.exec(path);
+    if (refresh && method === "POST") {
+      return json(201, { chain: refresh[1], rows_read: { transfers: 10 }, entities_touched: 4, facts_new: 6, facts_changed: 1, facts_confirmed: 2, contradictions: 1, facts_outdated: 0, truncated_sources: [], source: "local database only; never contacts a provider", finished_at: NOW });
+    }
+    const mem = /^\/entities\/memory\/(\w+)\/([^/]+)$/.exec(path);
+    if (mem && method === "GET") {
+      const key = `${mem[1] ?? ""}:${decodeURIComponent(mem[2] ?? "")}`;
+      return json(200, state.memory[key] ?? makeMemory({ chain: mem[1] ?? "", ref: decodeURIComponent(mem[2] ?? ""), data_origin: state.origin }));
+    }
     if (path === "/discovery/feed") {
       const open = state.signals.filter((s) => s.status === "open").sort((a, b) => b.score - a.score);
       return json(200, { ...env(), ...page(open, q), freshness: state.freshness, scope: "SYNTHETIC scope: candidates over stored data, not findings." });
@@ -218,15 +280,25 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
         if (v) items = items.filter((s) => s[key] === v);
       };
       (["status", "family", "chain", "severity"] as const).forEach(eq);
+      if (q.get("review_state")) items = items.filter((s) => s.review_state === q.get("review_state"));
       if (q.get("detector")) items = items.filter((s) => s.detector.id === q.get("detector"));
       if (q.get("min_score")) items = items.filter((s) => s.score >= Number(q.get("min_score")));
       items.sort((a, b) => (q.get("sort") === "recent" ? String(b.last_seen_at).localeCompare(String(a.last_seen_at)) : b.score - a.score));
       return json(200, { ...env(), ...page(items, q) });
     }
-    const sig = /^\/signals\/(\d+)(?:\/(dismiss|promote))?$/.exec(path);
+    const sig = /^\/signals\/(\d+)(?:\/(dismiss|promote|review|decisions))?$/.exec(path);
     if (sig) {
       const found = state.signals.find((s) => s.id === Number(sig[1]));
       if (!found) return err(404, "not_found", `signal ${sig[1] ?? ""} not found`);
+      if (sig[2] === "decisions") return json(200, { signal_id: found.id, review_state: found.review_state, items: state.decisions[found.id] ?? [] });
+      if (sig[2] === "review" && method === "POST") {
+        if (body.state === found.review_state) return err(422, "invalid_input", "the signal is already in that review state");
+        if (body.reason_code === "other" && !String(body.note ?? "").trim()) return err(422, "invalid_input", "a note is required when the reason is other");
+        const d: ReviewDecision = { id: nextId++, from_state: found.review_state, to_state: body.state as ReviewDecision["to_state"], reason_code: body.reason_code as ReviewDecision["reason_code"], note: (body.note as string | undefined) ?? null, actor: "local", decided_at: new Date(Date.parse(NOW) + nextId * 1000).toISOString() };
+        state.decisions[found.id] = [...(state.decisions[found.id] ?? []), d]; // oldest first, as the API returns them
+        found.review_state = d.to_state;
+        return json(200, { signal_id: found.id, review_state: found.review_state, history: state.decisions[found.id] });
+      }
       if (sig[2] === "dismiss" && method === "POST") {
         if (found.status !== "open") return err(422, "invalid_input", `only an open signal can be dismissed (it is ${found.status})`);
         found.status = "dismissed";
@@ -237,7 +309,7 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
         found.status = "promoted";
         found.promoted_to = body.target === "watchlist" ? `watchlist:${String(body.watchlist_id)}` : `investigation:${String(body.investigation_id)}`;
       }
-      return json(200, { ...env(), ...found });
+      return json(200, { ...env(), ...found, decisions: state.decisions[found.id] ?? [] });
     }
     if (path === "/discovery/detectors") return json(200, { ...env(), detectors: state.detectors });
     if (path === "/discovery/collector") return json(200, state.eth);

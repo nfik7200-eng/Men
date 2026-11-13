@@ -22,6 +22,8 @@ const ANALYST_WRITE: RegExp[] = [
   /^\/alerts\//,
   /^\/alert-rules(\/|$)/,
   /^\/discovery\/run$/,
+  /^\/discovery\/expand\//,
+  /^\/entities\/memory\/refresh\//,
   /^\/relationships\/rebuild$/,
   /^\/entities\/labels(\/|$)/,
 ];
