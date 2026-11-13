@@ -359,3 +359,61 @@ def test_native_asset_signal_has_nothing_to_watch(engine: Engine) -> None:
     assert sig["subject"] == {"kind": "asset", "ref": "native"}
     with pytest.raises(InvalidRecordError):
         svc.promote_to_watchlist(sig["id"], 1, None)
+
+
+# ------------------------------------------------------------------ as-of (historical) runs
+
+
+def deploy(seed: Seed, n: int, when: datetime) -> str:
+    contract = eth_addr(0xC000 + n)
+    seed.tx(eth_tx(9_000 + n), eth_addr(0xD000 + n), when, created=contract)
+    return contract
+
+
+def subjects(svc: DiscoveryService, detector: str) -> set[str]:
+    return {i["subject"]["ref"] for i in items(svc) if i["detector"]["id"] == detector}
+
+
+def test_an_as_of_run_finds_candidates_in_backfilled_history(engine: Engine) -> None:
+    seed = Seed(engine)
+    as_of = NOW - timedelta(days=60)
+    old = deploy(seed, 1, as_of - timedelta(hours=5))  # backfilled: far outside the live window
+    later = deploy(seed, 2, as_of + timedelta(hours=1))  # after the evaluation time
+    svc = make(engine)
+    live = svc.run(ETH)
+    assert subjects(svc, "new_contract_deployment") == set()  # the live window never sees it
+    assert live["evaluated_as_of"] is None
+    summary = svc.run(ETH, as_of=as_of)
+    assert summary["evaluated_as_of"] == as_of.isoformat()
+    found = subjects(svc, "new_contract_deployment")
+    assert old in found
+    assert later not in found  # nothing after the evaluation time leaks into the run
+    [sig] = [i for i in items(svc) if i["subject"]["ref"] == old]
+    detail = svc.get_signal(sig["id"])
+    assert detail["explanation"]["evaluated_as_of"] == as_of.isoformat()
+    assert detail["status"] == "open"  # stored on the wall clock: not born expired
+    again = svc.run(ETH, as_of=as_of)
+    assert again["detectors"]["new_contract_deployment:ethereum"]["created"] == 0  # idempotent
+
+
+def test_an_as_of_run_skips_current_state_detectors_and_never_alerts(engine: Engine) -> None:
+    seed = Seed(engine)
+    as_of = NOW - timedelta(days=60)
+    deploy(seed, 3, as_of - timedelta(hours=2))
+    svc = make(engine)
+    svc.create_rule("everything", min_severity="low")
+    summary = svc.run(ETH, as_of=as_of)
+    assert summary["alerts_created"] == 0  # history is not news
+    skipped = set(summary["not_evaluable_as_of"])
+    assert {"new_token_activity", "holder_concentration"} <= skipped
+    assert not any(k.split(":")[0] in skipped for k in summary["detectors"])
+
+
+def test_as_of_must_be_aware_past_and_within_the_limit(engine: Engine) -> None:
+    svc = make(engine, as_of_max_days=90)
+    with pytest.raises(InvalidRecordError, match="future"):
+        svc.run(ETH, as_of=NOW + timedelta(hours=1))
+    with pytest.raises(InvalidRecordError, match="90 days"):
+        svc.run(ETH, as_of=NOW - timedelta(days=91))
+    with pytest.raises(InvalidRecordError, match="time zone"):
+        svc.run(ETH, as_of=NOW.replace(tzinfo=None) - timedelta(days=1))

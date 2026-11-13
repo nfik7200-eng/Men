@@ -454,6 +454,8 @@ class DiscoverySettings(BaseModel):
     ttl_days: Annotated[int, Field(ge=1, le=365)] = 7
     max_signals_per_detector: Annotated[int, Field(ge=1, le=1000)] = 50
     max_rows_scanned: Annotated[int, Field(ge=100, le=1_000_000)] = 20_000
+    as_of_max_days: Annotated[int, Field(ge=1, le=3650)] = 365
+    """Furthest back a manual as-of (historical) discovery run may evaluate."""
 
 
 class ProbeSettings(BaseModel):

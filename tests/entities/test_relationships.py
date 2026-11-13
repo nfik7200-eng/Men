@@ -258,7 +258,8 @@ def test_a_capped_rebuild_never_makes_an_existing_relationship_worse(engine: Eng
     assert len(after["evidence"]) == 8  # earlier evidence kept, new evidence appended
     capped.rebuild(ETH)
     [again] = rel(capped, eth_addr(0xA1), kind="transferred_to", direction="out")
-    assert len(again["evidence"]) == 8 and again["weight"] == 5  # stable on repeat
+    assert len(again["evidence"]) == 8  # stable on repeat
+    assert again["weight"] == 5
 
 
 def test_a_capped_rebuild_does_not_invent_a_funder_when_the_first_one_is_out_of_window(

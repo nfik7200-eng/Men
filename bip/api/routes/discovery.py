@@ -50,7 +50,7 @@ def run_discovery(ctx: WritableContext, body: DiscoveryRunRequest) -> Any:
     if not ctx.discovery_lock.acquire(blocking=False):
         return error_response(409, "discovery_busy", "A discovery pass is already running.")
     try:
-        return _envelope(ctx, ctx.discovery.run(body.chain))
+        return _envelope(ctx, ctx.discovery.run(body.chain, as_of=body.as_of))
     finally:
         ctx.discovery_lock.release()
 

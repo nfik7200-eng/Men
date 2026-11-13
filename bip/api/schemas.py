@@ -219,6 +219,9 @@ RowId = Annotated[int, Field(ge=1, le=2**53)]
 
 class DiscoveryRunRequest(Body):
     chain: ChainField | None = None
+    as_of: datetime | None = None
+    """Evaluate stored data as it stood at this past time (bounded by
+    ``discovery.as_of_max_days``); signals are labelled with it and raise no alerts."""
 
 
 class SignalDismiss(Body):

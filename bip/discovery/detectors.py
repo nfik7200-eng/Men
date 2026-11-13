@@ -55,6 +55,9 @@ class DetectorInfo:
     cost: str
     confidence_cap: float
     chains: tuple[str, ...]
+    as_of_capable: bool = True
+    """False for detectors that read current-state tables, which cannot be evaluated as of a
+    past time; an as-of run skips them and says so."""
 
 
 @dataclass(slots=True)
@@ -144,6 +147,7 @@ def _tx_rows(
                 t.c.chain == ctx.chain,
                 t.c.block_time.is_not(None),
                 t.c.block_time >= since,
+                t.c.block_time <= ctx.now,
                 canonical_transaction(),
             )
             .order_by(t.c.block_time.desc())
@@ -190,6 +194,7 @@ def large_transfers(ctx: Context) -> DetectorOutput:
                 tr.c.token_id.is_(None),
                 tr.c.block_time.is_not(None),
                 tr.c.block_time >= since,
+                tr.c.block_time <= ctx.now,
                 tr.c.tx_id.not_in(orphaned_tx_ids(ctx.chain)),
             )
             .order_by(tr.c.block_time.desc())
@@ -506,7 +511,11 @@ def new_liquidity_pool(ctx: Context) -> DetectorOutput:
     with ctx.repo.transaction() as conn:
         rows = conn.execute(
             select(pe)
-            .where(pe.c.chain == ctx.chain, pe.c.block_time >= recent_start)
+            .where(
+                pe.c.chain == ctx.chain,
+                pe.c.block_time >= recent_start,
+                pe.c.block_time <= ctx.now,
+            )
             .order_by(pe.c.block_time.desc())
             .limit(cap + 1)
         ).all()
@@ -679,7 +688,11 @@ def pool_reserve_change(ctx: Context) -> DetectorOutput:
             str(x)
             for x in conn.execute(
                 select(pr.c.pool)
-                .where(pr.c.chain == ctx.chain, pr.c.block_time >= recent_start)
+                .where(
+                    pr.c.chain == ctx.chain,
+                    pr.c.block_time >= recent_start,
+                    pr.c.block_time <= ctx.now,
+                )
                 .distinct()
                 .limit(500)
             ).scalars()
@@ -690,6 +703,7 @@ def pool_reserve_change(ctx: Context) -> DetectorOutput:
                 pr.c.chain == ctx.chain,
                 pr.c.pool.in_(recent_pools),
                 pr.c.block_time >= since,
+                pr.c.block_time <= ctx.now,
             )
             .order_by(pr.c.pool, pr.c.block_number, pr.c.log_index)
             .limit(cap + 1)
@@ -805,6 +819,7 @@ def holder_concentration(ctx: Context) -> DetectorOutput:
                 tr.c.token.is_not(None),
                 tr.c.block_time.is_not(None),
                 tr.c.block_time >= since,
+                tr.c.block_time <= ctx.now,
                 tr.c.tx_id.not_in(orphaned_tx_ids(ctx.chain)),
             )
             .order_by(tr.c.block_time.desc())
@@ -913,7 +928,11 @@ def solana_new_entities(ctx: Context) -> DetectorOutput:
     with ctx.repo.transaction() as conn:
         rows = conn.execute(
             select(sd)
-            .where(sd.c.block_time.is_not(None), sd.c.block_time >= recent_start)
+            .where(
+                sd.c.block_time.is_not(None),
+                sd.c.block_time >= recent_start,
+                sd.c.block_time <= ctx.now,
+            )
             .order_by(sd.c.block_time.desc())
             .limit(cap + 1)
         ).all()
@@ -984,6 +1003,7 @@ def common_funding_source(ctx: Context) -> DetectorOutput:
                 tr.c.to_address.is_not(None),
                 tr.c.block_time.is_not(None),
                 tr.c.block_time >= window_start,
+                tr.c.block_time <= ctx.now,
                 tr.c.tx_id.not_in(orphaned_tx_ids(ctx.chain)),
             )
             .order_by(tr.c.block_time.desc())
@@ -1211,6 +1231,7 @@ DETECTORS: tuple[Detector, ...] = (
             cost=STORED_ONLY_COST,
             confidence_cap=0.35,
             chains=("ethereum",),
+            as_of_capable=False,  # reads current-state tables
         ),
         new_token_activity,
     ),
@@ -1256,6 +1277,7 @@ DETECTORS: tuple[Detector, ...] = (
             cost=STORED_ONLY_COST,
             confidence_cap=0.4,
             chains=("ethereum",),
+            as_of_capable=False,  # reads current-state tables
         ),
         holder_concentration,
     ),

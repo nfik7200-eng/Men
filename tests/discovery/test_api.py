@@ -223,3 +223,22 @@ def test_openapi_lists_the_new_routes(client: TestClient) -> None:
         "/alert-rules",
     ):
         assert f"{API}{p}" in paths
+
+
+def test_an_as_of_run_is_bounded_and_labelled(client: TestClient) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    past = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+    run = client.post(f"{API}/discovery/run", json={"chain": ETH, "as_of": past})
+    assert run.status_code == 201
+    body = run.json()
+    assert body["evaluated_as_of"] is not None
+    assert body["alerts_created"] == 0
+    assert "holder_concentration" in body["not_evaluable_as_of"]
+    future = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+    bad = client.post(f"{API}/discovery/run", json={"chain": ETH, "as_of": future})
+    assert bad.status_code == 422
+    ancient = (datetime.now(UTC) - timedelta(days=4000)).isoformat()
+    assert client.post(f"{API}/discovery/run", json={"as_of": ancient}).status_code == 422
+    naive = client.post(f"{API}/discovery/run", json={"as_of": "2026-01-01T00:00:00"})
+    assert naive.status_code == 422

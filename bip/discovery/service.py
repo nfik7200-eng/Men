@@ -129,26 +129,48 @@ class DiscoveryService:
 
     # ------------------------------------------------------------------ running
 
-    def run(self, chain: str | None = None) -> dict[str, Any]:
-        """Run every applicable detector over stored data. Returns the run summary."""
+    def run(self, chain: str | None = None, *, as_of: datetime | None = None) -> dict[str, Any]:
+        """Run every applicable detector over stored data. Returns the run summary.
+
+        With ``as_of`` the detectors evaluate stored data as it stood at that past time (their
+        windows end there and nothing later is read), so backfilled history can produce
+        candidates. Signals are still stored on the wall clock (creation, expiry, cooldown),
+        detectors that read current-state tables are skipped, and no alerts are raised.
+        """
         now = self._clock()
+        if as_of is not None:
+            self._check_as_of(as_of, now)
+        evaluated = as_of or now
         chains = [chain] if chain else self._chains_with_data()
         run_id = self._start_run(now, chain)
         summary: dict[str, Any] = {
             "discovery_version": DISCOVERY_VERSION,
             "scoring": SCORING_DESCRIPTION,
             "chains": chains,
+            "evaluated_as_of": None if as_of is None else as_of.isoformat(),
             "detectors": {},
             "errors": [],
         }
+        if as_of is not None:
+            summary["not_evaluable_as_of"] = sorted(
+                {d.info.id for d in DETECTORS if not d.info.as_of_capable}
+            )
         new_ids: list[int] = []
         for c in chains:
             for det in DETECTORS:
                 if c not in det.info.chains:
                     continue
+                if as_of is not None and not det.info.as_of_capable:
+                    continue
                 key = f"{det.info.id}:{c}"
                 try:
-                    output = det.run(Context(self._repo, self._cfg, c, now))
+                    output = det.run(Context(self._repo, self._cfg, c, evaluated))
+                    if as_of is not None:
+                        for cand in output.candidates:
+                            cand.explanation = {
+                                **cand.explanation,
+                                "evaluated_as_of": as_of.isoformat(),
+                            }
                     stats, created = self._store_output(det, output, c, now, run_id)
                 except Exception as exc:  # one failing detector must not abort the pass
                     log.exception("detector %s failed", key)
@@ -157,10 +179,20 @@ class DiscoveryService:
                 summary["detectors"][key] = stats
                 new_ids.extend(created)
         summary["expired"] = self._expire(now)
-        summary["alerts_created"] = self._evaluate_alerts(new_ids, now)
+        # history is not news: an as-of run never raises alerts
+        summary["alerts_created"] = 0 if as_of is not None else self._evaluate_alerts(new_ids, now)
         status = "partial" if summary["errors"] else "succeeded"
         self._finish_run(run_id, status, summary)
         return {"run_id": run_id, "status": status, **summary}
+
+    def _check_as_of(self, as_of: datetime, now: datetime) -> None:
+        if as_of.tzinfo is None:
+            raise InvalidRecordError("as_of needs a time zone")
+        if as_of > now:
+            raise InvalidRecordError("as_of cannot be in the future")
+        limit = self._cfg.as_of_max_days
+        if as_of < now - timedelta(days=limit):
+            raise InvalidRecordError(f"as_of cannot be more than {limit} days ago")
 
     def run_producer(
         self, det: Any, output: DetectorOutput, chain: str, extra: dict[str, Any]

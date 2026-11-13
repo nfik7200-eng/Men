@@ -549,3 +549,32 @@ At that point move analytical reads to Parquet + DuckDB (ADR-005) and keep SQLit
 **Consequences.**
 - Expansion sees only relationships the builders stored. Shared links are leads, not proof of common control.
 - Older candidate tables (`opportunity_candidates`, `anomaly_observations`) are not merged into this lifecycle yet.
+
+## ADR-047 Audit repairs: censored funder links, newest-window rebuilds, as-of discovery (Proposed; Stage 3 repair, 2026-11-13)
+**Context.**
+The Stage 3 verification audit found three correctness problems.
+- Funder links were labelled observed although collectors store only native transfers above a threshold.
+- Capped relationship rebuilds re-read the oldest rows forever.
+- Detectors anchored on the current time, so backfilled history could never produce candidates.
+
+**Decision.**
+- **Funder links:**
+  - `funded_by` relationships carry basis `hypothesis` and a note naming the collector threshold.
+  - The memory fact signature includes the basis, so a re-labelled link supersedes the old fact (history kept).
+  - Funding and large-transfer explanations state the censoring.
+- **Rebuilds:**
+  - A capped rebuild reads the newest `max_rows_scanned` rows.
+  - A capped scan invalidates nothing, never lowers weight or confidence, never moves first-seen later, and appends evidence (newest 20 kept).
+  - A funder is proposed from a capped window only for a recipient with no stored inbound transfer outside the window.
+- **As-of discovery:**
+  - `DiscoveryService.run(chain, as_of=...)` and an optional `as_of` on `POST /discovery/run` make every detector window end at that time; every detector query has an upper time bound.
+  - Detectors that read current-state tables (`new_token_activity`, `holder_concentration`) are skipped and listed under `not_evaluable_as_of`.
+  - Signals keep wall-clock creation, expiry and cooldown, and carry `evaluated_as_of` in their explanation. No alerts are raised.
+  - `as_of` must be time-zone aware, not in the future and within `discovery.as_of_max_days` (default 365).
+  - It is manual and runs under the discovery lock. Nothing triggers it automatically from backfill.
+
+**Consequences.**
+- Existing observed funder facts are superseded once on the next memory refresh.
+- Weights from capped scans are lower bounds.
+- An as-of run and a live run over overlapping windows can open separate signals for one funding event or activity burst. Their dedup keys include a date. Other detectors key on transactions or subjects.
+- Approval of this ADR is pending with the owner.
