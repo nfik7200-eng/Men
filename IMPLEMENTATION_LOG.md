@@ -1019,3 +1019,56 @@ $ gitleaks dir . / git --staged  -> no leaks found
 - Expansion sees only stored, active relationships.
 - `opportunity_candidates` and `anomaly_observations` are not merged into the review lifecycle.
 - The frontend Memory tab exists for wallets, inside the wallet workspace. Contracts, tokens and pools are reachable through the API and search, but have no dedicated page.
+
+## 2026-11-13 — Stage 3 verification audit and approved repairs
+
+**Audit (read-only):**
+- **Reviews:** two independent reviews, one for intelligence correctness and one for API, UI, security and test reality.
+- **End-to-end fixture:** a 9-step script drives the real app and collector against `FakeEthNode` on an isolated SQLite database. Path: observation → relationships → memory → discovery → score → review → restart → repeat. Result: 9/9.
+  - The first run failed step 4 because the fake blocks are dated 2025-10, outside `lookback_hours`.
+  - Re-dating the fake blocks in the scratch script only (no repository change) exercised the time-windowed detectors, and exposed H3.
+- **Findings:**
+  - **HIGH:** H1, H2, H3, fixed below.
+  - **MEDIUM:** M1 to M6, open (see `CURRENT_STATE.md`).
+  - **LOW:** a few, open.
+- **Owner decision:** approved committing and pushing Stages 1–3 (`ffc5b6f`), fixing the three HIGH findings, and adding a devcontainer.
+
+**Repairs (each test-first; tests seen failing before the fix):**
+- **H2, funder links from censored data** (`6b8760f`):
+  - `funded_by` basis is `hypothesis`, with a note naming the collector threshold.
+  - The memory signature includes the basis, so old observed facts are superseded rather than left current.
+  - Funding and large-transfer explanations state the censoring.
+  - Changed tests: `test_funded_by_uses_the_first_stored_inbound_transfer` and `test_shared_funder_is_a_labelled_hypothesis_not_a_stored_link` now expect `hypothesis`. This is deliberate. New: `test_a_funder_link_reclassified_as_hypothesis_supersedes_the_observed_fact`.
+- **H1, capped rebuilds starved new data** (`a517e7a`):
+  - Scans read the newest `cap` rows.
+  - A truncated scan merges: weight and confidence never drop, first-seen never moves later, and evidence is appended (newest 20 kept). It still invalidates nothing.
+  - A funder is proposed from a capped window only when the recipient has no unread earlier inbound transfer.
+  - The existing capped-scan test comment changed from "oldest 100" to "newest 100". Three new tests.
+- **H3, backfill never produced signals** (`66c4e67`, ADR-047 Proposed):
+  - `DiscoveryService.run(chain, as_of=...)` and an `as_of` field on `POST /discovery/run`.
+  - Upper time bounds were added to every detector query: `_tx_rows`, large transfers, holder concentration, liquidity pools, pool reserves (both queries), Solana discoveries and common funding.
+  - `new_token_activity` and `holder_concentration` are skipped as not evaluable as of a past time.
+  - Signals are stored on the wall clock, carry `evaluated_as_of`, and raise no alerts.
+  - Validation: `as_of` must be time-zone aware, not in the future, and within `as_of_max_days` (365). The run is manual and uses the discovery lock.
+  - Four new tests.
+- **Codespaces:**
+  - `.devcontainer/devcontainer.json`: Python 3.12, Node 22. Post-create runs `uv sync` and `npm ci`. Only 5173 is forwarded.
+  - `.devcontainer/start-preview.sh`.
+  - `tests/preview/serve_preview.py` adds `https://$CODESPACE_NAME-5173.$GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN` to its allowed origins.
+  - Without that origin, sign-in mode would refuse every write from the forwarded URL. Verified with simulated variables: login 200, write from the codespace origin 201, write from another origin 403.
+  - The start script was run here: frontend 200, API through the proxy 200, protected route without a session 401.
+  - Not yet run in a real Codespace.
+
+**Verification:**
+- `uv run ruff format --check .`: 248 files already formatted.
+- `uv run ruff check .`: all checks passed.
+- `uv run pyright`: 0 errors, 0 warnings.
+- `uv run pytest`: 953 passed in 277 s, which is 945 plus 8 new.
+- `python -m bip.tools.api_contract` regenerated `docs/API_REFERENCE.md`.
+- The end-to-end fixture re-run after the repairs: 9/9.
+- No frontend source changed in this round.
+- No live provider was contacted.
+
+**Incident:**
+- A shell `sed` with an empty address briefly appended a line after every line of `bip/discovery/detectors.py`.
+- It was detected from `git diff --stat` (4,001 insertions) before any commit. The identical inserted lines were removed and the diff re-checked (25 intended insertions).

@@ -15,6 +15,7 @@ Pair it with the Vite dev server (``cd frontend && npm run dev``), which proxies
 from __future__ import annotations
 
 import argparse
+import os
 import secrets
 import tempfile
 from datetime import timedelta
@@ -185,6 +186,18 @@ def seed_synthetic(engine: Engine, settings: Settings) -> dict[str, int]:
     }
 
 
+def preview_origins() -> tuple[str, ...]:
+    """The local Vite origins, plus the forwarded HTTPS origin of port 5173 when this runs in a
+    GitHub Codespace (from the environment variables Codespaces sets), so a phone or browser using
+    the private forwarded URL can sign in and make changes through the Vite proxy."""
+    origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
+    name = os.environ.get("CODESPACE_NAME")
+    domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    if name:
+        origins.append(f"https://{name}-5173.{domain}")
+    return tuple(origins)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Populated, SYNTHETIC development preview.")
     ap.add_argument("--port", type=int, default=8000)
@@ -202,7 +215,7 @@ def main() -> None:
         env="test",
         min_free_bytes=0,
         min_free_ratio=0,
-        api={"port": args.port, "cors_origins": ("http://127.0.0.1:5173", "http://localhost:5173")},
+        api={"port": args.port, "cors_origins": preview_origins()},
         discovery={"baseline_days": 200, "lookback_hours": 72},
         auth=auth,
     )

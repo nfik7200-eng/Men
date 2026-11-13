@@ -1,0 +1,20 @@
+{
+  // BIP development container for GitHub Codespaces. It installs dependencies only: nothing
+  // live starts and no provider is contacted. Start the SYNTHETIC preview with
+  // `bash .devcontainer/start-preview.sh` and open the forwarded port 5173.
+  // Keep port 5173 visibility Private (the Codespaces default) so only your GitHub login reaches it.
+  "name": "BIP (synthetic preview)",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+  "postCreateCommand": "pip install --user uv && ~/.local/bin/uv sync && cd frontend && npm ci",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": { "label": "BIP frontend (synthetic preview)", "onAutoForward": "notify" },
+    "8000": { "label": "BIP API (reached through the 5173 proxy; do not share)", "onAutoForward": "silent" }
+  },
+  "customizations": {
+    "vscode": { "extensions": ["ms-python.python", "charliermarsh.ruff"] }
+  }
+}

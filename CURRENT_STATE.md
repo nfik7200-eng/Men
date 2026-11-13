@@ -1,8 +1,24 @@
 # Current State
 
-_Last updated: 2026-11-13 (Stage 1 of the five-stage programme done offline and uncommitted; earlier build on `0da1ec1` CI green)_
+_Last updated: 2026-11-13 (Stage 3 verification audit and repairs; Stages 1–3 committed and pushed to `claude/modest-fermi-0yklvj`, draft PR #2)_
 
 ## Phase
+**Stage 3 verification audit and repairs, 2026-11-13: committed and pushed with owner approval.**
+- **Audit:** a read-only audit (two independent reviews plus a 9-step end-to-end fixture) found three HIGH correctness problems, all now fixed with tests (ADR-047, Proposed):
+  - **H2:** funder links come from censored data (collectors keep only transfers ≥ 10 ETH or ≥ 500 SOL), so `funded_by` is now a `hypothesis` with a threshold caveat. Memory supersedes the old observed facts.
+  - **H1:** capped relationship rebuilds now read the newest rows. A capped scan never weakens an existing edge and never invents a funder.
+  - **H3:** a bounded, manual as-of discovery mode (`POST /discovery/run` with `as_of`) lets backfilled history produce candidates. Every detector query has an upper time bound, current-state detectors are skipped, and no alerts are raised.
+- **Codespaces:** `.devcontainer/` installs dependencies only. `.devcontainer/start-preview.sh` starts the SYNTHETIC preview (API on 8000 behind the Vite proxy on 5173, sign-in required). The preview tool also allows the codespace's own forwarded origin, which was verified with simulated Codespaces variables. **Not yet run in a real Codespace or on a phone.**
+- **Open (not in the approved scope):**
+  - M1: no Origin/Host check when auth is disabled;
+  - M2: frozen aggregate counts in memory;
+  - M3: reorgs reach tx-less memory facts late;
+  - M4: two heavy routes are unlocked;
+  - M5: re-proposed labels overwrite rejection records;
+  - M6: Solana has fewer detectors and memory sources.
+- **Live verification:** never done; all chain behaviour is tested against local fakes only.
+- **Tests:** 953 backend tests, ruff and pyright clean; the e2e fixture passes 9/9.
+
 **Five-stage programme, Stage 3 (Intelligence Memory and Autonomous Discovery), 2026-11-13: done offline, NOT committed (owner instruction).**
 - **Memory:** an intelligence-memory registry and append-only fact history (migration v18; `bip/intel/memory.py`). It is filled from stored data only, bounded and resumable.
 - **Review:** candidate review decisions with required reasons and an actor (`bip/discovery/review.py`).

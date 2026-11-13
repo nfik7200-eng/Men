@@ -128,6 +128,19 @@ timer and `deploy/README.md` (install, verify, upgrade, roll back). `python -m b
 cookie, proxy headers trusted on a reachable bind, a world-readable env file) and warns when a
 job that contacts providers is on. It prints names and reasons, never values.
 
+## GitHub Codespaces preview (SYNTHETIC)
+
+`.devcontainer/` installs dependencies only; it starts nothing and contacts no provider.
+
+1. Create a Codespace on the branch.
+2. Run `bash .devcontainer/start-preview.sh`. It prints a synthetic password; sign in as `viewer`, `analyst` or `admin`.
+3. Open the forwarded port **5173** in the Ports tab, on a phone or a browser.
+   - Keep its visibility **Private**, the default, so only your GitHub login can reach it. Do not make it public or forward 8000.
+   - The API stays on 127.0.0.1:8000 behind the Vite proxy.
+   - The preview tool allows the codespace's own forwarded HTTPS origin, so sign-in and writes work through it.
+
+The preview uses a throwaway database of synthetic records. To use real stored data instead, run the real API with `BIP_AUTH__MODE=required`. Live collection still needs explicit approval.
+
 ## Exposure
 
 The API refuses to start on a non-loopback address unless `BIP_AUTH__MODE=required` (or

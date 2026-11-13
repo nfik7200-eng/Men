@@ -219,7 +219,7 @@ Parameters: `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=
 
 <details><summary><code>POST /api/v1/discovery/run</code></summary>
 
-Body (`*` required): `chain`: null or string (len>=1, len<=32)
+Body (`*` required): `chain`: null or string (len>=1, len<=32); `as_of`: null or string
 
 </details>
 
