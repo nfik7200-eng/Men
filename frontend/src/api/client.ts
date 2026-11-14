@@ -1,0 +1,411 @@
+import { csrfToken, sessionEnded } from "../auth/session";
+import type { DiscoveryRunResult,
+  AuthMe,
+  AuthStatus,
+  LoginResult,
+  AnalysisRun,
+  Classification,
+  MLModel,
+  ResearchConfig,
+  ResearchPreview,
+  ResearchReport,
+  ResearchRun,
+  TrainingRun,
+  ProbePreview,
+  ProbeRun,
+  ProbeRunPage,
+  ProviderProfileDetail,
+  ProviderProfiles,
+  AnomalyPage,
+  Behaviour,
+  ChainStatus,
+  Flows,
+  Graph,
+  IntelEnvelope,
+  IntelProfile,
+  IntelStatus,
+  OpportunityPage,
+  OpportunityRefresh,
+  VerifyResult,
+  WalletVerify,
+  DashboardSummary,
+  HealthCheck,
+  IngestionJob,
+  NetworkObservation,
+  ObservationPage,
+  ProviderDetail,
+  FindingSummary,
+  Health,
+  Investigation,
+  InvestigationStatus,
+  InvestigationSummary,
+  Provider,
+  PublicSettings,
+  WalletList,
+  WalletProfile,
+  Watchlist,
+  WatchlistEntry,
+  WatchlistSummary,
+  WalletStatus,
+  JsonObject,
+  LabelInput,
+  LabelPage,
+  ReviewInput,
+  CaseResearchLink,
+  TaxonomyLabel,
+  AlertChannels,
+  AlertPage,
+  AlertRule,
+  AlertRuleInput,
+  BackupCreated,
+  CollectorManifest,
+  CollectorStatus,
+  DetectorCatalogue,
+  DiscoveryEnvelope,
+  DiscoveryFeed,
+  EntityLabel,
+  EntityLabelPage,
+  LabelProposal,
+  LabelReviewInput,
+  PromoteInput,
+  SignalDetail,
+  DecisionList,
+  RankingExplanation,
+  RankingRun,
+  RankingRunSummary,
+  RankingStatus,
+  ExpansionOverview,
+  ExpansionPolicyId,
+  ExpansionResult,
+  DiscoveryRunList,
+  MemoryProfile,
+  MemoryRefresh,
+  MemorySearch,
+  ReviewResult,
+  SignalReviewInput,
+  SignalPage,
+  SignalQuery,
+  SystemHealth,
+} from "./types";
+
+export const API_BASE = "/api/v1";
+
+/** An error the backend reported with its error envelope, or a connection failure (status 0). */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly details: { field: string; message: string }[];
+  /** Seconds to wait before retrying, from a 429 response's Retry-After header. */
+  readonly retryAfter: number | null;
+
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    details: ApiError["details"] = [],
+    retryAfter: number | null = null,
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+    this.retryAfter = retryAfter;
+  }
+
+  /** True when the backend itself could not be reached (network failure, or a proxy gateway error). */
+  get isConnectionError(): boolean {
+    return this.status === 0 || this.code === "backend_unreachable";
+  }
+}
+
+const UNREACHABLE = "Cannot reach the BIP backend. Is it running?";
+const GATEWAY_STATUSES = new Set([502, 503, 504]);
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** Clear, user-facing wording for the authentication and authorization failures. */
+function accessMessage(status: number, code: string, serverMessage: string, retryAfter: number | null): string | null {
+  if (status === 429) {
+    return retryAfter !== null
+      ? `Too many requests. Try again in ${retryAfter} second${retryAfter === 1 ? "" : "s"}.`
+      : "Too many requests. Wait a moment and try again.";
+  }
+  if (status === 403 && code === "csrf_failed")
+    return "Your session's security token is missing or out of date. Reload the page and try again.";
+  if (status === 403 && code === "origin_denied")
+    return "This page's address is not allowed to make changes. Open BIP from its usual address and try again.";
+  if (status === 403 && code === "forbidden") return `Your role does not allow this. ${serverMessage}`;
+  return null;
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (value === null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.ceil(n) : null;
+}
+
+type ErrorEnvelope = {
+  error?: { code?: unknown; message?: unknown; details?: unknown };
+};
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  let response: Response;
+  const csrf = csrfToken();
+  const unsafe = !SAFE_METHODS.has((init.method ?? "GET").toUpperCase());
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      // same-origin cookies carry the session; the CSRF token (memory only) goes on every unsafe call
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(unsafe && csrf ? { "X-CSRF-Token": csrf } : {}),
+        // proof for unsafe calls when sign-in is off: another site's page cannot add this header
+        ...(unsafe ? { "X-BIP-Client": "web" } : {}),
+      },
+    });
+  } catch {
+    throw new ApiError(0, "connection_failed", UNREACHABLE);
+  }
+  if (response.status === 204) return undefined as T; // only used with T = undefined
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+  if (!response.ok) {
+    const env = (payload ?? {}) as ErrorEnvelope;
+    // A gateway status with no BIP error envelope comes from a proxy in front of the backend
+    // (for example the Vite dev proxy when the backend is not running), not from BIP itself.
+    if (GATEWAY_STATUSES.has(response.status) && typeof env.error?.code !== "string") {
+      throw new ApiError(response.status, "backend_unreachable", UNREACHABLE);
+    }
+    const code = typeof env.error?.code === "string" ? env.error.code : "http_error";
+    const message =
+      typeof env.error?.message === "string"
+        ? env.error.message
+        : `Request failed with status ${response.status}.`;
+    const details = Array.isArray(env.error?.details)
+      ? (env.error.details as ApiError["details"])
+      : [];
+    const retryAfter = response.status === 429 ? parseRetryAfter(response.headers.get("Retry-After")) : null;
+    // a wrong password at sign-in is a 401 too, but it is not an ended session
+    if (response.status === 401 && path !== "/auth/login") sessionEnded();
+    const friendly = accessMessage(response.status, code, message, retryAfter);
+    throw new ApiError(response.status, code, friendly ?? message, details, retryAfter);
+  }
+  return payload as T;
+}
+
+const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) });
+const enc = encodeURIComponent;
+
+export const api = {
+  // ---- authentication
+  authStatus: () => request<AuthStatus>("/auth/status"),
+  authMe: () => request<AuthMe>("/auth/me"),
+  login: (username: string, password: string) =>
+    request<LoginResult>("/auth/login", { method: "POST", ...json({ username, password }) }),
+  logout: () => request<undefined>("/auth/logout", { method: "POST" }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<undefined>("/auth/password", {
+      method: "POST",
+      ...json({ current_password: currentPassword, new_password: newPassword }),
+    }),
+  health: () => request<Health>("/health"),
+  chains: () => request<ChainStatus[]>("/chains"),
+  summary: () => request<DashboardSummary>("/dashboard/summary"),
+  providers: () => request<Provider[]>("/providers"),
+  provider: (id: string) => request<ProviderDetail>(`/providers/${enc(id)}`),
+  healthCheck: (id: string) => request<HealthCheck>(`/providers/${enc(id)}/health-check`, { method: "POST" }),
+  setProviderEnabled: (id: string, enabled: boolean) =>
+    request<Provider>(`/providers/${enc(id)}`, { method: "PATCH", ...json({ enabled }) }),
+  network: (chain: string) => request<NetworkObservation>(`/chains/${enc(chain)}/network`),
+  fetchLatestBlock: (chain: string) =>
+    request<NetworkObservation>(`/chains/${enc(chain)}/latest-block`, { method: "POST" }),
+  ingestWallet: (chain: string, address: string, limit: number) =>
+    request<IngestionJob>(`/ingestion/wallet/${enc(chain)}/${enc(address)}?limit=${limit}`, { method: "POST" }),
+  job: (id: number) => request<IngestionJob>(`/ingestion/jobs/${id}`),
+  jobs: (chain: string, address: string) =>
+    request<IngestionJob[]>(`/ingestion/jobs?limit=5&chain=${enc(chain)}&address=${enc(address)}`),
+  walletTransactions: (chain: string, address: string) =>
+    request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/transactions?limit=50`),
+  walletTransfers: (chain: string, address: string) =>
+    request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/transfers?limit=50`),
+  walletBalanceChanges: (chain: string, address: string) =>
+    request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/balance-changes?limit=50`),
+  settings: () => request<PublicSettings>("/settings"),
+  walletStatus: (chain: string, address: string) =>
+    request<WalletStatus>(`/wallets/${enc(chain)}/${enc(address)}/status`),
+  wallets: (limit = 50, offset = 0) => request<WalletList>(`/wallets?limit=${limit}&offset=${offset}`),
+  wallet: (chain: string, address: string) =>
+    request<WalletProfile>(`/wallets/${enc(chain)}/${enc(address)}`),
+  watchlists: () => request<WatchlistSummary[]>("/watchlists"),
+  watchlist: (id: number) => request<Watchlist>(`/watchlists/${id}`),
+  createWatchlist: (name: string, description: string | null) =>
+    request<Watchlist>("/watchlists", { method: "POST", ...json({ name, description }) }),
+  deleteWatchlist: (id: number) => request<undefined>(`/watchlists/${id}`, { method: "DELETE" }),
+  addWatchlistEntry: (id: number, chain: string, address: string, note: string | null) =>
+    request<WatchlistEntry>(`/watchlists/${id}/entries`, {
+      method: "POST",
+      ...json({ chain, address, note }),
+    }),
+  removeWatchlistEntry: (id: number, entryId: number) =>
+    request<undefined>(`/watchlists/${id}/entries/${entryId}`, { method: "DELETE" }),
+  investigations: () => request<InvestigationSummary[]>("/investigations"),
+  investigation: (id: number) => request<Investigation>(`/investigations/${id}`),
+  createInvestigation: (body: {
+    title: string;
+    description: string | null;
+    subject_chain: string | null;
+    subject_address: string | null;
+  }) => request<Investigation>("/investigations", { method: "POST", ...json(body) }),
+  updateInvestigation: (id: number, status: InvestigationStatus) =>
+    request<Investigation>(`/investigations/${id}`, { method: "PATCH", ...json({ status }) }),
+  // ---- ML classification + AI research (Stage 5)
+  classify: (chain: string, address: string) =>
+    request<Classification>(`/ml/classify/${enc(chain)}/${enc(address)}`, { method: "POST" }),
+  classifications: (chain: string, address: string) =>
+    request<{ items: Classification[]; total: number }>(`/ml/classifications/${enc(chain)}/${enc(address)}?limit=10`),
+  mlModels: () => request<{ items: MLModel[]; active: Record<string, MLModel | null> }>("/ml/models"),
+  mlModel: (name: string, version: string) => request<MLModel>(`/ml/models/${enc(name)}/${enc(version)}`),
+  trainingRuns: () => request<{ items: TrainingRun[] }>("/ml/training-runs?limit=10"),
+  train: (chain: string, source: "stored_labels" | "synthetic") =>
+    request<{ status: string; message: string }>("/ml/training-runs", { method: "POST", ...json({ chain, source }) }),
+  researchConfig: () => request<ResearchConfig>("/research/config"),
+  researchPreview: (body: { chain: string; address: string; question: string; focus?: string[] }) =>
+    request<ResearchPreview>("/research/preview", { method: "POST", ...json(body) }),
+  researchStart: (body: { chain: string; address: string; question: string; focus?: string[] }) =>
+    request<ResearchRun>("/research/runs", { method: "POST", ...json(body) }),
+  researchRun: (id: string) => request<ResearchRun>(`/research/runs/${enc(id)}`),
+  researchRuns: (chain: string, address: string) =>
+    request<{ items: ResearchRun[]; total: number }>(`/research/runs?limit=10&chain=${enc(chain)}&address=${enc(address)}`),
+  researchCancel: (id: string) => request<{ cancel_requested: boolean }>(`/research/runs/${enc(id)}/cancel`, { method: "POST" }),
+  researchReport: (id: string) => request<ResearchReport>(`/research/runs/${enc(id)}/report`),
+  // ---- provider intelligence (Stage 4). Only probeRun() contacts providers (server-bounded).
+  researchHistory: (q: { chain?: string; address?: string; limit?: number; offset?: number } = {}) =>
+    request<{ items: ResearchRun[]; total: number; limit: number; offset: number }>(
+      `/research/runs?limit=${q.limit ?? 20}&offset=${q.offset ?? 0}` +
+        (q.chain ? `&chain=${enc(q.chain)}` : "") +
+        (q.address ? `&address=${enc(q.address)}` : ""),
+    ),
+  researchRerun: (id: string) => request<ResearchRun>(`/research/runs/${enc(id)}/rerun`, { method: "POST" }),
+  labels: (limit = 50, offset = 0) => request<LabelPage>(`/ml/labels?limit=${limit}&offset=${offset}`),
+  addLabels: (labels: LabelInput[]) => request<JsonObject>("/ml/labels", { method: "POST", ...json({ labels }) }),
+  reviewLabel: (id: number, body: ReviewInput) =>
+    request<JsonObject>(`/ml/labels/${id}/reviews`, { method: "POST", ...json(body) }),
+  taxonomy: () => request<{ version: string; labels: TaxonomyLabel[] }>("/ml/taxonomy"),
+  walletFeatures: (chain: string, address: string) =>
+    request<JsonObject>(`/ml/features/${enc(chain)}/${enc(address)}`),
+  capabilityHistory: (id: string) => request<JsonObject>(`/providers/${enc(id)}/capabilities/history`),
+  providerReliability: (id: string) => request<JsonObject>(`/providers/${enc(id)}/reliability`),
+  providerConsistency: (id: string) => request<JsonObject>(`/providers/${enc(id)}/consistency`),
+  caseResearchRuns: (id: number) => request<{ items: CaseResearchLink[] }>(`/investigations/${id}/research-runs`),
+  linkResearchRun: (id: number, runId: string, note: string | null) =>
+    request<JsonObject>(`/investigations/${id}/research-runs`, { method: "POST", ...json({ run_id: runId, note }) }),
+  unlinkResearchRun: (id: number, runId: string) =>
+    request<undefined>(`/investigations/${id}/research-runs/${enc(runId)}`, { method: "DELETE" }),
+  analyzeWatchlist: (id: number) =>
+    // shape of bip/api/routes/intelligence.py analyze_watchlist
+    request<{ watchlist_id: number; data_origin: string; analysed: number; skipped: number;
+      items: { chain: string; address: string; run_id: number; status: string; reused: boolean }[] }>(
+      `/intelligence/watchlists/${id}/analyze`,
+      { method: "POST" },
+    ),
+  providerProfiles: () => request<ProviderProfiles>("/providers/profiles"),
+  providerProfile: (id: string) => request<ProviderProfileDetail>(`/providers/${enc(id)}/profile`),
+  probePreview: (providers: string[]) =>
+    request<ProbePreview>(`/providers/probe/preview${providers.length ? "?" + providers.map((p) => `provider=${enc(p)}`).join("&") : ""}`),
+  probeRun: (providers: string[]) =>
+    request<ProbeRun>("/providers/probe-runs", { method: "POST", ...json(providers.length ? { providers } : {}) }),
+  probeRuns: () => request<ProbeRunPage>("/providers/probe-runs?limit=10"),
+  // ---- intelligence (Stage 3): computed from stored observations only
+  intelStatus: () => request<IntelStatus>("/intelligence/status"),
+  intelProfile: (chain: string, address: string) =>
+    request<IntelProfile>(`/intelligence/wallets/${enc(chain)}/${enc(address)}/profile`),
+  intelBehaviour: (chain: string, address: string) =>
+    request<Behaviour>(`/intelligence/wallets/${enc(chain)}/${enc(address)}/behaviour`),
+  analyze: (chain: string, address: string) =>
+    request<AnalysisRun & IntelEnvelope>(`/intelligence/analyze/${enc(chain)}/${enc(address)}`, { method: "POST" }),
+  anomalies: (chain: string, address: string) =>
+    request<AnomalyPage>(`/intelligence/anomalies?limit=50&chain=${enc(chain)}&address=${enc(address)}`),
+  flows: (chain: string, address: string) => request<Flows>(`/intelligence/flows/${enc(chain)}/${enc(address)}`),
+  graph: (chain: string, address: string, depth: number) =>
+    request<Graph>(`/intelligence/graph/${enc(chain)}/${enc(address)}?depth=${depth}`),
+  opportunities: () => request<OpportunityPage>("/intelligence/opportunities?limit=50"),
+  refreshOpportunities: (chain: string) =>
+    request<OpportunityRefresh>(`/intelligence/opportunities/refresh/${enc(chain)}`, { method: "POST" }),
+  verifyTx: (chain: string, txId: string) =>
+    request<VerifyResult>(`/intelligence/verification/${enc(chain)}/${enc(txId)}`, { method: "POST" }),
+  verifyWallet: (chain: string, address: string) =>
+    request<WalletVerify>(`/intelligence/verification/${enc(chain)}/wallet/${enc(address)}?limit=5`, { method: "POST" }),
+  attachFinding: (findingId: string, investigationId: number) =>
+    request<IntelEnvelope>(`/intelligence/findings/${enc(findingId)}/attach`, {
+      method: "POST",
+      ...json({ investigation_id: investigationId }),
+    }),
+  // ---- discovery: signals, alerts, collectors (stored data; only the two collect* calls contact providers)
+  discoveryFeed: (limit = 25, offset = 0) => request<DiscoveryFeed>(`/discovery/feed?limit=${limit}&offset=${offset}`),
+  signals: (q: SignalQuery = {}) => request<SignalPage>(`/signals${queryString(q)}`),
+  signal: (id: number) => request<SignalDetail>(`/signals/${id}`),
+  dismissSignal: (id: number, note: string | null) =>
+    request<SignalDetail>(`/signals/${id}/dismiss`, { method: "POST", ...json({ note }) }),
+  promoteSignal: (id: number, body: PromoteInput) =>
+    request<SignalDetail>(`/signals/${id}/promote`, { method: "POST", ...json(body) }),
+  reviewSignal: (id: number, body: SignalReviewInput) =>
+    request<ReviewResult>(`/signals/${id}/review`, { method: "POST", ...json(body) }),
+  signalDecisions: (id: number) => request<DecisionList>(`/signals/${id}/decisions`),
+  signalRanking: (id: number) => request<RankingExplanation>(`/signals/${id}/ranking`),
+  rankingStatus: () => request<RankingStatus>("/ml/signal-ranking"),
+  rankingRuns: () => request<{ items: RankingRunSummary[] }>("/ml/signal-ranking/runs?limit=10"),
+  rankingRun: (id: number) => request<RankingRun>(`/ml/signal-ranking/runs/${id}`),
+  evaluateRanking: () => request<RankingRun>("/ml/signal-ranking/evaluate", { method: "POST" }),
+  detectors: () => request<DetectorCatalogue>("/discovery/detectors"),
+  discoveryRuns: (limit = 10) => request<DiscoveryRunList>(`/discovery/runs?limit=${limit}`),
+  expansion: () => request<ExpansionOverview>("/discovery/expansion"),
+  runExpansion: (chain: string, policy: ExpansionPolicyId) =>
+    request<ExpansionResult>(`/discovery/expand/${enc(chain)}`, { method: "POST", ...json({ policy }) }),
+  // ---- intelligence memory (stored data only)
+  memory: (chain: string, ref: string) => request<MemoryProfile>(`/entities/memory/${enc(chain)}/${enc(ref)}`),
+  memorySearch: (q: { chain?: string; kind?: string; q?: string; limit?: number }) =>
+    request<MemorySearch>(`/entities/memory/search${queryString(q)}`),
+  refreshMemory: (chain: string) => request<MemoryRefresh>(`/entities/memory/refresh/${enc(chain)}`, { method: "POST" }),
+  alerts: (q: { unread?: boolean; limit?: number; offset?: number } = {}) =>
+    request<AlertPage>(`/alerts${queryString(q)}`),
+  alertChannels: () => request<AlertChannels>("/alerts/channels"),
+  markAlertRead: (id: number) => request<DiscoveryEnvelope & { id: number; read: boolean }>(`/alerts/${id}/read`, { method: "POST" }),
+  markAllAlertsRead: () => request<DiscoveryEnvelope & { marked_read: number }>("/alerts/read-all", { method: "POST" }),
+  alertRules: () => request<DiscoveryEnvelope & { items: AlertRule[] }>("/alert-rules"),
+  createAlertRule: (body: AlertRuleInput) =>
+    request<AlertRule & DiscoveryEnvelope>("/alert-rules", { method: "POST", ...json(body) }),
+  setAlertRuleEnabled: (id: number, enabled: boolean) =>
+    request<AlertRule & DiscoveryEnvelope>(`/alert-rules/${id}`, { method: "PATCH", ...json({ enabled }) }),
+  ethereumCollector: () => request<CollectorStatus>("/discovery/collector"),
+  solanaCollector: () => request<CollectorStatus>("/discovery/collector/solana"),
+  // These two CONTACT a public RPC provider (admin only, server-bounded). Never call them automatically.
+  runDiscovery: () => request<DiscoveryRunResult>("/discovery/run", { method: "POST", ...json({}) }),
+  collectEthereum: () => request<DiscoveryEnvelope & CollectorManifest>("/discovery/collect/ethereum", { method: "POST" }),
+  collectSolana: () => request<DiscoveryEnvelope & CollectorManifest>("/discovery/collect/solana", { method: "POST" }),
+  // ---- attribution (entity labels)
+  entityLabels: (q: { status?: "proposed" | "approved" | "rejected"; limit?: number; offset?: number } = {}) =>
+    request<EntityLabelPage>(`/entities/labels${queryString(q)}`),
+  proposeLabel: (body: LabelProposal) => request<EntityLabel>("/entities/labels", { method: "POST", ...json(body) }),
+  reviewEntityLabel: (id: number, body: LabelReviewInput) =>
+    request<EntityLabel>(`/entities/labels/${id}/review`, { method: "POST", ...json(body) }),
+  // ---- system
+  systemHealth: () => request<SystemHealth>("/system/health"),
+  createBackup: () => request<BackupCreated>("/system/backups", { method: "POST" }),
+};
+
+/** `?a=1&b=x` from the defined entries of `q` (empty string when there are none). */
+function queryString(q: object): string {
+  const parts = Object.entries(q)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${enc(k)}=${enc(String(v))}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
+export type { FindingSummary };

@@ -1,0 +1,4 @@
+# False positives only. Each entry must name a synthetic test fixture, never a real credential.
+# Commit 663e949, tests/unit/test_secrets.py line 38: synthetic X-API-KEY fixture proving redaction
+# works. Later commits assemble the value at runtime so it is not flagged again.
+663e949919a796e9906cd371d63d8884660fd8e3:tests/unit/test_secrets.py:generic-api-key:38

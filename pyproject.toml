@@ -1,0 +1,70 @@
+[project]
+name = "bip"
+version = "0.1.0"
+description = "Blockchain Intelligence Platform - engineering foundation (Stage 1)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+# Runtime dependencies are deliberately minimal (see IMPLEMENTATION_LOG.md, Stage 1).
+dependencies = [
+    "fastapi>=0.115,<1",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.7,<3",
+    "sqlalchemy>=2.0.36,<3",
+    "uvicorn>=0.32,<1",
+]
+
+[dependency-groups]
+# The ML runtime is a separate, default-installed group so BIP can start where scikit-learn
+# cannot be installed (for example Android/Termux): `uv sync --no-group ml`. Without it,
+# classification uses the rules baseline (and says so) and training is refused (ml_unavailable).
+ml = [
+    "numpy>=2.0,<3",
+    "scikit-learn>=1.5,<2",
+]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "pyright>=1.1.390",
+    "httpx2>=2.16,<3",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bip"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["bip", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PT", "C4", "N", "BLE", "T20"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108"]
+
+[tool.pyright]
+include = ["bip", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+filterwarnings = ["error"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bip", "tests"]
+
+[tool.uv]
+default-groups = ["dev", "ml"]
