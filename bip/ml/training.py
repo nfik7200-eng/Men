@@ -39,7 +39,7 @@ from bip.db.errors import InvalidRecordError
 from bip.db.repository import Repository
 from bip.db.types import utcnow
 from bip.intel.dataset import load_wallet
-from bip.ml import runtime, synthetic, taxonomy
+from bip.ml import rules, runtime, synthetic, taxonomy
 from bip.ml.features import FEATURE_NAMES, FEATURE_VERSION, FeatureVector, extract
 from bip.ml.labels import LabelStore
 
@@ -61,6 +61,38 @@ class Example:
     statuses: dict[str, str]
     sources: dict[str, str]
     conflicts: set[str] = field(default_factory=set[str])
+    rule_hits: frozenset[str] | None = None
+    """Labels the deterministic rules assign at the example's as-of time (the rule baseline);
+    ``None`` when the rules could not be evaluated for it."""
+
+
+def _rule_hits(repo: Repository, ds: Any, fv: FeatureVector) -> frozenset[str] | None:
+    """What the transparent rule baseline says about a wallet at ``fv.as_of`` (point in time)."""
+    try:
+        return frozenset(str(r["label"]) for r in rules.roles(repo, ds, fv, fv.as_of))
+    except Exception:  # noqa: BLE001 - a baseline that cannot be computed is reported, not faked
+        return None
+
+
+def _rule_baseline(backend: Any, label: str, rows: list[Example], ys: list[int]) -> J:
+    """The deterministic rules' result on the same test examples, so every model is compared
+    with the transparent baseline it has to beat."""
+    spec = taxonomy.BY_ID.get(label)
+    if spec is None or not spec.rule_detectable:
+        return {"available": False, "reason": "no deterministic rule exists for this label"}
+    if any(e.rule_hits is None for e in rows):
+        return {"available": False, "reason": "the rules could not be evaluated for every example"}
+    hits = [1.0 if label in (e.rule_hits or frozenset()) else 0.0 for e in rows]
+    m = backend.metrics(ys, hits, {})
+    return {
+        "available": True,
+        "kind": "rule_based",
+        "precision": m["precision"],
+        "recall": m["recall"],
+        "f1": m["f1"],
+        "pr_auc": m["pr_auc"],
+        "false_positives": m["confusion"]["fp"],
+    }
 
 
 def model_root(settings: Settings) -> Path:
@@ -78,12 +110,14 @@ class Trainer:
     def _synthetic(self, chain: str, seed: int) -> list[Example]:
         out: list[Example] = []
         for w in synthetic.generate(seed=seed, chain=chain):
+            fv = extract(w.dataset, w.as_of, data_kind="synthetic")
             out.append(
                 Example(
-                    extract(w.dataset, w.as_of, data_kind="synthetic"),
+                    fv,
                     w.labels,
                     dict.fromkeys(w.labels, "synthetic"),
                     dict.fromkeys(w.labels, "bip.ml.synthetic"),
+                    rule_hits=_rule_hits(self._repo, w.dataset, fv),
                 )
             )
         return out
@@ -100,7 +134,8 @@ class Trainer:
                 ds = load_wallet(
                     self._repo, chain, r["address"], self._settings.intel.max_records_per_wallet
                 )
-                groups[key] = Example(extract(ds, as_of), {}, {}, {})
+                fv = extract(ds, as_of)
+                groups[key] = Example(fv, {}, {}, {}, rule_hits=_rule_hits(self._repo, ds, fv))
             ex = groups[key]
             lab, value = r["label"], bool(r["value"])
             if lab in ex.labels and ex.labels[lab] != value:
@@ -169,12 +204,10 @@ class Trainer:
         }
         examples.sort(key=lambda e: (e.fv.as_of, e.fv.address))
         n = len(examples)
-        a, b = int(n * 0.6), int(n * 0.8)
         splits = {
             k: [e for e in examples if split_of[e.fv.address] == k]
             for k in ("train", "validation", "test")
         }
-        _ = (a, b)
         version_src = hashlib.sha256()
         for e in examples:
             version_src.update(e.fv.digest().encode())
@@ -239,13 +272,11 @@ class Trainer:
             modelled[lab] = m
             for split, x in (("train", x_tr), ("validation", x_va), ("test", x_te)):
                 p: list[float] = backend.scores(m, x[idx[split]]) if idx[split] else []
-                evals.append(
-                    {
-                        "split": split,
-                        "label": lab,
-                        "metrics": backend.metrics(ys[split], p, m.thresholds),
-                    }
-                )
+                metrics = backend.metrics(ys[split], p, m.thresholds)
+                if split == "test":
+                    rows = [splits["test"][i] for i in idx["test"]]
+                    metrics["rule_baseline"] = _rule_baseline(backend, lab, rows, ys["test"])
+                evals.append({"split": split, "label": lab, "metrics": metrics})
         if not modelled:
             return self._finish(
                 run_id,

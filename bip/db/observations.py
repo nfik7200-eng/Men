@@ -789,6 +789,8 @@ class ObservationStore:
                 .values(status="invalidated", note=reason[:300])
             )
             rel_invalidated += int(result.rowcount or 0)
+        if rids:
+            invalidated += _withdraw_relationship_dependents(conn, chain, rids, reason)
         # Intelligence memory (v18): facts resting on these transactions stop being current. The
         # rows stay, so the history shows what was believed and why it was withdrawn.
         ef = schema.entity_facts
@@ -804,6 +806,59 @@ class ObservationStore:
             )
         _requeue_memory(conn, chain, tx_ids, addresses, now)
         return stale, invalidated, rel_invalidated
+
+
+def _withdraw_relationship_dependents(
+    conn: Connection, chain: str, relationship_ids: list[int], reason: str
+) -> int:
+    """What rests on relationships a reorg just invalidated, without waiting for a later scan.
+
+    * The memory fact ``funded_by:<funder>`` of each invalidated funder link stops being current
+      (kept, marked ``invalidated``), since that fact cites the relationship, not a transaction.
+    * Open or promoted expansion candidates on the chain are invalidated: they walk stored
+      relationships through several hops but keep evidence only for the last one, so any of them
+      may rest on the withdrawn link. The next expansion run rebuilds those still supported.
+
+    Returns the number of signals invalidated.
+    """
+    rel, e, ef, sg = (
+        schema.entity_relationships,
+        schema.entities,
+        schema.entity_facts,
+        schema.signals,
+    )
+    funder_links: list[tuple[str, str]] = []
+    for start in range(0, len(relationship_ids), 400):
+        funder_links.extend(
+            (str(src), str(dst))
+            for src, dst in conn.execute(
+                select(rel.c.source_ref, rel.c.target_ref).where(
+                    rel.c.id.in_(relationship_ids[start : start + 400]),
+                    rel.c.kind == "funded_by",
+                )
+            ).all()
+        )
+    for source_ref, target_ref in funder_links:
+        entity = select(e.c.id).where(e.c.chain == chain, e.c.ref == source_ref).scalar_subquery()
+        conn.execute(
+            update(ef)
+            .where(
+                ef.c.entity_id == entity,
+                ef.c.fact_key == f"funded_by:{target_ref}",
+                ef.c.status == "current",
+            )
+            .values(status="invalidated")
+        )
+    result = conn.execute(
+        update(sg)
+        .where(
+            sg.c.chain == chain,
+            sg.c.detector_id.like("expansion\\_%", escape="\\"),
+            sg.c.status.in_(("open", "promoted")),
+        )
+        .values(status="invalidated", status_note=f"relationship withdrawn: {reason}"[:300])
+    )
+    return int(result.rowcount or 0)
 
 
 def _tx_finality(child: Table) -> ColumnElement[str]:

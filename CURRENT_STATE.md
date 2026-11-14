@@ -1,8 +1,31 @@
 # Current State
 
-_Last updated: 2026-11-13 (Stage 3 verification audit and repairs; Stages 1–3 committed and pushed to `claude/modest-fermi-0yklvj`, draft PR #2)_
+_Last updated: 2026-11-14 (Stage 3 closed out and Stage 4 built locally; NOT committed: this round's rules forbid commit and push. Last pushed commit `8085443`, draft PR #2)_
 
 ## Phase
+**Stage 3 close-out and Stage 4 (Human Supervision and Advanced ML), 2026-11-14: built and verified locally on fixtures; uncommitted.**
+- **Stage 3 close-out.** All in-scope findings are fixed, each with a regression test.
+  - **Write protection with sign-in off (ADR-048):** fail-closed `X-BIP-Client` proof on every change request, exact Origin allowlist, Host allowlist against DNS rebinding.
+  - **Freshness:** live-only feed freshness; historical and expansion runs reported separately; crashed runs closed as failed.
+  - **Locks:** on relationship rebuild (route and job) and on opportunity refresh.
+  - **Memory:** activity counts no longer freeze; reorgs withdraw funder facts and expansion candidates at once.
+  - **History:** entity-label history (`entity_label_events`).
+  - **Ingestion:** an orphaned transaction included again in a canonical block is restored; the Solana backfill keeps finished slots when the budget runs out.
+- **Stage 4 (ADR-049, ADR-050; schema v19).**
+  - **Review lifecycle:** confirmed, duplicate (with a link) and insufficient_evidence; a transition table; per-state reasons; corrections; wallet labels.
+  - **Rename:** `accepted` renamed `confirmed` through a table rebuild that keeps every row.
+  - **Ground truth:** human, undisputed decisions only, on real-network data only (fail closed).
+  - **Candidate ranking:** point-in-time feature snapshots; chronological, entity-grouped splits; the rule baseline; an unsupervised anomaly score; graph features; a gated supervised model; full metrics with drift.
+  - **Wallet classifier:** gains PR-AUC, precision@10 and a rule-baseline comparison.
+  - **UI:** signal review form, ground-truth badge, ranking explanation, and a Models page.
+- **ML readiness:** supervised ranking is **not ready**. There are no verified real labels; the gate is 50 confirmed and 50 rejected per chain. Only the baseline and the unsupervised score can run. The supervised path is exercised in tests with synthetic labels only, never stored.
+- **Reviews:** three independent read-only reviews (no critical findings); their findings were fixed test-first (see `IMPLEMENTATION_LOG.md`).
+- **Tests:** 1006 backend, 281 frontend unit tests, 221/221 browser checks, 9-step fixture 9/9; ruff, pyright, eslint and tsc clean.
+- **Not done:**
+  - CI on these changes (not pushed);
+  - a Codespaces or phone run;
+  - any live-chain verification.
+
 **Stage 3 verification audit and repairs, 2026-11-13: committed and pushed with owner approval.**
 - **Audit:** a read-only audit (two independent reviews plus a 9-step end-to-end fixture) found three HIGH correctness problems, all now fixed with tests (ADR-047, Proposed):
   - **H2:** funder links come from censored data (collectors keep only transfers ≥ 10 ETH or ≥ 500 SOL), so `funded_by` is now a `hypothesis` with a threshold caveat. Memory supersedes the old observed facts.

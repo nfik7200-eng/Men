@@ -417,3 +417,202 @@ def test_unauthenticated_api_refuses_to_bind_to_a_reachable_address(
     else:
         with pytest.raises(ConfigurationError, match="authentication is off"):
             create_app(settings)
+
+
+# ------------------------------------------- local mode (auth disabled): cross-site protection
+
+PROOF = {"X-BIP-Client": "web"}
+
+
+def test_local_mode_writes_need_proof_an_exact_origin_and_a_local_host(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, mode="disabled")
+    with TestClient(rig.app, base_url="http://127.0.0.1:8000") as c:
+        c.headers.pop("X-BIP-Client", None)  # this test controls the proof header itself
+        url = f"{API}/relationships/rebuild"
+        # fail closed: a write with no proof is refused, even from a local script
+        bare = c.post(url)
+        assert bare.status_code == 403
+        assert bare.json()["error"]["code"] == "client_proof_missing"
+        assert c.post(url, headers={"X-BIP-Client": ""}).status_code == 403  # empty is no proof
+        # a page on another site: browsers cannot add the header cross-site without a preflight
+        # CORS refuses, and an Origin that is not on the exact allowlist is refused outright
+        evil = c.post(url, headers={**PROOF, "Origin": "https://evil.example"})
+        assert evil.status_code == 403
+        assert evil.json()["error"]["code"] == "origin_denied"
+        near = c.post(url, headers={**PROOF, "Origin": "http://127.0.0.1:5173.evil.example"})
+        assert near.status_code == 403  # exact match only, no prefix tricks
+        assert c.post(url, headers={**PROOF, "Sec-Fetch-Site": "cross-site"}).status_code == 403
+        # host spoofing / DNS rebinding: the attacker's name resolves to 127.0.0.1
+        rebound = c.get(f"{API}/signals", headers={"Host": "evil.example:8000"})
+        assert rebound.status_code == 403
+        assert rebound.json()["error"]["code"] == "host_denied"
+        spoofed = c.post(url, headers={**PROOF, "Host": "evil.example"})
+        assert spoofed.status_code == 403
+        # the preflight a cross-site page would need is not granted to a foreign origin
+        pre = c.options(
+            url,
+            headers={
+                "Origin": "https://evil.example",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "x-bip-client",
+            },
+        )
+        assert "access-control-allow-origin" not in pre.headers
+        # what keeps working: the local frontend, same-origin calls and scripts that send proof
+        ok = {**PROOF, "Origin": "http://127.0.0.1:5173"}
+        assert c.post(url, headers=ok).status_code == 201
+        assert c.post(url, headers={**PROOF, "Origin": "http://127.0.0.1:8000"}).status_code == 201
+        assert c.post(url, headers={**PROOF, "Sec-Fetch-Site": "same-origin"}).status_code == 201
+        assert c.post(url, headers=PROOF).status_code == 201  # curl with -H 'X-BIP-Client: cli'
+        # reads stay open on a local host
+        assert c.get(f"{API}/signals").status_code == 200
+        assert c.get(f"{API}/signals", headers={"Host": "localhost:8000"}).status_code == 200
+        assert c.get(f"{API}/signals", headers={"Host": "[::1]:8000"}).status_code == 200
+    rig.dispose()
+
+
+def test_local_mode_accepts_hosts_the_operator_lists(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, mode="disabled", settings={"api": {"allowed_hosts": ["bip.lan"]}})
+    with TestClient(rig.app, base_url="http://bip.lan") as c:
+        assert c.get(f"{API}/signals").status_code == 200
+        write = c.post(
+            f"{API}/relationships/rebuild", headers={**PROOF, "Origin": "http://bip.lan"}
+        )
+        assert write.status_code == 201
+    rig.dispose()
+
+
+def test_allowed_hosts_must_be_plain_names(tmp_path: Path) -> None:
+    for bad in (["*.lan"], ["bip.lan:8000"], ["BIP.LAN"]):
+        with pytest.raises(ConfigurationError):
+            load_settings(data_root=tmp_path, env="test", api={"allowed_hosts": bad})
+
+
+def test_required_mode_is_unchanged_by_the_local_guard(rig: Rig) -> None:
+    """Sign-in mode keeps its own checks (session, CSRF, origin); the proof header is not needed."""
+    with TestClient(rig.app) as c:
+        c.headers.pop("X-BIP-Client", None)
+        assert c.post(f"{API}/relationships/rebuild").status_code == 401
+
+
+def test_heavy_rebuilds_refuse_to_run_twice_at_once(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, mode="disabled")
+    with TestClient(rig.app, base_url="http://127.0.0.1:8000") as c:
+        ctx = rig.app.state.bip
+        assert ctx.discovery_lock.acquire(blocking=False)
+        try:
+            busy = c.post(f"{API}/relationships/rebuild")
+            assert busy.status_code == 409
+            assert busy.json()["error"]["code"] == "discovery_busy"
+        finally:
+            ctx.discovery_lock.release()
+        assert ctx.analysis_lock.acquire(blocking=False)
+        try:
+            assert c.post(f"{API}/intelligence/opportunities/refresh/ethereum").status_code == 409
+        finally:
+            ctx.analysis_lock.release()
+        assert c.post(f"{API}/relationships/rebuild").status_code == 201
+        assert c.post(f"{API}/intelligence/opportunities/refresh/ethereum").status_code == 200
+    rig.dispose()
+
+
+def test_a_normal_launch_marks_an_unmarked_database_as_real_network_data(tmp_path: Path) -> None:
+    """Ground truth needs an explicit origin. Tools that serve fixtures mark their databases
+    themselves (``offline_fixture``); a normal launch marks an unmarked one ``live_network``,
+    and a test-environment app marks nothing."""
+    from bip.db.engine import create_db_engine
+    from bip.db.repository import Repository
+    from tests.api.conftest import roomy_guard
+
+    for env, expected in (("development", "live_network"), ("test", None)):
+        settings = load_settings(data_root=tmp_path / env, env=env)
+        engine = create_db_engine(settings)
+        app = create_app(
+            settings,
+            engine=engine,
+            disk_guard=roomy_guard(settings.resolved_data_root),
+            environ={},
+        )
+        with TestClient(app, base_url="http://127.0.0.1:8000"):
+            pass
+        assert Repository(engine).get_meta("data_origin") == expected
+        engine.dispose()
+    settings = load_settings(data_root=tmp_path / "fixture", env="development")
+    engine = create_db_engine(settings)
+    app = create_app(
+        settings,
+        engine=engine,
+        disk_guard=roomy_guard(settings.resolved_data_root),
+        environ={},
+        data_origin="offline_fixture",
+    )
+    with TestClient(app, base_url="http://127.0.0.1:8000"):
+        pass
+    assert Repository(engine).get_meta("data_origin") == "offline_fixture"  # never overwritten
+    engine.dispose()
+
+
+def test_an_unmarked_database_that_already_holds_data_is_not_assumed_real(
+    tmp_path: Path,
+) -> None:
+    """A seeded or copied database launched normally must not become ground truth: only an empty
+    one is marked live_network automatically; otherwise the operator says so explicitly."""
+    from bip.db.engine import create_db_engine
+    from bip.db.repository import Repository
+    from tests.api.conftest import roomy_guard
+    from tests.discovery.seed import NOW, Seed, eth_addr, eth_tx
+
+    def launch(root: Path, **cfg: object) -> str | None:
+        settings = load_settings(data_root=root, env="development", **cfg)
+        engine = create_db_engine(settings)
+        if not (root / "seeded").exists():
+            Seed(engine).tx(eth_tx(1), eth_addr(1), NOW)  # synthetic rows, origin unknown
+            (root / "seeded").touch()
+        app = create_app(
+            settings, engine=engine, disk_guard=roomy_guard(settings.resolved_data_root), environ={}
+        )
+        with TestClient(app, base_url="http://127.0.0.1:8000"):
+            pass
+        origin = Repository(engine).get_meta("data_origin")
+        engine.dispose()
+        return origin
+
+    root = tmp_path / "seeded-db"
+    root.mkdir()
+    assert launch(root) == "unknown"
+    assert launch(root, data_origin="live_network") == "unknown"  # an existing marker stays
+    fresh = tmp_path / "explicit"
+    fresh.mkdir()
+    assert launch(fresh, data_origin="live_network") == "live_network"  # the operator's word
+
+
+def test_the_socket_exemption_needs_a_configured_socket(tmp_path: Path) -> None:
+    """A connection without a server address (as some ASGI servers report TCP) must not skip the
+    host check unless the operator configured a Unix socket."""
+    import asyncio
+
+    from bip.api.protection import ProtectionMiddleware
+
+    async def app(scope: object, receive: object, send: object) -> None:  # pragma: no cover
+        raise AssertionError("must not be reached")
+
+    sent: list[dict[str, object]] = []
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b""}
+
+    settings = load_settings(data_root=tmp_path, env="test", auth={"mode": "disabled"})
+    mw = ProtectionMiddleware(app, settings=settings, prefix=API)  # type: ignore[arg-type]
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": f"{API}/signals",
+        "headers": [(b"host", b"evil.example")],
+        "server": None,
+        "client": ("127.0.0.1", 5000),
+    }
+    asyncio.run(mw(scope, receive, send))  # type: ignore[arg-type]
+    assert sent[0]["status"] == 403

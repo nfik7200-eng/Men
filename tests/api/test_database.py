@@ -183,3 +183,28 @@ def test_data_persists_across_engines(settings: Settings) -> None:
     eng2 = create_db_engine(other)
     assert [i.title for i in Repository(eng2).list_investigations()] == ["Persisted"]
     eng2.dispose()
+
+
+def test_an_orphaned_transaction_included_again_in_a_canonical_block_is_restored(
+    repo: Repository,
+) -> None:
+    """After a reorg the same transaction can land in a different block. The orphaned row must
+    not hide it forever (it would be excluded from every derived read)."""
+    extras = {"block_hash": EVM_BLOCK_HASH, "finality": "finalized", "parse_status": "complete"}
+    assert repo.store_transaction(evm_tx(), extras=extras)
+    with repo.transaction() as conn:
+        conn.execute(text("UPDATE transactions SET finality = 'orphaned'"))
+    # a plain re-read of the same orphaned block changes nothing
+    assert repo.store_transaction(evm_tx(), extras=extras) is False
+    other = "0x" + "9a" * 32
+    restored = repo.store_transaction(
+        evm_tx(block_number=101, block_hash=other),
+        extras={**extras, "block_hash": other},
+    )
+    assert restored is True
+    with repo.transaction() as conn:
+        row = conn.execute(
+            text("SELECT block_number, block_hash, finality FROM transactions")
+        ).one()
+    assert tuple(row) == (101, other, "finalized")
+    assert repo.counts()["transactions_stored"] == 1  # replaced, not duplicated

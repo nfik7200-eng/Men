@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 from pydantic import Field
 
 from bip.api.deps import Context, WritableContext
@@ -174,3 +174,39 @@ def review_label(
     ctx: WritableContext, label_id: Annotated[int, Path(ge=1, le=2**53)], body: ReviewIn
 ) -> J:
     return ctx.labels.review(label_id, body)
+
+
+# ----------------------------------------------------------------------------- candidate ranking
+
+
+@router.get("/signal-ranking")
+def signal_ranking_status(ctx: Context) -> dict[str, Any]:
+    """Candidate-ranking status: snapshots, verified label counts per chain against the
+    supervised gate, and the last evaluation. Scores rank candidates; a person decides."""
+    return ctx.ranking.status()
+
+
+@router.post("/signal-ranking/evaluate", status_code=201)
+def signal_ranking_evaluate(ctx: WritableContext, request: Request) -> Any:
+    """Evaluate the rule baseline, the unsupervised score and (when the gate allows) a supervised
+    ranker against human ground truth, and store the run. Local data only; bounded by
+    ``ml.ranking_max_snapshots``; never changes a candidate or its review."""
+    if not ctx.analysis_lock.acquire(blocking=False):
+        return error_response(409, "analysis_busy", "Another analysis is running. Try again.")
+    try:
+        user = request.scope.get("state", {}).get("user")
+        return ctx.ranking.evaluate(str(user.username) if user is not None else "local")
+    finally:
+        ctx.analysis_lock.release()
+
+
+@router.get("/signal-ranking/runs")
+def signal_ranking_runs(
+    ctx: Context, limit: Annotated[int, Query(ge=1, le=100)] = 20
+) -> dict[str, Any]:
+    return {"items": ctx.ranking.runs(limit)}
+
+
+@router.get("/signal-ranking/runs/{run_id}")
+def signal_ranking_run(ctx: Context, run_id: Annotated[int, Path(ge=1)]) -> dict[str, Any]:
+    return ctx.ranking.run(run_id)

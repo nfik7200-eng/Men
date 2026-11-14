@@ -81,6 +81,25 @@ class ApiSettings(BaseModel):
     )
     """Exact origins allowed by CORS. Comma-separated in the environment. ``*`` is rejected."""
     max_request_bytes: Annotated[int, Field(ge=1024, le=10 * 1024 * 1024)] = 64 * 1024
+    allowed_hosts: Annotated[tuple[str, ...], NoDecode] = ()
+    """Host names (no port) accepted in ``auth.mode = disabled`` besides loopback names, for a
+    trusted reverse proxy or LAN name. Comma-separated in the environment. Other Host headers are
+    refused in that mode, which blocks DNS-rebinding pages from reading or changing local data."""
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def _split_hosts(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def _plain_hosts(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for host in value:
+            if not host or "*" in host or ":" in host or "/" in host or host != host.lower():
+                raise ValueError("allowed_hosts must be lower-case host names without a port")
+        return value
 
     @field_validator("unix_socket")
     @classmethod
@@ -502,6 +521,11 @@ class MLSettings(BaseModel):
     """Allow training on the built-in synthetic dataset (pipeline demonstration only)."""
     max_artifact_bytes: Annotated[int, Field(ge=1024, le=512 * 1024 * 1024)] = 64 * 1024 * 1024
     max_label_import: Annotated[int, Field(ge=1, le=100_000)] = 5_000
+    ranking_min_labels_per_class: Annotated[int, Field(ge=10, le=100_000)] = 50
+    """Verified confirmed and rejected candidates each, per chain, before a supervised candidate
+    ranker is trained for that chain (below it the ranker is reported not ready)."""
+    ranking_max_snapshots: Annotated[int, Field(ge=100, le=100_000)] = 5_000
+    """Newest candidate feature snapshots one ranking evaluation reads (bounds its work)."""
 
 
 class AISettings(BaseModel):
@@ -546,6 +570,10 @@ class Settings(BaseSettings):
     )
 
     env: Environment = Environment.DEVELOPMENT
+    data_origin: Literal["live_network", "offline_fixture"] | None = None
+    """What this database holds, stated by the operator (``BIP_DATA_ORIGIN``). Applied only to a
+    database without a marker; an existing marker is never overwritten. Review decisions become
+    ML ground truth only on ``live_network`` data."""
     log_level: LogLevel = "INFO"
     log_format: Literal["json", "text"] = "json"
 

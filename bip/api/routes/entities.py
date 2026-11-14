@@ -179,11 +179,17 @@ def relationship_summary(ctx: Context) -> dict[str, Any]:
 @router.post("/relationships/rebuild", status_code=status.HTTP_201_CREATED)
 def rebuild_relationships(
     ctx: WritableContext, chain: Annotated[str | None, Query(max_length=32)] = None
-) -> dict[str, Any]:
+) -> Any:
     """Rebuild relationships from stored canonical data. Reads the database only."""
     if chain is not None:
         _require_chain(ctx, chain)
-    return ctx.relationships.rebuild(chain)
+    # shares the discovery lock: discovery and expansion read the relationships a rebuild writes
+    if not ctx.discovery_lock.acquire(blocking=False):
+        return error_response(409, "discovery_busy", "A discovery task is running. Try again.")
+    try:
+        return ctx.relationships.rebuild(chain)
+    finally:
+        ctx.discovery_lock.release()
 
 
 # ----------------------------------------------------------------------------- case notes

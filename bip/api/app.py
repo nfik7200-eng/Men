@@ -41,7 +41,7 @@ from bip.api.routes import (
     wallets,
     watchlists,
 )
-from bip.config.settings import Settings, load_settings
+from bip.config.settings import Environment, Settings, load_settings
 from bip.core.exceptions import ConfigurationError
 from bip.core.logging import get_logger
 from bip.db.engine import create_db_engine
@@ -62,6 +62,7 @@ from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
 from bip.ml.labels import LabelStore
 from bip.ml.service import ClassificationService
+from bip.ml.signal_ranking import SignalRanking
 from bip.ml.training import Trainer
 from bip.ops.backup import BackupService
 from bip.ops.jobs import build_jobs
@@ -104,6 +105,14 @@ def require_safe_exposure(cfg: Settings) -> None:
         )
 
 
+def _default_origin(repo: Repository) -> str:
+    counts = repo.counts()
+    held = any(
+        counts.get(k, 0) for k in ("transactions_stored", "transfers_stored", "wallets_stored")
+    )
+    return "unknown" if held else "live_network"
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -130,6 +139,13 @@ def create_app(
         if data_origin is not None:
             # e.g. "offline_fixture": stored with the data so every view can label it
             repo.set_meta("data_origin", data_origin)
+        elif cfg.env != Environment.TEST and not repo.get_meta("data_origin"):
+            # Review decisions become ground truth only on data marked live_network (fail
+            # closed), so the marker is set with care: the operator's BIP_DATA_ORIGIN if given;
+            # else live_network only for an empty database, which a normal launch fills from real
+            # providers; else "unknown" (a seeded or copied database is never assumed real).
+            # Fixture tools pass their own origin above; test apps mark nothing.
+            repo.set_meta("data_origin", cfg.data_origin or _default_origin(repo))
         reg = registry if registry is not None else default_registry()
         state = ProviderStateStore(repo)
         router = ProviderRouter(
@@ -176,6 +192,7 @@ def create_app(
             gap_recovery=GapRecovery(router, repo, cfg),
             memory=MemoryService(repo, cfg.memory),
             review=cast(ReviewService, None),  # set below (shared with the expansion engine)
+            ranking=cast(SignalRanking, None),
             expansion=cast(ExpansionEngine, None),
             entity_labels=EntityLabelService(
                 repo,
@@ -187,6 +204,7 @@ def create_app(
         )
         ctx = app.state.bip
         ctx.review = ReviewService(repo)
+        ctx.ranking = SignalRanking(repo, ctx.review, cfg.ml)
         ctx.expansion = ExpansionEngine(repo, cfg, ctx.discovery, ctx.review)
         ctx.research = ResearchManager(ctx, llm_provider or build_provider(cfg.ai, environ))
         if cfg.workers.enabled:
@@ -247,7 +265,8 @@ def create_app(
         CORSMiddleware,
         allow_origins=list(cfg.api.cors_origins),
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Content-Type", "X-CSRF-Token"] if required else ["Content-Type"],
+        # granted to the exact cors_origins only; a foreign page never gets a preflight for these
+        allow_headers=["Content-Type", "X-BIP-Client", *(["X-CSRF-Token"] if required else [])],
         allow_credentials=required,
     )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=cfg.api.max_request_bytes)

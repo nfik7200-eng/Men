@@ -16,6 +16,9 @@ from bip.db.errors import DatabaseError
 from bip.storage.paths import StorageRoot
 
 NEW_TABLES = {
+    "entity_label_events",
+    "signal_feature_snapshots",
+    "signal_ranking_runs",
     "signals",
     "signal_evidence",
     "discovery_runs",
@@ -89,7 +92,7 @@ def test_version_six_data_survives_the_upgrade(tmp_path: Path) -> None:
                     updated_at=datetime.now(UTC),
                 )
             )
-        assert migrate(engine) == schema.SCHEMA_VERSION == 18
+        assert migrate(engine) == schema.SCHEMA_VERSION == 19
         with engine.connect() as conn:
             tables = set(
                 conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars()
@@ -251,5 +254,110 @@ def test_v16_seeding_rejects_malformed_legacy_values_and_reruns_cleanly(tmp_path
             ).all()
             assert [tuple(r) for r in cps] == [("solana", 700, None)]
             assert conn.execute(text("SELECT COUNT(*) FROM coverage_ranges")).scalar() == 1
+    finally:
+        engine.dispose()
+
+
+V18_SIGNAL_DECISIONS = """
+CREATE TABLE signal_decisions (
+    id INTEGER NOT NULL PRIMARY KEY,
+    signal_id INTEGER NOT NULL REFERENCES signals (id) ON DELETE CASCADE,
+    from_state VARCHAR(16) NOT NULL,
+    to_state VARCHAR(16) NOT NULL,
+    reason_code VARCHAR(32) NOT NULL,
+    note VARCHAR(500),
+    actor VARCHAR(80) NOT NULL,
+    decided_at DATETIME NOT NULL,
+    CONSTRAINT decision_state CHECK (to_state IN ('new', 'pending_review', 'accepted',
+        'rejected', 'monitoring', 'investigating', 'archived'))
+)
+"""
+
+
+def _signal(conn: object, n: int) -> int:
+    from sqlalchemy.engine import Connection
+
+    assert isinstance(conn, Connection)
+    now = datetime.now(UTC)
+    return int(
+        conn.execute(
+            insert(schema.signals).values(
+                signal_key=f"k{n}",
+                detector_id="large_transfer_mad",
+                detector_version="1",
+                family="large_transfers",
+                chain="ethereum",
+                subject_kind="wallet",
+                subject_ref=f"0x{n:040x}",
+                title="SYNTHETIC",
+                severity="low",
+                score=10.0,
+                confidence=0.1,
+                status="open",
+                explanation_json="{}",
+                evidence_json="[]",
+                coverage_json="{}",
+                occurrences=1,
+                observed_at=now,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+        ).inserted_primary_key[0]  # type: ignore[index]
+    )
+
+
+def test_v19_rebuilds_the_v18_decision_table_keeps_every_row_and_renames_accepted(
+    tmp_path: Path,
+) -> None:
+    engine = frozen_at(tmp_path, 18)
+    try:
+        when = "2026-11-01 00:00:00.000000"  # stored as text, as the UTC type writes it
+        with engine.begin() as conn:  # the table exactly as v18 created it (old constraint)
+            conn.exec_driver_sql("DROP TABLE signal_decisions")
+            conn.exec_driver_sql(V18_SIGNAL_DECISIONS)
+            accepted, rejected = _signal(conn, 1), _signal(conn, 2)
+            rows = [
+                (accepted, "new", "investigating", "needs_more_data", "alice"),
+                (accepted, "investigating", "accepted", "evidence_sufficient", "alice"),
+                (rejected, "new", "rejected", "false_positive", "bob"),
+            ]
+            for sid, frm, to, reason, actor in rows:
+                conn.execute(
+                    text(
+                        "INSERT INTO signal_decisions (signal_id, from_state, to_state,"
+                        " reason_code, note, actor, decided_at) VALUES (:s, :f, :t, :r, NULL,"
+                        " :a, :d)"
+                    ),
+                    {"s": sid, "f": frm, "t": to, "r": reason, "a": actor, "d": when},
+                )
+        assert migrate(engine) == schema.SCHEMA_VERSION
+        with engine.connect() as conn:
+            sql = conn.execute(
+                text("SELECT sql FROM sqlite_master WHERE name = 'signal_decisions'")
+            ).scalar_one()
+            assert "'confirmed'" in sql  # the new constraint is in place
+            kept = conn.execute(
+                text(
+                    "SELECT signal_id, from_state, to_state, reason_code, actor"
+                    " FROM signal_decisions ORDER BY id"
+                )
+            ).all()
+        assert [tuple(r) for r in kept[:3]] == [(s, f, t, r, a) for s, f, t, r, a in rows]
+        assert [tuple(r) for r in kept[3:]] == [
+            (accepted, "accepted", "confirmed", "state_renamed", "system:migration-v19")
+        ]  # one rename row, appended; the human 'accepted' decision is never rewritten
+        assert migrate(engine) == schema.SCHEMA_VERSION  # a second run changes nothing
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT COUNT(*) FROM signal_decisions")).scalar_one() == 4
+            # the rebuilt table still enforces its constraint and its foreign key
+            with pytest.raises(Exception, match=r"CHECK|decision_state"):
+                conn.execute(
+                    text(
+                        "INSERT INTO signal_decisions (signal_id, from_state, to_state,"
+                        " reason_code, actor, decided_at, definitions_version)"
+                        " VALUES (:s, 'new', 'bogus', 'other', 'x', :d, '1')"
+                    ),
+                    {"s": rejected, "d": when},
+                )
     finally:
         engine.dispose()

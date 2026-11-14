@@ -34,6 +34,7 @@ ANALYST_WRITE = tuple(
         r"^/intelligence/watchlists/",
         r"^/ml/classify/",
         r"^/ml/labels(/|$)",
+        r"^/ml/signal-ranking/evaluate$",
         r"^/research/",
         r"^/signals/",
         r"^/alerts/",

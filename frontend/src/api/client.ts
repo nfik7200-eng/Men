@@ -70,6 +70,10 @@ import type { DiscoveryRunResult,
   PromoteInput,
   SignalDetail,
   DecisionList,
+  RankingExplanation,
+  RankingRun,
+  RankingRunSummary,
+  RankingStatus,
   ExpansionOverview,
   ExpansionPolicyId,
   ExpansionResult,
@@ -158,6 +162,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         Accept: "application/json",
         ...(init.body ? { "Content-Type": "application/json" } : {}),
         ...(unsafe && csrf ? { "X-CSRF-Token": csrf } : {}),
+        // proof for unsafe calls when sign-in is off: another site's page cannot add this header
+        ...(unsafe ? { "X-BIP-Client": "web" } : {}),
       },
     });
   } catch {
@@ -352,6 +358,11 @@ export const api = {
   reviewSignal: (id: number, body: SignalReviewInput) =>
     request<ReviewResult>(`/signals/${id}/review`, { method: "POST", ...json(body) }),
   signalDecisions: (id: number) => request<DecisionList>(`/signals/${id}/decisions`),
+  signalRanking: (id: number) => request<RankingExplanation>(`/signals/${id}/ranking`),
+  rankingStatus: () => request<RankingStatus>("/ml/signal-ranking"),
+  rankingRuns: () => request<{ items: RankingRunSummary[] }>("/ml/signal-ranking/runs?limit=10"),
+  rankingRun: (id: number) => request<RankingRun>(`/ml/signal-ranking/runs/${id}`),
+  evaluateRanking: () => request<RankingRun>("/ml/signal-ranking/evaluate", { method: "POST" }),
   detectors: () => request<DetectorCatalogue>("/discovery/detectors"),
   discoveryRuns: (limit = 10) => request<DiscoveryRunList>(`/discovery/runs?limit=${limit}`),
   expansion: () => request<ExpansionOverview>("/discovery/expansion"),

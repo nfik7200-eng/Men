@@ -364,3 +364,18 @@ def test_relationships_job_reads_only_the_database(tmp_path: Path) -> None:
             assert r.sol.calls == []
     finally:
         r.dispose()
+
+
+def test_relationships_job_skips_while_a_discovery_task_holds_the_lock(tmp_path: Path) -> None:
+    r = Rig(tmp_path, mode="disabled", settings=workers())
+    try:
+        with TestClient(r.app) as c:
+            lock = r.app.state.bip.discovery_lock
+            assert lock.acquire(blocking=False)
+            try:
+                run = c.post(f"{API}/system/jobs/relationships/run").json()
+            finally:
+                lock.release()
+            assert "skipped" in run["detail"]
+    finally:
+        r.dispose()

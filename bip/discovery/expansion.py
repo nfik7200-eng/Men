@@ -32,7 +32,11 @@ from bip.discovery.review import ReviewService
 from bip.discovery.service import DiscoveryService
 
 VERSION = "1"
-REVIEW_SEED_STATES = ("accepted", "monitoring", "investigating")
+REVIEW_SEED_STATES = (
+    "confirmed",
+    "monitoring",
+    "investigating",
+)  # ids_in_state reads pre-v19 "accepted" as confirmed
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +52,7 @@ POLICIES: dict[str, Policy] = {
         "shared_neighbourhood",
         "Find entities linked to two or more seed entities (a shared funder, deployer or "
         "counterparty) within a bounded number of relationship steps.",
-        "Subjects of open high-severity signals and of candidates a person accepted, is "
+        "Subjects of open high-severity signals and of candidates a person confirmed, is "
         "monitoring or is investigating.",
         "Depth, entities reached, relationship rows read and seeds are all capped; entities "
         "examined within the cooldown are skipped.",

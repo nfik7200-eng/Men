@@ -224,7 +224,17 @@ def test_synthetic_training_is_reproducible_versioned_and_labelled(
             "brier",
             "reliability_bins",
             "at_high_threshold",
+            "pr_auc",
+            "precision_at_10",
         } <= set(m)
+        # every test evaluation says how the model compares with the deterministic rules
+        baseline = m["rule_baseline"]
+        assert "available" in baseline
+        if baseline["available"]:
+            assert {"precision", "recall", "f1", "pr_auc", "false_positives"} <= set(baseline)
+        else:
+            assert baseline["reason"]
+    assert any(e["metrics"]["rule_baseline"]["available"] for e in tests)
     for thr in m1["thresholds"].values():
         for key in ("high", "moderate"):
             assert thr[key] is None or thr[key] >= 0.5  # never a positive claim below 0.5
@@ -487,3 +497,52 @@ def test_label_counts_report_trainable_wallets_against_the_gate(client: TestClie
         f"{API}/ml/labels/{weak_id}/reviews", json={"decision": "accepted", "reviewer": "me"}
     )
     assert client.get(f"{API}/ml/labels").json()["counts"]["trainable_wallets"] == {"ethereum": 3}
+
+
+def test_rule_roles_never_read_data_after_as_of(tmp_path: Path) -> None:
+    """The rule baseline is computed at each example's as_of; a deployed contract's Transfer
+    logs that happen later must not make its deployer a token deployer at that time."""
+    from datetime import UTC, datetime, timedelta
+
+    from bip.config import load_settings
+    from bip.db.engine import create_db_engine
+    from bip.db.repository import Repository
+    from bip.intel.dataset import TxRow, WalletDataset
+    from bip.ml import rules
+    from bip.ml.features import extract
+    from tests.discovery.seed import E18, Seed, eth_addr, eth_tx
+
+    engine = create_db_engine(load_settings(data_root=tmp_path / "d", env="test"))
+    seed = Seed(engine)
+    t0 = datetime(2026, 6, 1, tzinfo=UTC)
+    deployer, contract = eth_addr(0xD1), eth_addr(0xC1)
+    seed.tx(eth_tx(1), deployer, t0, created=contract)
+    later = t0 + timedelta(days=30)
+    seed.tx(eth_tx(2), eth_addr(0xA1), later, to=contract)
+    seed.transfer(eth_tx(2), eth_addr(0xA1), eth_addr(0xB1), E18, later, token=contract)
+    tx = TxRow(
+        eth_tx(1),
+        1,
+        None,
+        None,
+        t0,
+        deployer,
+        None,
+        "success",
+        "complete",
+        "finalized",
+        (),
+        provider="SYNTHETIC",
+        verification="unverified",
+        created_contract=contract,
+    )
+    ds = WalletDataset("ethereum", deployer, frozenset(), transactions=[tx])
+    repo = Repository(engine)
+    before = t0 + timedelta(days=1)
+    labels = {r["label"] for r in rules.roles(repo, ds, extract(ds, before), before)}
+    assert "contract_deployer" in labels
+    assert "token_or_nft_deployer" not in labels  # its first Transfer is 29 days later
+    after = later + timedelta(days=1)
+    labels = {r["label"] for r in rules.roles(repo, ds, extract(ds, after), after)}
+    assert "token_or_nft_deployer" in labels
+    engine.dispose()

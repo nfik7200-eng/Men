@@ -170,10 +170,11 @@ describe("signal review", () => {
     const b = renderDiscovery("/signals/1", { signals: [makeSignal()] }, "analyst");
     const form = await screen.findByRole("form", { name: "Review candidate" });
     await user.selectOptions(within(form).getByLabelText("Move to"), "monitoring");
-    await user.selectOptions(within(form).getByLabelText("Reason"), "evidence_sufficient");
+    // Stage 4: each state offers only the reasons that fit it
+    await user.selectOptions(within(form).getByLabelText("Reason"), "needs_more_data");
     await user.click(within(form).getByRole("button", { name: "Save review" }));
     await screen.findByText("Review state updated.");
-    expect(posts(b, "/signals/1/review")[0]?.body).toEqual({ state: "monitoring", reason_code: "evidence_sufficient" });
+    expect(posts(b, "/signals/1/review")[0]?.body).toEqual({ state: "monitoring", reason_code: "needs_more_data" });
     expect(screen.getByRole("form", { name: "Dismiss signal" })).toBeInTheDocument();
     expect(screen.getByRole("form", { name: "Promote signal" })).toBeInTheDocument();
   });
@@ -183,7 +184,7 @@ describe("signal review", () => {
     renderDiscovery("/signals/1", { signals: [makeSignal()], failures: { "POST /signals/1/review": { status: 422, code: "invalid_input", message: "SYNTHETIC refused" } } }, "analyst");
     const form = await screen.findByRole("form", { name: "Review candidate" });
     await user.selectOptions(within(form).getByLabelText("Move to"), "archived");
-    await user.selectOptions(within(form).getByLabelText("Reason"), "duplicate");
+    await user.selectOptions(within(form).getByLabelText("Reason"), "out_of_scope");
     await user.click(within(form).getByRole("button", { name: "Save review" }));
     expect(await screen.findByText("SYNTHETIC refused")).toBeInTheDocument();
   });

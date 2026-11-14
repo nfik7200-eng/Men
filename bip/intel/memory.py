@@ -630,7 +630,8 @@ class MemoryService:
                 ent,
                 "token_activity",
                 {"stored_transfers": n, "level": _level(n)},
-                str(_level(n)),
+                # exact count in the signature: a changed count is a new version, never frozen
+                f"{_level(n)}|{n}",
                 "observed",
                 "transfers",
                 s,
@@ -672,7 +673,7 @@ class MemoryService:
                 "counterparties": peers,
                 "level": _level(total),
             },
-            str(_level(total)),
+            f"{_level(total)}|{out_n}|{in_n}|{peers}",
             "observed",
             "transfers",
             s,

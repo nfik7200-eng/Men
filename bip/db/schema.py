@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 metadata = MetaData(
     naming_convention={
@@ -1548,22 +1548,28 @@ signal_decisions = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("signal_id", Integer, ForeignKey("signals.id", ondelete="CASCADE"), nullable=False),
-    Column("from_state", String(16), nullable=False),
-    Column("to_state", String(16), nullable=False),
+    Column("from_state", String(24), nullable=False),
+    Column("to_state", String(24), nullable=False),
     Column("reason_code", String(32), nullable=False),
     Column("note", String(500), nullable=True),
     Column("actor", String(80), nullable=False),
     Column("decided_at", UTCDateTime, nullable=False),
+    # v19 (table rebuilt): duplicate link, correction, wallet label, label-definition version
+    Column("duplicate_of", Integer, ForeignKey("signals.id", ondelete="SET NULL"), nullable=True),
+    Column("correction", String(500), nullable=True),
+    Column("wallet_label", String(40), nullable=True),
+    Column("definitions_version", String(8), nullable=True),
     CheckConstraint(
-        "to_state IN ('new', 'pending_review', 'accepted', 'rejected', 'monitoring',"
-        " 'investigating', 'archived')",
+        "to_state IN ('new', 'pending_review', 'investigating', 'monitoring', 'confirmed',"
+        " 'rejected', 'duplicate', 'insufficient_evidence', 'archived', 'accepted')",
         name="decision_state",
     ),
     Index(None, "signal_id", "decided_at"),
 )
 """Human review of a candidate: every state change with its required reason, actor and time. The
 review state of a signal is its latest decision (``new`` when there is none). Review is separate
-from the machine status; accepting a candidate never makes it a fact."""
+from the machine status; confirming a candidate never makes it a verified fact. ``accepted`` is
+the pre-v19 name of ``confirmed``: kept only so historical rows stay valid, never written now."""
 
 discovery_examined = Table(
     "discovery_examined",
@@ -1588,3 +1594,76 @@ discovery_examined = Table(
 cooldown and an interrupted run resumes from its frontier."""
 
 V18_TABLES = (entities, entity_facts, signal_decisions, discovery_examined)
+
+entity_label_events = Table(
+    "entity_label_events",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "label_id",
+        Integer,
+        ForeignKey("entity_labels.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("event", String(12), nullable=False),
+    Column("actor", String(80), nullable=False),
+    Column("note", String(500), nullable=True),
+    Column("evidence_count", Integer, nullable=False),
+    Column("at", UTCDateTime, nullable=False),
+    CheckConstraint(
+        "event IN ('proposed', 'reproposed', 'approved', 'rejected')", name="label_event_kind"
+    ),
+    Index(None, "label_id", "id"),
+)
+"""Append-only history of an entity label: every proposal, re-proposal and review decision, so a
+re-proposed label still shows who rejected it earlier and why (v19)."""
+
+signal_feature_snapshots = Table(
+    "signal_feature_snapshots",
+    metadata,
+    Column(
+        "signal_id",
+        Integer,
+        ForeignKey("signals.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("feature_version", String(16), nullable=False),
+    Column("chain", String(32), nullable=False),
+    Column("family", String(40), nullable=False),
+    Column("detector_id", String(64), nullable=False),
+    Column("subject_ref", String(100), nullable=False),
+    Column("observed_at", UTCDateTime, nullable=False),
+    Column("rule_score", Float(asdecimal=False), nullable=False),
+    Column("features_json", Text, nullable=False),
+    Column("created_at", UTCDateTime, nullable=False),
+    Index(None, "chain", "observed_at"),
+)
+"""Point-in-time features of a candidate, written once when the signal is created and never
+updated: the signal row itself is refreshed by later runs (score, explanation, merged events), so
+only this snapshot shows what was known at creation. Features read only data at or before
+``observed_at`` (v19)."""
+
+signal_ranking_runs = Table(
+    "signal_ranking_runs",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("created_at", UTCDateTime, nullable=False),
+    Column("actor", String(80), nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("feature_version", String(16), nullable=False),
+    Column("ranker_version", String(16), nullable=False),
+    Column("dataset_hash", String(64), nullable=False),
+    Column("window_from", UTCDateTime, nullable=True),
+    Column("window_to", UTCDateTime, nullable=True),
+    Column("summary_json", Text, nullable=False),
+    CheckConstraint(
+        "status IN ('completed', 'not_ready')",
+        name="ranking_run_status",
+    ),
+)
+"""One evaluation of candidate ranking against human ground truth: label counts, splits, data
+windows, versions, per-scorer metrics, model parameters and drift (v19). Only real labels are
+ever stored here; tests that exercise the supervised path with synthetic labels do not persist."""
+
+V19_TABLES: list[Table] = [entity_label_events, signal_feature_snapshots, signal_ranking_runs]
+"""Tables added in v19; later sections of this migration append to it."""

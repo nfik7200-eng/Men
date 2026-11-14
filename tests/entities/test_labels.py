@@ -323,6 +323,13 @@ def test_a_rejected_label_can_be_proposed_again_and_odd_input_is_a_clean_error(r
         assert again.json()["id"] == first["id"]
         assert again.json()["status"] == "proposed"
         assert again.json()["reviewed_by"] is None
+        # the earlier rejection is kept: reviewer, note and time, oldest first
+        history = again.json()["history"]
+        assert [h["event"] for h in history] == ["proposed", "rejected", "reproposed"]
+        assert history[1]["note"] == "no evidence was given"
+        assert history[1]["actor"]
+        assert all(h["at"] for h in history)
+        assert history[2]["evidence_count"] == 1
         bad_ref = propose(c, evidence=[{"kind": "signal", "ref": "²"}])
         assert bad_ref.status_code == 422  # not a 500
         hidden = propose(c, name="Exam​ple")  # zero-width space

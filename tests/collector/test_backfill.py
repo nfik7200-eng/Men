@@ -624,3 +624,27 @@ def test_recovery_does_not_keep_retrying_ambiguous_skipped_or_missing_slots(
         assert m["positions_recovered"] == 1
     finally:
         rig.dispose()
+
+
+def test_solana_backfill_keeps_finished_slots_when_the_call_budget_runs_out(
+    tmp_path: Path,
+) -> None:
+    """The Solana reader stops before the budget is spent (as the Ethereum one does), so the
+    slots it finished are committed instead of discarded with the window."""
+    rig = sol_rig(tmp_path, max_rpc_calls_per_run=3)  # the head plus two of four slots
+    try:
+        head = rig.sol.head_slot
+        chain_blocks(rig, range(head - 12, head + 1))
+        live_sol(rig)  # live covers head-2 .. head
+        post(rig, "/ingestion/streams/solana/live/pause")
+        m = post(rig, "/ingestion/backfill/solana")
+        assert m["rpc_calls"] <= 3
+        assert m["status"] == "partial"
+        assert m["positions_committed"] == m["positions_read"] >= 1, m  # nothing discarded
+        done = {"processed", "confirmed_empty"}
+        assert any(r[2] in done and r[0] >= m["cursor"] for r in ranges(rig, "solana"))
+        hist = CheckpointStore(rig.repo).get(SOL, "historical")
+        assert hist is not None
+        assert hist.cursor is not None  # progress was claimed
+    finally:
+        rig.dispose()

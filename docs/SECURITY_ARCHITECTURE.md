@@ -32,6 +32,17 @@ Version 0.1 (2026-11-03). Status: **Draft, awaiting approval.**
 - Hex, base58, address and signature formats are validated. Numeric overflow is checked (uint256 is stored as decimal string or 128-bit pairs, never float).
 - On-chain and scraped strings (token names, memos, READMEs) are **untrusted**. They are escaped in UI output and wrapped as quoted data in LLM prompts with an explicit "data, not instructions" boundary.
 
+### 4.1 Cross-site protection when sign-in is off (ADR-048)
+
+With `auth.mode = disabled`, the API is reachable only on loopback, but the operator's browser can still be used against it.
+- **Host:** every TCP request must carry a loopback `Host`, or one listed in `api.allowed_hosts`. This blocks DNS rebinding and host spoofing.
+- **Change requests** (POST, PATCH, DELETE) need:
+  - a non-empty `X-BIP-Client` header, which another site cannot add without a CORS preflight that only the exact `api.cors_origins` pass;
+  - no foreign `Origin`, compared by exact match;
+  - no `Sec-Fetch-Site: cross-site`.
+- **Missing proof** is refused (fail closed).
+- **Tests:** same-origin success and cross-origin, missing-proof and spoofed-host rejection are tested in `tests/security/test_http.py`.
+
 ## 5. Database access controls
 - Separate Postgres roles:
   - `bip_ingest`: writes `ingest`, `registry`

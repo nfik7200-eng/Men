@@ -286,6 +286,45 @@ def test_a_reorg_invalidates_facts_that_rest_on_the_orphaned_transaction(
     assert [r["status"] for r in rows] == ["invalidated"]  # kept, not deleted
 
 
+def test_a_reorg_withdraws_funder_facts_and_expansion_candidates_built_on_the_link(
+    seed: Seed, memory: MemoryService, repo: Repository
+) -> None:
+    w, funder = addr(52), addr(53)
+    tx = seed.transfer(funder, w)
+    seed.relationship("funded_by", w, funder, [tx])
+    memory.refresh(CHAIN)
+    expansion = seed.signal(addr(54), detector="expansion_shared_neighbourhood")
+    unrelated = seed.signal(addr(55), detector="large_transfer_mad")
+    with repo.transaction() as conn:
+        ObservationStore._invalidate_derived(conn, CHAIN, [tx], "SYNTHETIC reorg")  # pyright: ignore[reportPrivateUsage]
+        status = {
+            int(i): str(st) for i, st in conn.execute(text("SELECT id, status FROM signals")).all()
+        }
+    # the funder fact stops being current at once, not only when the rotating scan revisits it
+    assert [r["status"] for r in facts(repo, w, f"funded_by:{funder}")] == ["invalidated"]
+    # a multi-hop expansion candidate may rest on the withdrawn link through any hop
+    assert status[expansion] == "invalidated"
+    assert status[unrelated] == "open"  # only candidates that walk relationships are withdrawn
+
+
+def test_activity_counts_never_freeze_between_levels(
+    seed: Seed, memory: MemoryService, repo: Repository
+) -> None:
+    w, peer = addr(56), addr(57)
+    seed.transfer(w, peer)
+    seed.transfer(w, peer)
+    memory.refresh(CHAIN)
+    seed.transfer(w, peer)  # 2 -> 3 transfers: the same activity level, a different count
+    memory.refresh(CHAIN)
+    history = facts(repo, w, "activity")
+    current = [r for r in history if r["status"] == "current"]
+    assert len(current) == 1
+    assert json.loads(current[0]["value_json"])["stored_transfers_out"] == 3  # not frozen at 2
+    assert [r["status"] for r in history] == ["superseded", "current"]  # the old count is kept
+    memory.refresh(CHAIN)
+    assert len(facts(repo, w, "activity")) == 2  # an unchanged count writes nothing new
+
+
 def test_signals_become_facts_with_their_evidence_class(seed: Seed, memory: MemoryService) -> None:
     w = addr(60)
     seed.signal(w, detector="large_transfer_mad")
@@ -330,12 +369,12 @@ def test_review_needs_a_reason_keeps_history_and_never_repeats_a_state(
         review.decide(sid, "accepted", "because", None, "ana")
     review.decide(sid, "pending_review", "needs_more_data", None, "ana")
     out = review.decide(sid, "accepted", "evidence_sufficient", "SYNTHETIC note", "bea")
-    assert out["review_state"] == "accepted"
+    assert out["review_state"] == "confirmed"  # 'accepted' is the pre-v19 alias
     assert [(h["from_state"], h["to_state"], h["actor"]) for h in out["history"]] == [
         ("new", "pending_review", "ana"),
-        ("pending_review", "accepted", "bea"),
+        ("pending_review", "confirmed", "bea"),
     ]
-    with pytest.raises(InvalidRecordError, match="already accepted"):
+    with pytest.raises(InvalidRecordError, match="already confirmed"):
         review.decide(sid, "accepted", "evidence_sufficient", None, "ana")
 
 
@@ -355,7 +394,7 @@ def test_review_api_filters_and_dismiss_promote_record_decisions(
     )
     assert promo.status_code == 200, promo.text
     states = {i["id"]: i["review_state"] for i in client.get(f"{API}/signals").json()["items"]}
-    assert (states[a], states[b], states[c]) == ("accepted", "rejected", "monitoring")
+    assert (states[a], states[b], states[c]) == ("confirmed", "rejected", "monitoring")
     accepted = client.get(f"{API}/signals", params={"review_state": "accepted"}).json()
     assert [i["id"] for i in accepted["items"]] == [a]
     detail = client.get(f"{API}/signals/{b}").json()

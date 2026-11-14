@@ -20,7 +20,18 @@ describe("api client", () => {
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.method).toBe("POST");
     expect(init?.body).toBe(JSON.stringify({ name: "Whales", description: null }));
-    expect(init?.headers).toEqual({ Accept: "application/json", "Content-Type": "application/json" });
+    expect(init?.headers).toEqual({
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-BIP-Client": "web", // write proof when sign-in is off
+    });
+  });
+
+  it("sends no write proof on reads", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(respond(200, { status: "ok" }));
+    await api.health();
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(init?.headers).toEqual({ Accept: "application/json" });
   });
 
   it("turns the error envelope into an ApiError", async () => {

@@ -417,3 +417,53 @@ def test_as_of_must_be_aware_past_and_within_the_limit(engine: Engine) -> None:
         svc.run(ETH, as_of=NOW - timedelta(days=91))
     with pytest.raises(InvalidRecordError, match="time zone"):
         svc.run(ETH, as_of=NOW.replace(tzinfo=None) - timedelta(days=1))
+
+
+# ------------------------------------------------------------------ freshness by run kind
+
+
+def test_historical_and_expansion_runs_never_make_live_discovery_look_fresh(engine: Engine) -> None:
+    clock = Clock(NOW)
+    svc = make(engine, clock)
+    svc.run(ETH)  # the live pass
+    clock.now = NOW + timedelta(hours=30)  # more than a day later ...
+    svc.run(ETH, as_of=NOW - timedelta(days=30))  # ... only a historical run happened
+    from bip.discovery.detectors import DetectorOutput
+
+    class _Producer:
+        class info:  # noqa: N801 - mimics the detector interface
+            id = "expansion_test"
+            version = "1"
+            family = "related_wallets"
+            confidence_cap = 0.4
+            coverage = limitations = "test"
+
+    svc.run_producer(_Producer(), DetectorOutput([], 0, False), ETH, {"policy": "test"})
+    feed = svc.feed(limit=10, offset=0)
+    fresh = feed["freshness"]
+    assert fresh["stale"] is True  # live discovery is 30 hours old
+    assert fresh["last_run_at"] == NOW.isoformat()
+    assert fresh["last_historical_run_at"] == (NOW + timedelta(hours=30)).isoformat()
+    assert fresh["last_expansion_run_at"] == (NOW + timedelta(hours=30)).isoformat()
+    kinds = [r["summary"]["kind"] for r in svc.runs(10)]
+    assert kinds == ["producer", "historical", "live"]
+    clock.now = NOW + timedelta(hours=31)
+    svc.run(ETH)
+    assert svc.feed(limit=10, offset=0)["freshness"]["stale"] is False
+
+
+def test_a_run_that_crashes_is_closed_as_failed_not_left_running(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    svc = make(engine)
+
+    def boom(_now: object) -> int:
+        raise RuntimeError("disk gone")
+
+    monkeypatch.setattr(svc, "_expire", boom)
+    with pytest.raises(RuntimeError):
+        svc.run(ETH)
+    [run] = svc.runs(1)
+    assert run["status"] == "failed"
+    assert run["finished_at"] is not None
+    assert svc.feed(limit=10, offset=0)["freshness"]["stale"] is True  # a failed run is not fresh

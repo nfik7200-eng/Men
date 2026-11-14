@@ -127,7 +127,7 @@ def system_report(
         warn("ingestion_failures", f"{failed_24h} ingestion run(s) failed in the last 24 hours.")
 
     # ---- discovery and alerts
-    last_discovery = ctx.discovery.last_run()
+    last_discovery = ctx.discovery.last_run("live")
     open_signals = ctx.discovery.list_signals(status="open", limit=1)["total"]
     unread = ctx.discovery.list_alerts(unread_only=True, limit=1, offset=0)["unread"]
 

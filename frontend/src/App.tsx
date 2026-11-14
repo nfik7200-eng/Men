@@ -8,6 +8,7 @@ import Attribution from "./pages/Attribution";
 import CapitalFlows from "./pages/CapitalFlows";
 import Chains from "./pages/Chains";
 import Coverage from "./pages/Coverage";
+import Models from "./pages/Models";
 import GraphPage from "./pages/Graph";
 import Investigations, { InvestigationDetail } from "./pages/Investigations";
 import Opportunities from "./pages/Opportunities";
@@ -90,6 +91,7 @@ function Shell() {
           <Route path="/signals/:id" element={<SignalDetailPage />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/coverage" element={<Coverage />} />
+          <Route path="/models" element={<Models />} />
           <Route path="/attribution" element={<Attribution />} />
           <Route path="/system" element={<System />} />
           <Route path="/settings" element={<Settings />} />

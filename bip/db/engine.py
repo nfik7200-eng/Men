@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from sqlalchemy import URL, Engine, create_engine, event, insert, select, text
+from sqlalchemy import URL, Engine, create_engine, event, func, insert, select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -308,6 +308,64 @@ def _memory(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _rebuild_signal_decisions(conn: Connection) -> None:
+    """Give ``signal_decisions`` the v19 states and columns. SQLite cannot change a CHECK
+    constraint in place, so a table that still has the v18 constraint is rebuilt in this
+    migration's transaction: every row is copied unchanged (ids included), then each signal whose
+    latest decision is the old ``accepted`` gets one appended ``accepted -> confirmed`` row by
+    ``system:migration-v19``. Nothing is rewritten or dropped from the history. A table that
+    already has the v19 definition (a new database) is left alone."""
+    sql = conn.exec_driver_sql(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'signal_decisions'"
+    ).scalar()
+    if sql is None or "'confirmed'" in str(sql):
+        return
+    for (index,) in conn.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'signal_decisions'"
+        " AND sql IS NOT NULL"
+    ).all():
+        conn.exec_driver_sql(f'DROP INDEX "{index}"')
+    conn.exec_driver_sql("ALTER TABLE signal_decisions RENAME TO signal_decisions_v18")
+    schema.signal_decisions.create(conn)
+    conn.exec_driver_sql(
+        "INSERT INTO signal_decisions"
+        " (id, signal_id, from_state, to_state, reason_code, note, actor, decided_at)"
+        " SELECT id, signal_id, from_state, to_state, reason_code, note, actor, decided_at"
+        " FROM signal_decisions_v18 ORDER BY id"
+    )
+    conn.exec_driver_sql("DROP TABLE signal_decisions_v18")
+    d = schema.signal_decisions
+    latest = (
+        select(d.c.signal_id, func.max(d.c.id).label("last")).group_by(d.c.signal_id).subquery()
+    )
+    accepted = conn.execute(
+        select(d.c.signal_id)
+        .join(latest, d.c.id == latest.c.last)
+        .where(d.c.to_state == "accepted")
+    ).all()
+    now = utcnow()
+    for (signal_id,) in accepted:
+        conn.execute(
+            insert(d).values(
+                signal_id=signal_id,
+                from_state="accepted",
+                to_state="confirmed",
+                reason_code="state_renamed",
+                note="v19: the review state 'accepted' is now called 'confirmed'",
+                actor="system:migration-v19",
+                decided_at=now,
+            )
+        )
+
+
+def _supervision(conn: Connection) -> None:
+    """v19: label history and human-supervision tables (additive), and the review-state rename
+    (``signal_decisions`` rebuilt with every row kept)."""
+    for table in schema.V19_TABLES:
+        table.create(conn, checkfirst=True)
+    _rebuild_signal_decisions(conn)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -329,6 +387,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(16, "ingestion checkpoints and coverage ranges", _checkpoints_and_coverage),
     Migration(17, "provider daily usage", _provider_usage),
     Migration(18, "intelligence memory, review decisions, expansion log", _memory),
+    Migration(19, "label history and human supervision", _supervision),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

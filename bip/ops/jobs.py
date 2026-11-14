@@ -211,7 +211,14 @@ def _discovery(ctx: AppContext) -> str:
 
 
 def _relationships(ctx: AppContext) -> str:
-    summary = ctx.relationships.rebuild()
+    # the same lock as the rebuild route and discovery: never two rebuilds, nor a rebuild while
+    # discovery or expansion reads the relationships it rewrites
+    if not ctx.discovery_lock.acquire(blocking=False):
+        return "skipped: a discovery task is already running"
+    try:
+        summary = ctx.relationships.rebuild()
+    finally:
+        ctx.discovery_lock.release()
     totals = {"created": 0, "updated": 0, "invalidated": 0}
     for per_kind in summary["chains"].values():
         for stats in per_kind.values():

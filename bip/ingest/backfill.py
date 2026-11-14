@@ -254,6 +254,12 @@ class _SolReader(_Reader):
         return self._adapter.slot("finalized")
 
     def read(self, position: int, m: dict[str, Any], *, first: bool) -> Read:
+        # stop before the budget is spent, as the Ethereum reader does: a slot read that hits the
+        # cap mid-window would otherwise discard the slots already finished in that window. A slot
+        # may need one call to the routed provider plus one per other eligible provider (history
+        # fallback), so that many calls are kept in reserve.
+        if not first and self._budget.calls + self._calls_per_slot() > self._budget.max_calls:
+            return Read("no_room", detail="call budget kept for a full slot read")
         try:
             try:
                 pair = self._adapter.block_full(position)
@@ -283,6 +289,11 @@ class _SolReader(_Reader):
             str(block.get("previousBlockhash")),
             src.provider_id,
         )
+
+    def _calls_per_slot(self) -> int:
+        """Most calls one slot read can take: the routed provider plus each other eligible one."""
+        views, _ = self._router.eligible("solana", "getBlock")
+        return max(1, len(views))
 
     def _from_another(
         self, position: int, failed: str | None, history: str

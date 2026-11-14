@@ -1,6 +1,6 @@
 // Small pieces shared by the discovery pages (signals, alerts, coverage, attribution).
 import { Link } from "react-router-dom";
-import type { EvidenceClass, LabelEvidence, ReviewState, Severity, SignalStatus } from "../api/types";
+import type { EvidenceClass, GroundTruth, LabelEvidence, ReviewState, Severity, SignalStatus } from "../api/types";
 import { addressUrl, txUrl } from "../lib/explorer";
 import { ExternalLink } from "./ExternalLink";
 import { Pill, type Tone } from "./ui";
@@ -76,11 +76,21 @@ export function LabelEvidenceList({ items, chain }: { items: LabelEvidence[]; ch
 }
 
 const REVIEW_TONE: Record<ReviewState, Tone> = {
-  new: "idle", pending_review: "warn", accepted: "ok", rejected: "idle", monitoring: "info", investigating: "info", archived: "idle",
+  new: "idle",
+  pending_review: "warn",
+  investigating: "info",
+  monitoring: "info",
+  confirmed: "ok",
+  rejected: "idle",
+  duplicate: "idle",
+  insufficient_evidence: "warn",
+  archived: "idle",
 };
-export const REVIEW_STATES: ReviewState[] = ["new", "pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"];
+export const REVIEW_STATES: ReviewState[] = [
+  "new", "pending_review", "investigating", "monitoring", "confirmed", "rejected", "duplicate", "insufficient_evidence", "archived",
+];
 
-/** Analyst review state of a candidate. "accepted" means a person judged it worth keeping, not that it is a fact. */
+/** Analyst review state of a candidate. "confirmed" means a person judged it a real finding of its kind, not that it is a verified fact. */
 export function ReviewStatePill({ state }: { state: ReviewState }) {
   return <Pill tone={REVIEW_TONE[state] ?? "idle"}>{`review: ${humanLabel(state)}`}</Pill>;
 }
@@ -97,4 +107,24 @@ const CLASS_TEXT: Record<EvidenceClass, string> = {
 /** Evidence class of a remembered fact. Only observed and reviewed facts are not flagged as unverified. */
 export function EvidenceClassBadge({ value }: { value: EvidenceClass }) {
   return <Pill tone={CLASS_TONE[value] ?? "idle"}>{CLASS_TEXT[value] ?? humanLabel(String(value))}</Pill>;
+}
+
+const TRUTH_TEXT: Record<GroundTruth["quality"], string> = {
+  unlabelled: "Not a label yet",
+  human_review: "Label from one reviewer",
+  human_consensus: "Label: reviewers agree",
+  dispute_resolved: "Label: dispute resolved",
+  disputed: "Disputed: reviewers disagree",
+};
+
+/** Whether this candidate's review counts as a training label, and why not when it does not. */
+export function GroundTruthBadge({ truth }: { truth: GroundTruth }) {
+  const tone: Tone = truth.eligible ? "ok" : truth.quality === "disputed" ? "warn" : "idle";
+  const outcome = truth.label === 1 ? " (confirmed)" : truth.label === 0 ? " (rejected)" : "";
+  return (
+    <span>
+      <Pill tone={tone}>{`${TRUTH_TEXT[truth.quality] ?? humanLabel(truth.quality)}${truth.eligible ? outcome : ""}`}</Pill>
+      {truth.excluded_because ? <span className="muted"> Not used for training: {truth.excluded_because}.</span> : null}
+    </span>
+  );
 }

@@ -577,5 +577,115 @@ The Stage 3 verification audit found three correctness problems.
 - Existing observed funder facts are superseded once on the next memory refresh.
 - Weights from capped scans are lower bounds.
 - An as-of run and a live run over overlapping windows can open separate signals for one funding event or activity burst. Their dedup keys include a date. Other detectors key on transactions or subjects.
-- Feed freshness uses the time of the last discovery run of any kind, so an as-of run makes the feed look freshly scanned although live data was not re-evaluated. Run a live pass after an as-of run.
+- Feed freshness counts live detector passes only (amended 2026-11-14, see ADR-048). As-of and expansion runs are reported separately as `last_historical_run_at` and `last_expansion_run_at`, so neither makes live discovery look fresh.
+- Approval of this ADR is pending with the owner.
+
+## ADR-048 Fail-closed write protection with sign-in off; live-only feed freshness (Proposed; Stage 3 close-out, 2026-11-14)
+**Context.**
+- With `auth.mode = disabled` (the default, loopback only) there is no session and no CSRF token.
+- Any web page the operator visited could send a simple cross-site POST to `127.0.0.1` and start provider collection, which uses up quota.
+- A DNS-rebinding page could also read local data, because the `Host` header was never checked.
+- Separately, as-of and expansion runs refreshed the feed's freshness time.
+
+**Decision.**
+- **Write proof (fail closed).** In disabled mode every POST, PATCH and DELETE needs a non-empty `X-BIP-Client` header (403 `client_proof_missing` otherwise).
+  - A page on another site cannot add a custom header without a CORS preflight, and the preflight is granted only to the exact `api.cors_origins`.
+  - The frontend sends `X-BIP-Client: web`. Scripts add `-H 'X-BIP-Client: cli'`.
+- **Origin.** An `Origin` header outside the exact allowlist (or the request's own loopback origin) is refused (403 `origin_denied`), as is `Sec-Fetch-Site: cross-site`. There is no prefix or wildcard matching.
+- **Host.** Every TCP request in disabled mode needs a loopback host, or one listed in the new `api.allowed_hosts` (403 `host_denied`). This blocks host spoofing and DNS rebinding for reads too.
+  - A Unix-socket connection skips the host check, because only the local proxy can open the socket and it routes by host itself.
+  - The test environment also accepts the test client's `testserver` host.
+- **Required mode is unchanged:** session, CSRF token and origin allowlist.
+- **Codespaces exception.** The dev preview adds exactly `https://$CODESPACE_NAME-5173.$GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN` to its origins, and Vite's `allowedHosts`, only when those variables are set. The preview runs in required mode.
+- **Freshness.**
+  - Discovery runs record `kind` (`live`, `historical`, `producer`). Older rows are classified from their summaries.
+  - The feed's freshness counts finished live passes only, and reports historical and expansion runs separately. Health uses the last live pass.
+  - A run that crashes outside the per-detector guard is closed as `failed` instead of being left `running`.
+
+**Consequences.**
+- Existing scripts that POST without the header get 403 until they add it. The documented `curl` example and the e2e helper were updated.
+- A LAN or reverse-proxy setup in disabled mode must list its host name in `BIP_API__ALLOWED_HOSTS`.
+- Approval of this ADR is pending with the owner.
+
+## ADR-049 Review lifecycle v2 and human ground truth (Proposed; Stage 4, 2026-11-14)
+**Context.**
+- Stage 3 review had seven states with no transition rules, so any reason could go with any state.
+- It had no duplicate link, no corrections and no way to turn decisions into labels.
+- The owner chose: rename `accepted` to `confirmed`; one human decision makes a label; disagreement holds the example out.
+
+**Decision.**
+- **Schema (v19).** `signal_decisions` is rebuilt, because SQLite cannot change a CHECK constraint in place.
+  - The rebuild runs only when the stored table still has the v18 constraint, and in one transaction.
+  - Every row is copied unchanged, ids included.
+  - Each signal whose latest decision is `accepted` gets one appended `accepted -> confirmed` row (`state_renamed`, by `system:migration-v19`).
+  - New columns: `duplicate_of`, `correction`, `wallet_label`, `definitions_version`.
+  - `accepted` stays in the constraint only so historical rows remain valid. It is read back as `confirmed`, accepted as an input alias, and never written.
+- **States:** new, pending_review, investigating, monitoring, confirmed, rejected, duplicate, insufficient_evidence, archived.
+- **Transitions.**
+  - An explicit table governs moves. Finished states can only be reopened, to `investigating` with reason `reopened`.
+  - A different reviewer may record the opposite confirmed/rejected outcome (a second opinion).
+  - `dispute_resolved` settles a disagreement.
+  - Each state allows only fitting reasons.
+  - A duplicate names the candidate it duplicates. A confirmation may carry a taxonomy wallet label, which is stored as an `analyst_reviewed` wallet label (`synthetic` unless the data is real).
+  - Dismiss and promote check the move first, and refuse visibly instead of acting without a review record.
+- **Ground truth.**
+  - One human confirmed (1) or rejected (0) decision in the current review round makes a label.
+  - `system:`, `ai:` and `signal:` actors never count.
+  - Different outcomes from different reviewers make the candidate `disputed` (excluded) until a `dispute_resolved` decision.
+  - Only a database marked `data_origin = live_network` yields labels (fail closed).
+    - An unmarked database at a normal launch takes the operator's `BIP_DATA_ORIGIN` when it is set.
+    - Otherwise it is marked `live_network` only if it is empty, and `unknown` if it already holds data. A seeded or copied database is never assumed real.
+    - An existing marker is never overwritten. Fixture tools mark theirs `offline_fixture`; test apps mark nothing.
+  - `dispute_resolved` is accepted only while the current round is actually disputed.
+  - A second opinion (the opposite outcome without reopening) is open only to a reviewer who has not yet given an outcome in that round.
+  - When a candidate stops being confirmed, any wallet label its confirmation fed gets a `rejected` review, so it leaves the training data and stays on record.
+  - Label definitions are versioned in code (`DEFINITIONS_VERSION`), and each decision stores the version.
+- **History.** Entity labels gain an append-only `entity_label_events` history (v19), so re-proposing a rejected label keeps the rejection.
+
+**Consequences.**
+- With sign-in off every reviewer is `local`, so disagreement cannot be recorded. The UI says so.
+- Old API clients sending `accepted` keep working.
+- Approval of this ADR is pending with the owner.
+
+## ADR-050 Candidate ranking: point-in-time features, rule baseline, gated supervised model (Proposed; Stage 4, 2026-11-14)
+**Context.**
+- Stage 4 asks for advanced ML without leakage and without fabricated training.
+- There are no verified labels yet.
+- The signal row is refreshed by later runs (score, explanation, merged events), so reading it later leaks the future.
+
+**Decision.**
+- **Snapshots.** `signal_feature_snapshots` (v19) stores each candidate's features once, at creation, from data at or before its `observed_at`.
+  - Features: rule inputs, subject history, relationship degree, and shared-funder cluster size.
+  - Status, review state and expiry are never features. A failed snapshot is logged and never blocks discovery.
+- **Splits** are chronological and grouped by (chain, subject), 60/20/20, so no subject sits in two splits.
+- **Scorers.** All are pure Python and deterministic.
+  - The rule score is the baseline.
+  - An unsupervised anomaly score uses robust z-scores against up to 500 *earlier* candidates of the same chain, and reports nothing below 10.
+  - Graph and cluster features are included.
+  - An L2 logistic regression is trained per ready chain only when it has at least `ml.ranking_min_labels_per_class` (default 50) confirmed and rejected labels each. Otherwise it is `not_ready`.
+    - The chain's own training slice must also hold at least half that many of each class.
+- **Missing data** stays missing (principle 8).
+  - A feature with no data is `None`; for example, a subject with no earlier stored transaction has no age, not age 0.
+  - The anomaly score skips features the candidate lacks, and those with fewer than 10 known earlier values.
+  - The logistic model imputes the training mean (zero contribution) and records how many values were imputed.
+  - Drift compares known values only.
+- **Ties** in scores are ranked with negatives first, so a metric never depends on input order and a tie never flatters a scorer.
+- **Explanations** carry `evidence_class: statistical_signal`. They use the newest stored model, even when a later run had none.
+- **Metrics** on the test split, with a threshold chosen on validation:
+  - precision, recall, F1, PR-AUC, precision@10 and @25, Brier score with reliability bins, false-positive volume, and per-chain results;
+  - PSI drift between the training window and the latest 200 candidates.
+- **Runs.** Each run is stored in `signal_ranking_runs`, with data windows, feature and ranker versions, a dataset hash and model parameters.
+  - Synthetic labels are accepted only by an internal test path, marked experimental and never stored.
+- **API and UI.**
+  - `GET /ml/signal-ranking`, `POST /ml/signal-ranking/evaluate` (analyst, analysis lock), the runs listing and detail, and `GET /signals/{id}/ranking` (explanations).
+  - The Models page and the signal page's ranking panel.
+  - The model never confirms, rejects or triggers anything; human review stays authoritative.
+- **Wallet classifier.**
+  - Test-split evaluations now include PR-AUC, precision@10 and a rule-baseline comparison for rule-detectable labels.
+  - Review confirmations with a wallet label feed its training labels.
+
+**Consequences.**
+- Until enough real labels exist, only the baseline and the unsupervised score are available, and supervised ranking is reported not ready.
+- Candidates created before v19 have no snapshot and are excluded.
+- Graph features are approximate, because relationship rows change after the fact.
 - Approval of this ADR is pending with the owner.

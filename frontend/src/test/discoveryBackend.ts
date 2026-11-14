@@ -3,6 +3,7 @@
 // Every record below is SYNTHETIC: invented identifiers, no real chain data.
 import type {
   Alert,
+  RankingRunSummary,
   AlertRule,
   CollectorManifest,
   CollectorStatus,
@@ -45,6 +46,8 @@ export type DiscoveryState = {
   collectResult: CollectorManifest;
   /** review decisions per signal id */
   decisions: Record<number, ReviewDecision[]>;
+  /** candidate-ranking evaluations, newest first */
+  rankingRuns: RankingRunSummary[];
   /** remembered entities keyed "chain:ref"; anything else is not in memory */
   memory: Record<string, MemoryProfile>;
   runs: DiscoveryRunRecord[];
@@ -209,6 +212,7 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
     failures: {},
     collectResult: manifest(),
     decisions: {},
+    rankingRuns: [],
     memory: {},
     runs: [],
     expansion: SYNTHETIC_EXPANSION,
@@ -234,7 +238,7 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
     const q = new URLSearchParams(qs);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
-    const mine = /^\/(signals|alerts|alert-rules|discovery|system|entities\/labels|entities\/memory)/.test(path);
+    const mine = /^\/(signals|alerts|alert-rules|discovery|system|entities\/labels|entities\/memory|ml\/signal-ranking)/.test(path);
     if (!mine) return base(input, init);
     state.calls.push({ method, path: full, body });
     const failure = state.failures[`${method} ${path}`];
@@ -286,6 +290,56 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
       items.sort((a, b) => (q.get("sort") === "recent" ? String(b.last_seen_at).localeCompare(String(a.last_seen_at)) : b.score - a.score));
       return json(200, { ...env(), ...page(items, q) });
     }
+    const ranked = /^\/signals\/(\d+)\/ranking$/.exec(path);
+    if (ranked) {
+      return json(200, {
+        ...env(),
+        signal_id: Number(ranked[1]),
+        available: true,
+        feature_version: "1",
+        observed_at: NOW,
+        features: { magnitude: 0.8, relationship_degree: 2, shared_funder_cluster: 3 },
+        graph_features: { relationship_degree: 2, shared_funder_cluster: 3 },
+        rule_score: { value: 55, kind: "baseline (rules)" },
+        anomaly: { value: 0.42, kind: "unsupervised", most_unusual: [{ feature: "magnitude", robust_z: 4.1 }], note: null },
+        supervised: { status: "not_ready" },
+        authority: "A ranking aid only. A person confirms or rejects; the model cannot.",
+      });
+    }
+    if (path === "/ml/signal-ranking" && method === "GET") {
+      return json(200, {
+        feature_version: "1",
+        ranker_version: "1",
+        snapshots: 3,
+        labels: {},
+        labels_excluded_because: "the database is not marked as holding real network data",
+        gate: { needed_per_class: 50, chains: {} },
+        supervised: "not_ready",
+        scorers: ["rule_score (baseline)", "anomaly (unsupervised)", "supervised (gated)"],
+        last_run: state.rankingRuns[0] ?? null,
+        authority: "Scores rank candidates for review; only a person confirms or rejects.",
+      });
+    }
+    if (path === "/ml/signal-ranking/runs") return json(200, { items: state.rankingRuns });
+    if (path === "/ml/signal-ranking/evaluate" && method === "POST") {
+      const run = {
+        id: state.rankingRuns.length + 1,
+        created_at: NOW,
+        actor: "local",
+        status: "not_ready" as const,
+        feature_version: "1",
+        ranker_version: "1",
+        dataset_hash: "SYNTHETIC",
+        window_from: null,
+        window_to: null,
+        labelled: 0,
+        label_counts: {},
+        reason: "the test split needs confirmed and rejected candidates",
+        scorers: {},
+      };
+      state.rankingRuns = [run, ...state.rankingRuns];
+      return json(201, run);
+    }
     const sig = /^\/signals\/(\d+)(?:\/(dismiss|promote|review|decisions))?$/.exec(path);
     if (sig) {
       const found = state.signals.find((s) => s.id === Number(sig[1]));
@@ -294,7 +348,19 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
       if (sig[2] === "review" && method === "POST") {
         if (body.state === found.review_state) return err(422, "invalid_input", "the signal is already in that review state");
         if (body.reason_code === "other" && !String(body.note ?? "").trim()) return err(422, "invalid_input", "a note is required when the reason is other");
-        const d: ReviewDecision = { id: nextId++, from_state: found.review_state, to_state: body.state as ReviewDecision["to_state"], reason_code: body.reason_code as ReviewDecision["reason_code"], note: (body.note as string | undefined) ?? null, actor: "local", decided_at: new Date(Date.parse(NOW) + nextId * 1000).toISOString() };
+        const d: ReviewDecision = {
+          id: nextId++,
+          from_state: found.review_state,
+          to_state: body.state as ReviewDecision["to_state"],
+          reason_code: body.reason_code as ReviewDecision["reason_code"],
+          note: (body.note as string | undefined) ?? null,
+          actor: "local",
+          decided_at: new Date(Date.parse(NOW) + nextId * 1000).toISOString(),
+          duplicate_of: (body.duplicate_of as number | undefined) ?? null,
+          correction: (body.correction as string | undefined) ?? null,
+          wallet_label: (body.wallet_label as string | undefined) ?? null,
+          definitions_version: "1",
+        };
         state.decisions[found.id] = [...(state.decisions[found.id] ?? []), d]; // oldest first, as the API returns them
         found.review_state = d.to_state;
         return json(200, { signal_id: found.id, review_state: found.review_state, history: state.decisions[found.id] });
@@ -309,7 +375,19 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
         found.status = "promoted";
         found.promoted_to = body.target === "watchlist" ? `watchlist:${String(body.watchlist_id)}` : `investigation:${String(body.investigation_id)}`;
       }
-      return json(200, { ...env(), ...found, decisions: state.decisions[found.id] ?? [] });
+      return json(200, {
+        ...env(),
+        ...found,
+        decisions: state.decisions[found.id] ?? [],
+        ground_truth: {
+          label: null,
+          quality: "unlabelled",
+          eligible: false,
+          excluded_because: "the database is not marked as holding real network data",
+          reviewers: [],
+          definitions_version: "1",
+        },
+      });
     }
     if (path === "/discovery/detectors") return json(200, { ...env(), detectors: state.detectors });
     if (path === "/discovery/collector") return json(200, state.eth);

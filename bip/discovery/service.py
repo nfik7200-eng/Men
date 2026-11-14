@@ -57,6 +57,7 @@ from bip.discovery.notify import (
 )
 from bip.discovery.scoring import HIGH_SCORE, MEDIUM_SCORE, Score, score_signal
 from bip.entities.labels import approved_for
+from bip.ml.signal_ranking import write_snapshot
 
 log = get_logger("bip.discovery")
 
@@ -72,6 +73,22 @@ SCORING_DESCRIPTION = (
 )
 
 Row = RowMapping
+
+
+def run_kind(summary: Mapping[str, Any] | None) -> str:
+    """``live``, ``historical`` or ``producer``; rows written before the kind was recorded are
+    classified from their summary (an ``evaluated_as_of``, or only expansion detectors)."""
+    if not summary:
+        return "live"
+    kind = summary.get("kind")
+    if kind in ("live", "historical", "producer"):
+        return str(kind)
+    if summary.get("evaluated_as_of"):
+        return "historical"
+    detectors = cast(Mapping[str, Any], summary.get("detectors") or {})
+    if detectors and all(k.startswith("expansion_") for k in detectors):
+        return "producer"
+    return "live"
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -147,6 +164,7 @@ class DiscoveryService:
             "discovery_version": DISCOVERY_VERSION,
             "scoring": SCORING_DESCRIPTION,
             "chains": chains,
+            "kind": "live" if as_of is None else "historical",
             "evaluated_as_of": None if as_of is None else as_of.isoformat(),
             "detectors": {},
             "errors": [],
@@ -155,33 +173,42 @@ class DiscoveryService:
             summary["not_evaluable_as_of"] = sorted(
                 {d.info.id for d in DETECTORS if not d.info.as_of_capable}
             )
-        new_ids: list[int] = []
-        for c in chains:
-            for det in DETECTORS:
-                if c not in det.info.chains:
-                    continue
-                if as_of is not None and not det.info.as_of_capable:
-                    continue
-                key = f"{det.info.id}:{c}"
-                try:
-                    output = det.run(Context(self._repo, self._cfg, c, evaluated))
-                    if as_of is not None:
-                        for cand in output.candidates:
-                            cand.explanation = {
-                                **cand.explanation,
-                                "evaluated_as_of": as_of.isoformat(),
-                            }
-                    stats, created = self._store_output(det, output, c, now, run_id)
-                except Exception as exc:  # one failing detector must not abort the pass
-                    log.exception("detector %s failed", key)
-                    summary["errors"].append({"detector": key, "error": type(exc).__name__})
-                    continue
-                summary["detectors"][key] = stats
-                new_ids.extend(created)
-        summary["expired"] = self._expire(now)
-        # history is not news: an as-of run never raises alerts
-        summary["alerts_created"] = 0 if as_of is not None else self._evaluate_alerts(new_ids, now)
-        status = "partial" if summary["errors"] else "succeeded"
+        try:
+            new_ids: list[int] = []
+            for c in chains:
+                for det in DETECTORS:
+                    if c not in det.info.chains:
+                        continue
+                    if as_of is not None and not det.info.as_of_capable:
+                        continue
+                    key = f"{det.info.id}:{c}"
+                    try:
+                        output = det.run(Context(self._repo, self._cfg, c, evaluated))
+                        if as_of is not None:
+                            for cand in output.candidates:
+                                cand.explanation = {
+                                    **cand.explanation,
+                                    "evaluated_as_of": as_of.isoformat(),
+                                }
+                        stats, created = self._store_output(det, output, c, now, run_id)
+                    except Exception as exc:  # one failing detector must not abort the pass
+                        log.exception("detector %s failed", key)
+                        summary["errors"].append({"detector": key, "error": type(exc).__name__})
+                        continue
+                    summary["detectors"][key] = stats
+                    new_ids.extend(created)
+            summary["expired"] = self._expire(now)
+            # history is not news: an as-of run never raises alerts
+            summary["alerts_created"] = (
+                0 if as_of is not None else self._evaluate_alerts(new_ids, now)
+            )
+            status = "partial" if summary["errors"] else "succeeded"
+        except BaseException:
+            # never leave a run "running": a crash outside the per-detector guard closes it failed
+            self._finish_run(
+                run_id, "failed", {**summary, "errors": [*summary["errors"], "aborted"]}
+            )
+            raise
         self._finish_run(run_id, status, summary)
         return {"run_id": run_id, "status": status, **summary}
 
@@ -210,6 +237,7 @@ class DiscoveryService:
             "detectors": {f"{det.info.id}:{chain}": stats},
             "errors": [],
             **extra,
+            "kind": "producer",
         }
         summary["alerts_created"] = self._evaluate_alerts(created, now)
         self._finish_run(run_id, "succeeded", summary)
@@ -256,9 +284,28 @@ class DiscoveryService:
             "summary": json.loads(x["summary_json"]) if x["summary_json"] else None,
         }
 
-    def last_run(self) -> dict[str, Any] | None:
-        runs = self.runs(1)
-        return runs[0] if runs else None
+    def last_run(self, kind: str | None = None) -> dict[str, Any] | None:
+        """The newest run, or the newest finished run of one kind: ``live`` (a detector pass
+        over current data), ``historical`` (an as-of pass) or ``producer`` (an expansion)."""
+        if kind is None:
+            runs = self.runs(1)
+            return runs[0] if runs else None
+        r = schema.discovery_runs
+        before: int | None = None
+        for _ in range(50):  # pages of 200, newest first; bounded at 10,000 runs
+            with self._repo.transaction() as conn:
+                q = select(r).order_by(r.c.id.desc()).limit(200)
+                if before is not None:
+                    q = q.where(r.c.id < before)
+                rows = conn.execute(q).mappings().all()
+            for row in rows:
+                run = self._run_row(row)
+                if run["finished_at"] and run_kind(run["summary"]) == kind:
+                    return run
+            if len(rows) < 200:
+                return None
+            before = int(rows[-1]["id"])
+        return None
 
     # ------------------------------------------------------------------ scoring and storing
 
@@ -427,6 +474,22 @@ class DiscoveryService:
         pk = conn.execute(insert(s).values(**values)).inserted_primary_key
         assert pk is not None  # noqa: S101
         self._attach_evidence(conn, int(pk[0]), cand.chain, cand.tx_ids)
+        # point-in-time features for ranking evaluation: written once, never refreshed
+        write_snapshot(
+            conn,
+            int(pk[0]),
+            chain=cand.chain,
+            family=cand.family,
+            detector_id=cand.detector_id,
+            subject_ref=cand.subject_ref,
+            observed_at=cand.observed_at,
+            magnitude=cand.magnitude,
+            baseline_reliability=cand.baseline_reliability,
+            confidence_cap=cand.confidence_cap,
+            evidence_txs=len(cand.tx_ids),
+            rule_score=sc.score,
+            rule_confidence=sc.confidence,
+        )
         return "created", int(pk[0])
 
     def _merge(
@@ -771,7 +834,13 @@ class DiscoveryService:
                 conds.append(
                     s.c.id.in_(
                         select(d.c.signal_id).where(
-                            d.c.id.in_(select(latest.c.last)), d.c.to_state == review_state
+                            d.c.id.in_(select(latest.c.last)),
+                            # 'accepted' is the pre-v19 stored name of 'confirmed'
+                            d.c.to_state.in_(
+                                ("confirmed", "accepted")
+                                if review_state in ("confirmed", "accepted")
+                                else (review_state,)
+                            ),
                         )
                     )
                 )
@@ -824,17 +893,29 @@ class DiscoveryService:
     def feed(self, limit: int, offset: int) -> dict[str, Any]:
         """Open signals ranked by score, with how fresh and how complete the pass behind them is."""
         page = self.list_signals(status="open", sort="score", limit=limit, offset=offset)
-        last = self.last_run()
+        # freshness is about live discovery only: an as-of pass evaluates old data and an
+        # expansion runs no detectors, so neither may make the feed look recently scanned
+        last = self.last_run("live")
+        historical = self.last_run("historical")
+        expansion = self.last_run("producer")
         age = None
-        if last and last["finished_at"]:
+        if last and last["finished_at"] and last["status"] != "failed":
             age = (self._clock() - datetime.fromisoformat(last["finished_at"])).total_seconds()
         return {
             **page,
             "freshness": {
+                "basis": "live detector passes only",
                 "last_run_at": last["finished_at"] if last else None,
                 "last_run_status": last["status"] if last else None,
                 "age_seconds": age,
                 "stale": age is None or age > 24 * 3600,
+                "last_historical_run_at": historical["finished_at"] if historical else None,
+                "last_historical_as_of": (
+                    cast(dict[str, Any], historical["summary"] or {}).get("evaluated_as_of")
+                    if historical
+                    else None
+                ),
+                "last_expansion_run_at": expansion["finished_at"] if expansion else None,
             },
             "scope": (
                 "Candidates come from data BIP already stored for the wallets it ingested. "

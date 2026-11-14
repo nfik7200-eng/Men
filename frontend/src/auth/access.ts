@@ -17,6 +17,7 @@ const ANALYST_WRITE: RegExp[] = [
   /^\/intelligence\/watchlists\//,
   /^\/ml\/classify\//,
   /^\/ml\/labels(\/|$)/,
+  /^\/ml\/signal-ranking\/evaluate$/,
   /^\/research\//,
   /^\/signals\//,
   /^\/alerts\//,

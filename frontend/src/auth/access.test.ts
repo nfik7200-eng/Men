@@ -27,6 +27,8 @@ const BACKEND_POLICY: [string, string, string | null][] = [
   ["POST", "/ml/classify/ethereum/0xaa", "analyst"],
   ["POST", "/ml/labels", "analyst"],
   ["POST", "/ml/labels/1/reviews", "analyst"],
+  ["POST", "/ml/signal-ranking/evaluate", "analyst"],
+  ["POST", "/ml/training-runs", "admin"],
   ["POST", "/ml/training-runs", "admin"],
   ["POST", "/research/preview", "analyst"],
   ["POST", "/research/runs", "analyst"],

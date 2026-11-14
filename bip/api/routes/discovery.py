@@ -139,7 +139,16 @@ def list_signals(
     limit: Limit = 50,
     offset: Offset = 0,
     review_state: Literal[
-        "new", "pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"
+        "new",
+        "pending_review",
+        "investigating",
+        "monitoring",
+        "confirmed",
+        "rejected",
+        "duplicate",
+        "insufficient_evidence",
+        "archived",
+        "accepted",  # alias of confirmed
     ]
     | None = None,
 ) -> dict[str, Any]:
@@ -167,6 +176,7 @@ def get_signal(ctx: Context, signal_id: Id) -> dict[str, Any]:
     body = ctx.discovery.get_signal(signal_id)
     body["review_state"] = ctx.review.state(signal_id)
     body["decisions"] = ctx.review.history(signal_id)
+    body["ground_truth"] = ctx.review.ground_truth(signal_id)
     return _envelope(ctx, body)
 
 
@@ -185,19 +195,56 @@ def signal_decisions(ctx: Context, signal_id: Id) -> dict[str, Any]:
             "signal_id": signal_id,
             "review_state": ctx.review.state(signal_id),
             "items": ctx.review.history(signal_id),
+            "ground_truth": ctx.review.ground_truth(signal_id),
         },
     )
+
+
+@router.get("/signals/{signal_id}/ranking")
+def signal_ranking_explanation(ctx: Context, signal_id: Id) -> dict[str, Any]:
+    """Why the candidate ranks where it does: rule-score inputs, the unsupervised anomaly score
+    with its most unusual features, and the supervised probability when a model exists. A
+    ranking aid, never a verdict."""
+    ctx.discovery.get_signal(signal_id)  # 404 for an unknown signal
+    return _envelope(ctx, ctx.ranking.explain(signal_id))
+
+
+@router.get("/review/definitions")
+def review_definitions(ctx: Context) -> dict[str, Any]:
+    """Review states, allowed moves and reasons, label definitions (versioned) and the rule that
+    turns decisions into ground truth."""
+    return _envelope(ctx, ctx.review.definitions())
+
+
+@router.get("/review/ground-truth")
+def review_ground_truth(
+    ctx: Context,
+    chain: Annotated[str | None, Query(max_length=32)] = None,
+    limit: Limit = 50,
+) -> dict[str, Any]:
+    """Candidates whose human review is a usable label, with per-chain counts. Disputed,
+    machine-only, synthetic and unmarked data are excluded."""
+    return _envelope(ctx, ctx.review.ground_truth_set(chain=chain, limit=limit))
 
 
 @router.post("/signals/{signal_id}/review")
 def review_signal(
     ctx: WritableContext, request: Request, signal_id: Id, body: SignalReview
 ) -> dict[str, Any]:
-    """Record a review decision with a required reason (and a note for 'other'). Accepting a
+    """Record a review decision with a required reason (and a note for 'other'). Confirming a
     candidate is a judgement about it; it never turns it into a verified fact."""
     return _envelope(
         ctx,
-        ctx.review.decide(signal_id, body.state, body.reason_code, body.note, _actor(request)),
+        ctx.review.decide(
+            signal_id,
+            body.state,
+            body.reason_code,
+            body.note,
+            _actor(request),
+            duplicate_of=body.duplicate_of,
+            correction=body.correction,
+            wallet_label=body.wallet_label,
+        ),
     )
 
 
@@ -205,6 +252,7 @@ def review_signal(
 def dismiss_signal(
     ctx: WritableContext, request: Request, signal_id: Id, body: SignalDismiss
 ) -> dict[str, Any]:
+    ctx.review.check_record(signal_id, "rejected", "dismissed", _actor(request))
     result = ctx.discovery.dismiss(signal_id, body.note)
     ctx.review.record(signal_id, "rejected", "dismissed", body.note, _actor(request))
     return _envelope(ctx, result)
@@ -218,12 +266,16 @@ def promote_signal(
     unverified finding with its evidence). The signal is marked ``promoted``."""
     if body.target == "watchlist":
         assert body.watchlist_id is not None  # noqa: S101 - enforced by the schema
+        ctx.review.check_record(signal_id, "monitoring", "promoted_to_watchlist", _actor(request))
         result = ctx.discovery.promote_to_watchlist(signal_id, body.watchlist_id, body.note)
         ctx.review.record(
             signal_id, "monitoring", "promoted_to_watchlist", body.note, _actor(request)
         )
     else:
         assert body.investigation_id is not None  # noqa: S101 - enforced by the schema
+        ctx.review.check_record(
+            signal_id, "investigating", "promoted_to_investigation", _actor(request)
+        )
         result = ctx.discovery.promote_to_investigation(signal_id, body.investigation_id)
         ctx.review.record(
             signal_id, "investigating", "promoted_to_investigation", body.note, _actor(request)

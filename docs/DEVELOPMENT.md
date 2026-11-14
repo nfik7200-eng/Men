@@ -199,10 +199,12 @@ Packages for later stages (`quality/`, `process/`, `agents/`) are created when t
 
 Every record is `unverified` (single provider, no cross-check yet). Failed or partially parsed items are stored with `parse_status` and an `ingestion_errors` row; nothing is dropped silently. A transaction whose block hash disagrees with its block is refused and logged as `reorg_detected`. Runs are bounded by `BIP_INGEST__MAX_LIMIT` (50), `BIP_INGEST__MAX_RPC_CALLS_PER_RUN` (150) and `BIP_INGEST__RUN_DEADLINE_S` (90). A run ends as `succeeded`, `partial` or `failed`. Cursors make repeated runs continue rather than restart.
 
+Every change request (POST, PATCH, DELETE) must send an `X-BIP-Client` header when sign-in is off; the dashboard does this itself. Requests without it, or from a browser page on another site, are refused (403).
+
 **How to ingest:** open a wallet in the dashboard and choose "Retrieve recent activity", or:
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/ingestion/wallet/solana/<ADDRESS>?limit=20"
+curl -X POST -H "X-BIP-Client: cli" "http://127.0.0.1:8000/api/v1/ingestion/wallet/solana/<ADDRESS>?limit=20"
 ```
 
 ## Database

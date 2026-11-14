@@ -40,6 +40,7 @@ export const ROUTES = [
   "/signals",
   "/alerts",
   "/coverage",
+  "/models",
   "/attribution",
   "/system",
   "/settings",
@@ -53,7 +54,7 @@ const VIEWPORTS = [
 /** Retrieve the fixture wallet first so pages are checked with data (an empty DB hides overflow). */
 async function seed(baseUrl) {
   try {
-    await fetch(`${baseUrl}/api/v1/ingestion/wallet/ethereum/${ETH}?limit=20`, { method: "POST" });
+    await fetch(`${baseUrl}/api/v1/ingestion/wallet/ethereum/${ETH}?limit=20`, { method: "POST", headers: { "X-BIP-Client": "e2e" } });
   } catch {
     /* backend not running: pages are checked in their offline state */
   }

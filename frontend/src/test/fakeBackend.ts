@@ -309,7 +309,7 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     const path = url.replace(/^\/api\/v1/, "");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
-    if ((path.startsWith("/ml/") && !path.startsWith("/ml/labels") && path !== "/ml/taxonomy") || path.startsWith("/research/")) {
+    if ((path.startsWith("/ml/") && !path.startsWith("/ml/labels") && !path.startsWith("/ml/signal-ranking") && path !== "/ml/taxonomy") || path.startsWith("/research/")) {
       const r = researchResponse(path, method, research, researchState);
       return r ? json(method === "POST" && (path.startsWith("/research/runs") && !path.includes("/cancel") || path.startsWith("/ml/classify")) ? (path === "/research/runs" ? 202 : 201) : 200, r) : err(404, "not_found", "Not Found");
     }

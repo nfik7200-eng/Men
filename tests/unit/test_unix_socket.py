@@ -56,7 +56,8 @@ def served(tmp_path: Path) -> Iterator[Path]:
     short = Path("/tmp") / f"bip-sock-{time.monotonic_ns() % 10**9}"
     short.mkdir()
     sock = short / "api.sock"
-    rig = Rig(tmp_path, mode="disabled")
+    # the socket is configured, as in deployment: only then does the host check step aside
+    rig = Rig(tmp_path, mode="disabled", settings={"api": {"unix_socket": sock}})
     app = create_app(
         rig.settings,
         engine=rig.engine,

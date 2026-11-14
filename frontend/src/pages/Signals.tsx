@@ -74,6 +74,21 @@ export function FreshnessPanel({ freshness, scope }: { freshness: Freshness | nu
         </dd>
         <dt>Pass result</dt>
         <dd>{freshness.last_run_status ?? "not recorded"}</dd>
+        {freshness.last_historical_run_at ? (
+          <>
+            <dt>Last historical pass</dt>
+            <dd>
+              {fmtTime(freshness.last_historical_run_at)}
+              {freshness.last_historical_as_of ? `, evaluated as of ${fmtTime(freshness.last_historical_as_of)}` : ""} (does not count as current)
+            </dd>
+          </>
+        ) : null}
+        {freshness.last_expansion_run_at ? (
+          <>
+            <dt>Last expansion run</dt>
+            <dd>{fmtTime(freshness.last_expansion_run_at)} (does not count as current)</dd>
+          </>
+        ) : null}
       </dl>
       {freshness.stale ? (
         <p className="notice" role="status">

@@ -35,6 +35,8 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.frozen import FrozenEstimator
 
+from bip.ml.signal_ranking import average_precision
+
 MIN_CAL = 10
 J = dict[str, Any]
 
@@ -211,7 +213,14 @@ def metrics(y: Sequence[int], p: Sequence[float], thresholds: J) -> J:
         "reliability_bins": bins,
         "at_high_threshold": at(thresholds.get("high")),
         "at_moderate_threshold": at(thresholds.get("moderate")),
+        "pr_auc": average_precision(list(zip(p, y, strict=True))),
+        "precision_at_10": _precision_at(p, y, 10),
     }
+
+
+def _precision_at(p: Sequence[float], y: Sequence[int], k: int) -> float | None:
+    ranked = sorted(zip(p, y, strict=True), key=lambda t: -t[0])[:k]
+    return round(sum(label for _, label in ranked) / len(ranked), 4) if ranked else None
 
 
 def summarize(per_label: dict[str, J]) -> J:

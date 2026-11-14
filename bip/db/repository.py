@@ -482,16 +482,30 @@ class Repository:
         t = schema.transactions
         with self._tx() as conn:
             exists = conn.execute(
-                select(t.c.id, t.c.parse_status).where(t.c.chain == tx.chain, t.c.tx_id == tx_id)
+                select(t.c.id, t.c.parse_status, t.c.finality, t.c.block_hash).where(
+                    t.c.chain == tx.chain, t.c.tx_id == tx_id
+                )
             ).first()
             if exists is not None:
                 # A placeholder (parse_status 'failed') is replaced by any real parse, and a partial
                 # row (for example no receipt yet) only by a complete one. A row that is already
-                # complete is never overwritten.
+                # complete is never overwritten, except an orphaned one: after a reorg the same
+                # transaction can be included in a different, canonical block, and the orphaned
+                # row would otherwise hide it from every derived read forever.
                 new_status = (extras or {}).get("parse_status")
+                new_hash = (extras or {}).get("block_hash")
+                new_finality = (extras or {}).get("finality")
+                reincluded = (
+                    exists.finality == "orphaned"
+                    and new_hash is not None
+                    and new_hash != exists.block_hash
+                    and new_finality not in (None, "orphaned")
+                )
                 upgrade = (
-                    exists.parse_status == "failed" and new_status in {"complete", "partial"}
-                ) or (exists.parse_status == "partial" and new_status == "complete")
+                    reincluded
+                    or (exists.parse_status == "failed" and new_status in {"complete", "partial"})
+                    or (exists.parse_status == "partial" and new_status == "complete")
+                )
                 if not upgrade:
                     return False
                 conn.execute(update(t).where(t.c.id == exists.id).values(**values))

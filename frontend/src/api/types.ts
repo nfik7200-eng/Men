@@ -854,17 +854,32 @@ export type Signal = {
   review_state: ReviewState;
 };
 
-export type ReviewState = "new" | "pending_review" | "accepted" | "rejected" | "monitoring" | "investigating" | "archived";
+export type ReviewState =
+  | "new"
+  | "pending_review"
+  | "investigating"
+  | "monitoring"
+  | "confirmed"
+  | "rejected"
+  | "duplicate"
+  | "insufficient_evidence"
+  | "archived";
 export type ReviewTarget = Exclude<ReviewState, "new">;
 export type ReasonCode =
   | "evidence_sufficient"
   | "evidence_insufficient"
+  | "evidence_contradicted"
   | "needs_more_data"
   | "false_positive"
   | "duplicate"
   | "known_entity"
   | "out_of_scope"
+  | "dismissed"
+  | "promoted_to_watchlist"
+  | "promoted_to_investigation"
   | "reopened"
+  | "dispute_resolved"
+  | "state_renamed"
   | "other";
 
 export type ReviewDecision = {
@@ -875,21 +890,115 @@ export type ReviewDecision = {
   note: string | null;
   actor: string;
   decided_at: string;
+  duplicate_of?: number | null;
+  correction?: string | null;
+  wallet_label?: string | null;
+  definitions_version?: string | null;
 };
 
-export type SignalReviewInput = { state: ReviewTarget; reason_code: ReasonCode; note?: string };
-export type ReviewResult = { signal_id: number; review_state: ReviewState; history: ReviewDecision[] };
-export type DecisionList = { signal_id: number; review_state: ReviewState; items: ReviewDecision[] };
+/** Whether a candidate's human review is a usable training label (never a verified fact). */
+export type GroundTruth = {
+  label: 0 | 1 | null;
+  quality: "unlabelled" | "human_review" | "human_consensus" | "dispute_resolved" | "disputed";
+  eligible: boolean;
+  excluded_because: string | null;
+  reviewers: string[];
+  definitions_version: string;
+};
 
-export type SignalDetail = Signal & DiscoveryEnvelope & { decisions?: ReviewDecision[] };
+export type SignalReviewInput = {
+  state: ReviewTarget;
+  reason_code: ReasonCode;
+  note?: string;
+  duplicate_of?: number;
+  correction?: string;
+  wallet_label?: string;
+};
+export type ReviewResult = { signal_id: number; review_state: ReviewState; history: ReviewDecision[]; ground_truth?: GroundTruth };
+export type DecisionList = { signal_id: number; review_state: ReviewState; items: ReviewDecision[]; ground_truth?: GroundTruth };
+
+export type RankingFeatureNote = { feature: string; robust_z?: number; contribution?: number };
+export type RankingExplanation = {
+  signal_id: number;
+  available: boolean;
+  /** a ranking is a statistical signal, never an observation or a verdict */
+  evidence_class?: "statistical_signal";
+  reason?: string;
+  feature_version?: string;
+  observed_at?: string;
+  features?: Record<string, number>;
+  graph_features?: Record<string, number | null>;
+  rule_score?: { value: number; kind: string };
+  anomaly?: { value: number | null; kind: string; most_unusual: RankingFeatureNote[]; note: string | null };
+  supervised?: { status: "not_ready" | "available"; probability?: number; largest_contributions?: RankingFeatureNote[]; model_run?: number };
+  authority?: string;
+};
+export type RankingGateChain = { positive: number; negative: number; needed_per_class: number; supervised_ready: boolean };
+export type RankingScorer = {
+  kind: string;
+  status: string;
+  reason?: string;
+  n?: number;
+  positives?: number;
+  threshold?: number;
+  precision?: number | null;
+  recall?: number | null;
+  f1?: number | null;
+  pr_auc?: number | null;
+  precision_at_10?: number | null;
+  precision_at_25?: number | null;
+  brier?: number | null;
+  false_positives?: number;
+  per_chain?: Record<string, { n: number; precision: number | null; recall: number | null; f1: number | null; pr_auc: number | null; false_positives: number }>;
+};
+export type RankingRunSummary = {
+  id: number;
+  created_at: string;
+  actor: string;
+  status: "completed" | "not_ready";
+  feature_version: string;
+  ranker_version: string;
+  dataset_hash: string;
+  window_from: string | null;
+  window_to: string | null;
+  labelled: number | null;
+  label_counts: Record<string, { positive: number; negative: number }> | null;
+};
+export type RankingRun = RankingRunSummary & {
+  reason?: string;
+  scorers?: Record<string, RankingScorer>;
+  split?: Record<string, unknown>;
+  limitations?: string[];
+  drift?: Record<string, unknown>;
+  experimental?: boolean;
+};
+export type RankingStatus = {
+  feature_version: string;
+  ranker_version: string;
+  snapshots: number;
+  labels: Record<string, { positive: number; negative: number }>;
+  labels_excluded_because: string | null;
+  gate: { needed_per_class: number; chains: Record<string, RankingGateChain> };
+  supervised: "ready" | "not_ready";
+  scorers: string[];
+  last_run: RankingRunSummary | null;
+  authority: string;
+};
+
+export type SignalDetail = Signal & DiscoveryEnvelope & { decisions?: ReviewDecision[]; ground_truth?: GroundTruth };
 
 export type SignalPage = DiscoveryEnvelope & { total: number; limit: number; offset: number; items: Signal[] };
 
 export type Freshness = {
+  /** live detector passes only; historical (as-of) and expansion runs never refresh it */
+  basis?: string;
   last_run_at: string | null;
   last_run_status: string | null;
   age_seconds: number | null;
   stale: boolean;
+  last_historical_run_at?: string | null;
+  last_historical_as_of?: string | null;
+  last_expansion_run_at?: string | null;
 };
 
 export type DiscoveryFeed = SignalPage & { freshness: Freshness; scope: string };

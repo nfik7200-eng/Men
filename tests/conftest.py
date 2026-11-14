@@ -35,6 +35,21 @@ SOL_KEY_C = _b58encode(bytes(range(200, 232)))
 
 
 @pytest.fixture(autouse=True)
+def _client_proof_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test clients send the local-mode write proof (``X-BIP-Client``) by default, as the
+    frontend does. Tests of the guard itself remove it from ``client.headers``."""
+    from starlette.testclient import TestClient
+
+    original = TestClient.__init__
+
+    def init(self: TestClient, *args: object, **kwargs: object) -> None:
+        original(self, *args, **kwargs)  # type: ignore[arg-type]
+        self.headers.setdefault("X-BIP-Client", "test")
+
+    monkeypatch.setattr(TestClient, "__init__", init)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Remove developer BIP_* variables and registered secrets so tests are hermetic."""
     for key in list(os.environ):

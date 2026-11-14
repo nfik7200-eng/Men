@@ -1081,3 +1081,106 @@ $ gitleaks dir . / git --staged  -> no leaks found
 **Incident:**
 - A shell `sed` with an empty address briefly appended a line after every line of `bip/discovery/detectors.py`.
 - It was detected from `git diff --stat` (4,001 insertions) before any commit. The identical inserted lines were removed and the diff re-checked (25 intended insertions).
+
+## 2026-11-14 — Stage 3 close-out and Stage 4 (uncommitted)
+
+**Owner decisions this round:**
+- write proof as a custom header plus exact origin;
+- rename `accepted` to `confirmed`;
+- one human decision makes a label, and disagreement holds the example out;
+- both signal ranking and the wallet-classifier upgrades;
+- Stage 4 plan approved.
+
+Rules this round: no commit, push, deploy or live-chain calls.
+
+**Stage 3 close-out (each test-first unless noted):**
+- **Fail-closed write protection with sign-in off (ADR-048):**
+  - `X-BIP-Client` is required on POST, PATCH and DELETE (`client_proof_missing`).
+  - Exact Origin allowlist and `Sec-Fetch-Site`; Host allowlist (`host_denied`, plus `api.allowed_hosts`); Unix sockets skip the host check.
+  - The frontend, the e2e helper, the documented `curl` example and the test clients (conftest default) send the header.
+  - Tests: `tests/security/test_http.py` local-mode tests.
+- **Freshness:**
+  - Runs record `kind` (live, historical, producer); freshness uses live passes only; historical and expansion runs are reported separately.
+  - A crashed run is closed as `failed`.
+  - Tests: `tests/discovery/test_pipeline.py`.
+- **Locks:**
+  - `POST /relationships/rebuild` and the relationships job take the discovery lock; opportunity refresh takes the analysis lock (409 when busy).
+  - The job test was written after the fix, so it was never seen failing.
+- **Memory counts (M2):** exact counts are now in the aggregate signatures. The test initially passed for the wrong reason (1 and 2 transfers sit in different levels) and was reworked to 2 then 3 transfers.
+- **Reorg dependents (M3):** funder facts and open expansion candidates are withdrawn when their relationship is invalidated.
+- **Label history (M5):** `entity_label_events`, an append-only proposal and review history.
+- **Orphaned transactions:** a transaction included again in a different canonical block replaces its orphaned row.
+- **Solana backfill:**
+  - It stops before the budget is spent, reserving one call per eligible provider, so finished slots are committed.
+  - An accidental `git stash` / `git stash pop` was used once to check red; the working tree was verified intact afterwards and the stash list is empty.
+
+**Stage 4:**
+- **Review lifecycle and ground truth (ADR-049; v19 rebuild of `signal_decisions`):**
+  - The migration test uses a hand-written v18 table with the old constraint.
+  - Tests: `tests/discovery/test_review_lifecycle.py` (14).
+  - Normal launches mark unmarked databases `live_network`; test apps mark nothing.
+- **Candidate ranking (ADR-050):** `bip/ml/signal_ranking.py`, `signal_feature_snapshots`, `signal_ranking_runs`, the API routes and the Models page. Tests: `tests/discovery/test_signal_ranking.py` (10) cover:
+  - snapshots written once from data before the event;
+  - anomaly scores using only earlier candidates;
+  - splits never sharing a subject;
+  - the not-ready gate;
+  - synthetic labels exercising every scorer without being stored;
+  - determinism;
+  - persisted runs from real ground truth;
+  - disputed and machine decisions excluded;
+  - hand-computed metrics;
+  - the API.
+- **Wallet classifier:** rule-baseline comparison, PR-AUC and precision@10 in its test evaluations; dead split code removed.
+- **Frontend:** review form with per-state reasons, duplicate link, correction and wallet label; ground-truth badge; ranking panel; Models page; access mirror. Tests: `src/pages/stage4.test.tsx` (7).
+- **Deliberately changed tests:**
+  - Two Stage 3 UI tests used reasons the new per-state table refuses (`monitoring` with `evidence_sufficient`, `archived` with `duplicate`).
+  - Stage 3 memory tests now read `confirmed`.
+  - The client header test now includes `X-BIP-Client`.
+
+**Verification (local):**
+- **Backend:** `uv run pytest` 991 passed; `ruff check` and `ruff format --check` clean; `pyright` 0 errors.
+- **Frontend:**
+  - `npx vitest run` 26 files, 279 passed; `npm run typecheck` and `npm run lint` clean.
+  - `npm run build`, then `npm run e2e`: 221/221. The first e2e run failed at 4 checks because the stale `dist/` lacked the header; a rebuild fixed it.
+- **Fixture:** the 9-step scratch fixture passes 9/9.
+- **API reference:** regenerated with `python -m bip.tools.api_contract`.
+- **Secrets:** `gitleaks` is not installed here; a regex scan of the diff found nothing.
+
+**Not verified:** CI (not pushed), a real Codespace or phone, any live chain. No live provider was contacted this round.
+
+### 2026-11-14 — fixes from three independent reviews (owner: "fix all, test-first")
+
+None of the three reviews (correctness, security and ML integrity, conventions) found a critical issue.
+
+**Fixes** (test-first; each new test was seen failing first unless marked):
+1. **Missing features are `None`, not 0.** This covers subject age, the anomaly score, logistic imputation with a missing count, and drift.
+2. **`dispute_resolved` needs a live disagreement.** Self "second opinions" are refused.
+3. **The supervised gate checks each chain's training slice.** This also adds an empty-set guard. Previously, a chain with all its subjects late crashed the evaluation.
+4. **The `token_or_nft_deployer` rule is bounded by `as_of`.** It had leaked later Transfer logs into the rule baseline.
+5. **Data-origin marking is careful.** A seeded or copied unmarked database becomes `unknown`, not `live_network`. The new `BIP_DATA_ORIGIN` setting lets the operator say so explicitly.
+6. **The ground-truth set reads all decisions in one query.** Previously it ran one query per decided signal.
+
+**Smaller items:**
+- **Socket exemption:** the Host check is skipped only for a configured Unix socket. The socket test now configures `api.unix_socket`.
+- **Model lookup:** `explain` uses the newest stored model.
+- **Ties:** metrics rank ties pessimistically and deterministically.
+- **Wallet labels:** a fed wallet label is withdrawn (rejected review) when its candidate leaves confirmed.
+- **Review-rule drift guard:** `tests/unit/test_review_rules_mirror.py` compares the frontend copy with the server's. A temporary edit to the frontend table made it fail, and it passed again once restored.
+- **Freshness in the UI:** the Signals page shows historical and expansion runs as "does not count as current".
+- **Evidence class:** explanations carry `evidence_class`.
+- **Types:** the frontend types gained the freshness fields.
+
+**Without a dedicated test:**
+- the decision state columns widened to 24 characters;
+- the dead `_V19_DECISION_COLUMNS` constant removed;
+- the subject-overlap figure computed;
+- the missing-snapshot count made exact;
+- orphaned transactions excluded from subject age;
+- the live-run lookup paged up to 10,000 runs;
+- the snapshot written in a savepoint;
+- `ReviewService` typed.
+
+**Re-review of the fixes:** no regressions; one medium and two low findings, all fixed test-first.
+- **Medium:** a withdrawn wallet label was never restored. It now gets an `accepted` review when a person confirms the candidate again.
+- **Low:** the label sync runs after the decision is stored, so it is guarded and a failure is logged instead of reported as a failed decision.
+- **Low:** only a human can give a second opinion; a machine actor can no longer flip a confirmed candidate.

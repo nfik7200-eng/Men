@@ -82,7 +82,7 @@ def test_api_starts_without_ml_packages(tmp_path: Path) -> None:
         from fastapi.testclient import TestClient
         from tests.stage5.helpers import API, env_with
         e = env_with(__import__("pathlib").Path({str(tmp_path)!r}))
-        with TestClient(e.app) as c:
+        with TestClient(e.app, headers={{"X-BIP-Client": "test"}}) as c:
             assert c.get(f"{{API}}/health").json()["status"] == "ok"
             w = e.eth.wallet
             c.post(f"{{API}}/ingestion/wallet/ethereum/{{w}}?limit=20")

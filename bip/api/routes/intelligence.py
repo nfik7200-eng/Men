@@ -389,10 +389,15 @@ def list_opportunities(
 
 
 @router.post("/opportunities/refresh/{chain}")
-def refresh_opportunities(ctx: WritableContext, chain: ChainP) -> J:
+def refresh_opportunities(ctx: WritableContext, chain: ChainP) -> Any:
     _require_chain(ctx, chain)
-    result = opportunities.evaluate(ctx.repo, chain)
-    opportunities.persist(ctx.repo, chain, result["candidates"])
+    if not ctx.analysis_lock.acquire(blocking=False):
+        return error_response(409, "analysis_busy", "Another analysis is running. Try again.")
+    try:
+        result = opportunities.evaluate(ctx.repo, chain)
+        opportunities.persist(ctx.repo, chain, result["candidates"])
+    finally:
+        ctx.analysis_lock.release()
     return envelope(ctx, result)
 
 

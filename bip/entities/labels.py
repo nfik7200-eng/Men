@@ -27,6 +27,7 @@ from datetime import datetime
 from typing import Any, cast
 
 from sqlalchemy import ColumnElement, func, insert, select, update
+from sqlalchemy.engine import Connection
 
 from bip.db import schema
 from bip.db.errors import DuplicateRecordError, InvalidRecordError, RecordNotFoundError
@@ -254,6 +255,7 @@ class EntityLabelService:
                     )
                 )
                 label_id = int(existing.id)
+                self._event(conn, label_id, "reproposed", actor, note, len(items))
             else:
                 pk = conn.execute(
                     insert(t).values(
@@ -273,6 +275,7 @@ class EntityLabelService:
                 ).inserted_primary_key
                 assert pk is not None  # noqa: S101
                 label_id = int(pk[0])
+                self._event(conn, label_id, "proposed", actor, note, len(items))
         return self.get(label_id)
 
     def review(
@@ -324,17 +327,53 @@ class EntityLabelService:
             )
             if changed.rowcount != 1:  # another review decided it between our read and update
                 raise DuplicateRecordError(f"label {label_id} was already decided")
+            event = "approved" if decision == "approve" else "rejected"
+            self._event(conn, label_id, event, reviewer, note.strip(), len(items))
         return self.get(label_id)
+
+    def _event(
+        self,
+        conn: Connection,
+        label_id: int,
+        event: str,
+        actor: str,
+        note: str | None,
+        evidence_count: int,
+    ) -> None:
+        conn.execute(
+            insert(schema.entity_label_events).values(
+                label_id=label_id,
+                event=event,
+                actor=actor[:80],
+                note=(note or None) and note[:500],
+                evidence_count=evidence_count,
+                at=self._clock(),
+            )
+        )
 
     # ------------------------------------------------------------------ reads
 
     def get(self, label_id: int) -> dict[str, Any]:
-        t = schema.entity_labels
+        """The label with its append-only history (proposals, re-proposals, decisions)."""
+        t, ev = schema.entity_labels, schema.entity_label_events
         with self._repo.transaction() as conn:
             row = conn.execute(select(t).where(t.c.id == label_id)).mappings().first()
-        if row is None:
-            raise RecordNotFoundError(f"label {label_id} not found")
-        return _row(row)
+            if row is None:
+                raise RecordNotFoundError(f"label {label_id} not found")
+            events = conn.execute(
+                select(ev).where(ev.c.label_id == label_id).order_by(ev.c.id)
+            ).all()
+        history = [
+            {
+                "event": h.event,
+                "actor": h.actor,
+                "note": h.note,
+                "evidence_count": h.evidence_count,
+                "at": h.at.isoformat(),
+            }
+            for h in events
+        ]
+        return {**_row(row), "history": history}
 
     def list(
         self,

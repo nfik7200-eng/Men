@@ -1,12 +1,13 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, api } from "../../api/client";
-import type { ReasonCode, ReviewDecision, ReviewTarget, Signal, SignalDetail as SignalDetailData } from "../../api/types";
+import type { GroundTruth, ReasonCode, ReviewDecision, ReviewState, ReviewTarget, Signal, SignalDetail as SignalDetailData, SignalReviewInput } from "../../api/types";
 import { RoleHint } from "../../auth/RoleHint";
 import { useCan } from "../../auth/useAuth";
 import { DataTable } from "../../components/DataTable";
 import {
   ExplorerRef,
+  GroundTruthBadge,
   LabelEvidenceList,
   ReviewStatePill,
   SeverityPill,
@@ -241,54 +242,87 @@ function Actions({ signal, onChanged }: { signal: Signal; onChanged: () => void 
   );
 }
 
-const REVIEW_TARGETS: ReviewTarget[] = ["pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"];
-const REASONS: { code: ReasonCode; label: string }[] = [
-  { code: "evidence_sufficient", label: "Evidence is sufficient" },
-  { code: "evidence_insufficient", label: "Evidence is insufficient" },
-  { code: "needs_more_data", label: "Needs more data" },
-  { code: "false_positive", label: "False positive" },
-  { code: "duplicate", label: "Duplicate" },
-  { code: "known_entity", label: "Known entity" },
-  { code: "out_of_scope", label: "Out of scope" },
-  { code: "reopened", label: "Reopened" },
-  { code: "other", label: "Other (note required)" },
-];
+const REVIEW_TARGETS: ReviewTarget[] = ["pending_review", "investigating", "monitoring", "confirmed", "rejected", "duplicate", "insufficient_evidence", "archived"];
+const FINISHED: ReviewState[] = ["confirmed", "rejected", "duplicate", "insufficient_evidence", "archived"];
+const REASON_TEXT: Partial<Record<ReasonCode, string>> = {
+  evidence_sufficient: "Evidence is sufficient",
+  evidence_insufficient: "Evidence is insufficient",
+  evidence_contradicted: "Evidence contradicts it",
+  needs_more_data: "Needs more data",
+  false_positive: "False positive",
+  duplicate: "Duplicate of another candidate",
+  known_entity: "Known entity",
+  out_of_scope: "Out of scope",
+  dismissed: "Dismissed",
+  promoted_to_watchlist: "Watch the subject",
+  promoted_to_investigation: "Open an investigation",
+  reopened: "Reopened",
+  dispute_resolved: "Resolves a disagreement between reviewers",
+  other: "Other (note required)",
+};
+/** Reasons that fit each state (the server enforces the same table). */
+const STATE_REASONS: Record<ReviewTarget, ReasonCode[]> = {
+  pending_review: ["needs_more_data", "other"],
+  investigating: ["needs_more_data", "promoted_to_investigation", "reopened", "other"],
+  monitoring: ["promoted_to_watchlist", "needs_more_data", "other"],
+  confirmed: ["evidence_sufficient", "known_entity", "dispute_resolved", "other"],
+  rejected: ["false_positive", "known_entity", "out_of_scope", "dismissed", "evidence_contradicted", "dispute_resolved", "other"],
+  duplicate: ["duplicate"],
+  insufficient_evidence: ["evidence_insufficient", "needs_more_data"],
+  archived: ["out_of_scope", "dismissed", "other"],
+};
 
-function ReviewPanel({ signal, onChanged }: { signal: Signal; onChanged: () => void }) {
+type Field = "state" | "reason" | "note" | "duplicate";
+
+function ReviewPanel({ signal, truth, onChanged }: { signal: Signal; truth: GroundTruth | undefined; onChanged: () => void }) {
   const can = useCan("POST", `/signals/${signal.id}/review`);
   const [state, setState] = useState<ReviewTarget | "">("");
   const [reason, setReason] = useState<ReasonCode | "">("");
   const [note, setNote] = useState("");
-  const [invalid, setInvalid] = useState<{ field: "state" | "reason" | "note"; message: string } | null>(null);
+  const [duplicateOf, setDuplicateOf] = useState("");
+  const [correction, setCorrection] = useState("");
+  const [walletLabel, setWalletLabel] = useState("");
+  const [invalid, setInvalid] = useState<{ field: Field; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const stateRef = useRef<HTMLSelectElement>(null);
   const reasonRef = useRef<HTMLSelectElement>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
-  const fail = (field: "state" | "reason" | "note", message: string) => {
-    setInvalid({ field, message });
+  const duplicateRef = useRef<HTMLInputElement>(null);
+  const finished = FINISHED.includes(signal.review_state);
+  const reasons = state === "" ? [] : STATE_REASONS[state];
+  const fail = (field: Field, msg: string) => {
+    setInvalid({ field, message: msg });
     setError(null);
-    (field === "state" ? stateRef : field === "reason" ? reasonRef : noteRef).current?.focus();
+    ({ state: stateRef, reason: reasonRef, note: noteRef, duplicate: duplicateRef })[field].current?.focus();
   };
-  const props = (field: "state" | "reason" | "note") =>
+  const props = (field: Field) =>
     invalid?.field === field ? { "aria-invalid": true as const, "aria-describedby": "signal-review-invalid" } : {};
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!can.allowed) return;
     setDone(null);
     if (state === "") return fail("state", "Choose the review state to move this candidate to.");
-    if (state === signal.review_state) return fail("state", "The candidate is already in that review state.");
-    if (reason === "") return fail("reason", "Choose a reason.");
+    if (state === signal.review_state && reason !== "dispute_resolved") return fail("state", "The candidate is already in that review state.");
+    if (reason === "" || !reasons.includes(reason)) return fail("reason", "Choose a reason that fits the new state.");
     if (reason === "other" && note.trim() === "") return fail("note", "A note is required when the reason is Other.");
+    const dup = Number(duplicateOf);
+    if (state === "duplicate" && !(Number.isInteger(dup) && dup > 0)) return fail("duplicate", "Give the number of the candidate this one duplicates.");
+    if (state === "duplicate" && dup === signal.id) return fail("duplicate", "A candidate cannot duplicate itself.");
     setBusy(true);
     setInvalid(null);
     setError(null);
     try {
-      const trimmed = note.trim();
-      await api.reviewSignal(signal.id, trimmed ? { state, reason_code: reason, note: trimmed } : { state, reason_code: reason });
+      const body: SignalReviewInput = { state, reason_code: reason };
+      if (note.trim()) body.note = note.trim();
+      if (state === "duplicate") body.duplicate_of = dup;
+      if (correction.trim()) body.correction = correction.trim();
+      if (state === "confirmed" && walletLabel.trim()) body.wallet_label = walletLabel.trim();
+      await api.reviewSignal(signal.id, body);
       setDone("Review state updated.");
       setNote("");
+      setCorrection("");
       onChanged();
     } catch (err) {
       setError(message(err, "The review could not be saved."));
@@ -301,11 +335,28 @@ function ReviewPanel({ signal, onChanged }: { signal: Signal; onChanged: () => v
       <p>
         Current review state: <ReviewStatePill state={signal.review_state} />
       </p>
-      <p className="muted">Review records a person's judgement about this lead. Accepting a candidate does not make it a fact or attribute an address to anyone.</p>
+      {truth ? (
+        <p>
+          Ground truth: <GroundTruthBadge truth={truth} />
+        </p>
+      ) : null}
+      <p className="muted">
+        Review records a person's judgement about this lead. Confirming a candidate does not make it a fact or attribute an address to anyone.
+        {finished ? " A finished candidate can only be reopened (to Investigating, reason Reopened), or given a second opinion by another reviewer." : ""}
+        {" "}With sign-in off every reviewer is recorded as “local”, so two reviewers cannot disagree.
+      </p>
       <form className="form" onSubmit={(e) => void submit(e)} noValidate aria-label="Review candidate">
         <label className="field">
           <span>Move to</span>
-          <select ref={stateRef} {...props("state")} value={state} onChange={(e) => setState(e.target.value as ReviewTarget | "")}>
+          <select
+            ref={stateRef}
+            {...props("state")}
+            value={state}
+            onChange={(e) => {
+              setState(e.target.value as ReviewTarget | "");
+              setReason("");
+            }}
+          >
             <option value="">Choose a state</option>
             {REVIEW_TARGETS.map((t) => (
               <option key={t} value={t}>{humanLabel(t)}</option>
@@ -314,16 +365,32 @@ function ReviewPanel({ signal, onChanged }: { signal: Signal; onChanged: () => v
         </label>
         <label className="field">
           <span>Reason</span>
-          <select ref={reasonRef} {...props("reason")} value={reason} onChange={(e) => setReason(e.target.value as ReasonCode | "")}>
-            <option value="">Choose a reason</option>
-            {REASONS.map((r) => (
-              <option key={r.code} value={r.code}>{r.label}</option>
+          <select ref={reasonRef} {...props("reason")} value={reason} onChange={(e) => setReason(e.target.value as ReasonCode | "")} disabled={state === ""}>
+            <option value="">{state === "" ? "Choose a state first" : "Choose a reason"}</option>
+            {reasons.map((r) => (
+              <option key={r} value={r}>{REASON_TEXT[r] ?? humanLabel(r)}</option>
             ))}
           </select>
         </label>
+        {state === "duplicate" ? (
+          <label className="field">
+            <span>Duplicate of candidate number</span>
+            <input ref={duplicateRef} {...props("duplicate")} inputMode="numeric" value={duplicateOf} onChange={(e) => setDuplicateOf(e.target.value)} />
+          </label>
+        ) : null}
+        {state === "confirmed" ? (
+          <label className="field">
+            <span>Wallet label (optional, from the ML taxonomy)</span>
+            <input value={walletLabel} maxLength={40} placeholder="e.g. exchange_hot_wallet" onChange={(e) => setWalletLabel(e.target.value)} />
+          </label>
+        ) : null}
         <label className="field">
           <span>{reason === "other" ? "Note (required)" : "Note (optional)"}</span>
           <textarea ref={noteRef} {...props("note")} rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Correction (optional)</span>
+          <textarea rows={2} maxLength={500} value={correction} onChange={(e) => setCorrection(e.target.value)} />
         </label>
         <RoleHint can={can} />
         <button type="submit" className="btn btn-primary" disabled={busy || !can.allowed} title={can.reason}>
@@ -338,7 +405,7 @@ function ReviewPanel({ signal, onChanged }: { signal: Signal; onChanged: () => v
 }
 
 function DecisionHistory({ items }: { items: ReviewDecision[] }) {
-  // The API lists oldest first; show the newest decision first.
+  // The API lists oldest first; show the newest decision first. Nothing is ever erased.
   const rows = [...items].sort((a, b) => b.decided_at.localeCompare(a.decided_at) || b.id - a.id);
   return (
     <Panel title="Decision history">
@@ -351,7 +418,19 @@ function DecisionHistory({ items }: { items: ReviewDecision[] }) {
           { key: "when", header: "Decided", priority: 1, render: (d) => fmtTime(d.decided_at) },
           { key: "move", header: "Change", priority: 2, render: (d) => `${humanLabel(d.from_state)} to ${humanLabel(d.to_state)}` },
           { key: "reason", header: "Reason", priority: 2, render: (d) => humanLabel(d.reason_code) },
-          { key: "note", header: "Note", priority: 2, render: (d) => d.note ?? <span className="muted">none</span> },
+          {
+            key: "note",
+            header: "Note",
+            priority: 2,
+            render: (d) => (
+              <>
+                {d.note ?? <span className="muted">none</span>}
+                {d.duplicate_of ? <span> Duplicate of <Link to={`/signals/${d.duplicate_of}`}>#{d.duplicate_of}</Link>.</span> : null}
+                {d.correction ? <span> Correction: {d.correction}</span> : null}
+                {d.wallet_label ? <span> Wallet label: {humanLabel(d.wallet_label)}</span> : null}
+              </>
+            ),
+          },
           { key: "actor", header: "By", priority: 2, render: (d) => d.actor },
         ]}
       />
@@ -359,7 +438,49 @@ function DecisionHistory({ items }: { items: ReviewDecision[] }) {
   );
 }
 
-function Body({ signal, origin, decisions, reload }: { signal: Signal; origin: SignalDetailData["data_origin"]; decisions: ReviewDecision[]; reload: () => void }) {
+function RankingPanel({ signalId }: { signalId: number }) {
+  const r = useApi(() => api.signalRanking(signalId), [signalId]);
+  return (
+    <Panel title="Ranking explanation">
+      <p className="muted">How models rank this candidate for review. A ranking aid only: a person confirms or rejects, never the model.</p>
+      {r.status === "loading" ? <Loading /> : null}
+      {r.status === "error" ? <ErrorState error={r.error} onRetry={r.reload} /> : null}
+      {r.status === "ready" && !r.data.available ? <p>No ranking explanation: {r.data.reason}.</p> : null}
+      {r.status === "ready" && r.data.available ? (
+        <dl className="pairs">
+          <Pair label="Rule score (baseline)">{r.data.rule_score ? fmtScore(r.data.rule_score.value) : "—"}</Pair>
+          <Pair label="Anomaly score (unsupervised)">
+            {r.data.anomaly?.value === null || r.data.anomaly?.value === undefined ? (
+              <span className="muted">{r.data.anomaly?.note ?? "not available"}</span>
+            ) : (
+              <>
+                {r.data.anomaly.value.toFixed(2)}
+                {r.data.anomaly.most_unusual.length ? (
+                  <span className="muted"> most unusual: {r.data.anomaly.most_unusual.map((f) => `${humanLabel(f.feature)} (z ${f.robust_z ?? "?"})`).join(", ")}</span>
+                ) : null}
+              </>
+            )}
+          </Pair>
+          <Pair label="Supervised model">
+            {r.data.supervised?.status === "available" ? (
+              <>
+                probability {r.data.supervised.probability?.toFixed(2)}
+                <span className="muted"> largest contributions: {(r.data.supervised.largest_contributions ?? []).map((f) => `${humanLabel(f.feature)} ${f.contribution ?? ""}`).join(", ")}</span>
+              </>
+            ) : (
+              <span className="muted">Not ready: too few verified labels on this chain.</span>
+            )}
+          </Pair>
+          <Pair label="Graph features">
+            {Object.entries(r.data.graph_features ?? {}).map(([k, v]) => `${humanLabel(k)} ${v ?? "unknown"}`).join(", ") || "none"}
+          </Pair>
+        </dl>
+      ) : null}
+    </Panel>
+  );
+}
+
+function Body({ signal, origin, decisions, truth, reload }: { signal: Signal; origin: SignalDetailData["data_origin"]; decisions: ReviewDecision[]; truth: GroundTruth | undefined; reload: () => void }) {
   const ex = signal.explanation;
   const components = Array.isArray(ex.score_components) ? ex.score_components : [];
   const cov = signal.coverage;
@@ -481,8 +602,9 @@ function Body({ signal, origin, decisions, reload }: { signal: Signal; origin: S
           </dl>
         </Panel>
 
-        <ReviewPanel key={`review-${signal.id}`} signal={signal} onChanged={reload} />
+        <ReviewPanel key={`review-${signal.id}`} signal={signal} truth={truth} onChanged={reload} />
         <DecisionHistory items={decisions} />
+        <RankingPanel signalId={signal.id} />
         <Actions key={signal.id} signal={signal} onChanged={reload} />
       </div>
     </>
@@ -499,7 +621,7 @@ export default function SignalDetailPage() {
       <PageHeader title={title} lede="A candidate for review, not a finding." actions={<Link className="btn" to="/signals">All signals</Link>} docTitle={`Signal ${id}`} />
       {detail.status === "loading" ? <Loading /> : null}
       {detail.status === "error" ? <ErrorState error={detail.error} onRetry={detail.reload} /> : null}
-      {detail.status === "ready" ? <Body signal={detail.data} origin={detail.data.data_origin} decisions={detail.data.decisions ?? []} reload={detail.reload} /> : null}
+      {detail.status === "ready" ? <Body signal={detail.data} origin={detail.data.data_origin} decisions={detail.data.decisions ?? []} truth={detail.data.ground_truth} reload={detail.reload} /> : null}
     </>
   );
 }

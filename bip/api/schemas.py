@@ -230,20 +230,41 @@ class SignalDismiss(Body):
 
 class SignalReview(Body):
     state: Literal[
-        "pending_review", "accepted", "rejected", "monitoring", "investigating", "archived"
+        "pending_review",
+        "investigating",
+        "monitoring",
+        "confirmed",
+        "rejected",
+        "duplicate",
+        "insufficient_evidence",
+        "archived",
+        "accepted",  # the pre-v19 name of confirmed, kept as an input alias
     ]
     reason_code: Literal[
         "evidence_sufficient",
         "evidence_insufficient",
+        "evidence_contradicted",
         "needs_more_data",
         "false_positive",
         "duplicate",
         "known_entity",
         "out_of_scope",
+        "dismissed",
+        "promoted_to_watchlist",
+        "promoted_to_investigation",
         "reopened",
+        "dispute_resolved",
         "other",
     ]
     note: Note | None = None
+    duplicate_of: RowId | None = None
+    """Required for, and only for, ``duplicate``: the candidate this one duplicates."""
+    correction: Note | None = None
+    """What the reviewer corrected (free text), kept on the decision."""
+    wallet_label: (
+        Annotated[str, Field(min_length=1, max_length=40, pattern=r"^[a-z_]+$")] | None
+    ) = None
+    """A wallet-classifier label id the reviewer assigns with a confirmation."""
 
 
 class ExpansionRun(Body):

@@ -173,6 +173,9 @@ def roles(repo: Repository, ds: WalletDataset, fv: FeatureVector, as_of: datetim
                 .where(
                     tr.c.chain == ds.chain,
                     tr.c.token.in_(created),
+                    # point in time: only Transfer logs at or before as_of count
+                    tr.c.block_time.is_not(None),
+                    tr.c.block_time <= as_of,
                     tr.c.tx_id.not_in(orphaned_tx_ids(ds.chain)),
                 )
                 .group_by(tr.c.token)
@@ -185,7 +188,7 @@ def roles(repo: Repository, ds: WalletDataset, fv: FeatureVector, as_of: datetim
                         _ev("transfer", r[1], f"deployed contract {r[0]} emitted Transfer logs")
                         for r in tokens
                     ],
-                    f"{len(tokens)} deployed contract(s) later emitted Transfer logs.",
+                    f"{len(tokens)} deployed contract(s) emitted Transfer logs by as_of.",
                 )
             )
     if (

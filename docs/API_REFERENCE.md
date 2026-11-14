@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-151 routes in 15 groups.
+158 routes in 15 groups.
 
 ### auth
 
@@ -164,12 +164,15 @@ Parameters: `chain` (path, required): string (len>=1, len<=32)
 | GET | `/api/v1/discovery/performance` | viewer | Detector Performance: Per-detector outcomes of analyst review (a false-positive proxy, with its caveats). |
 | POST | `/api/v1/discovery/run` | analyst | Run Discovery: Run all detectors once over stored data. Reads the database only: no provider is called. |
 | GET | `/api/v1/discovery/runs` | viewer | Discovery Runs |
+| GET | `/api/v1/review/definitions` | viewer | Review Definitions: Review states, allowed moves and reasons, label definitions (versioned) and the rule that |
+| GET | `/api/v1/review/ground-truth` | viewer | Review Ground Truth: Candidates whose human review is a usable label, with per-chain counts. Disputed, |
 | GET | `/api/v1/signals` | viewer | List Signals |
 | GET | `/api/v1/signals/{signal_id}` | viewer | Get Signal |
 | GET | `/api/v1/signals/{signal_id}/decisions` | viewer | Signal Decisions: The candidate's review history: every state change, its reason, who and when. |
 | POST | `/api/v1/signals/{signal_id}/dismiss` | analyst | Dismiss Signal |
 | POST | `/api/v1/signals/{signal_id}/promote` | analyst | Promote Signal: Move a signal into a watchlist (the subject is watched) or a case (it becomes an |
-| POST | `/api/v1/signals/{signal_id}/review` | analyst | Review Signal: Record a review decision with a required reason (and a note for 'other'). Accepting a |
+| GET | `/api/v1/signals/{signal_id}/ranking` | viewer | Signal Ranking Explanation: Why the candidate ranks where it does: rule-score inputs, the unsupervised anomaly score |
+| POST | `/api/v1/signals/{signal_id}/review` | analyst | Review Signal: Record a review decision with a required reason (and a note for 'other'). Confirming a |
 
 <details><summary><code>POST /api/v1/alert-rules</code></summary>
 
@@ -229,9 +232,15 @@ Parameters: `limit` (query): integer (>=1, <=50)
 
 </details>
 
+<details><summary><code>GET /api/v1/review/ground-truth</code></summary>
+
+Parameters: `chain` (query): null or string (len<=32); `limit` (query): integer (>=1, <=200)
+
+</details>
+
 <details><summary><code>GET /api/v1/signals</code></summary>
 
-Parameters: `status` (query): `open` | `dismissed` | `promoted` | `invalidated` | `expired` or null; `family` (query): null or string (len<=40); `chain` (query): null or string (len<=32); `severity` (query): `low` | `medium` | `high` or null; `detector` (query): null or string (len<=64); `subject` (query): null or string (len<=100); `min_score` (query): null or number (>=0, <=100); `sort` (query): `score` | `recent`; `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000); `review_state` (query): `new` | `pending_review` | `accepted` | `rejected` | `monitoring` | `investigating` | `archived` or null
+Parameters: `status` (query): `open` | `dismissed` | `promoted` | `invalidated` | `expired` or null; `family` (query): null or string (len<=40); `chain` (query): null or string (len<=32); `severity` (query): `low` | `medium` | `high` or null; `detector` (query): null or string (len<=64); `subject` (query): null or string (len<=100); `min_score` (query): null or number (>=0, <=100); `sort` (query): `score` | `recent`; `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000); `review_state` (query): `new` | `pending_review` | `investigating` | `monitoring` | `confirmed` | `rejected` | `duplicate` | `insufficient_evidence` | `archived` | `accepted` or null
 
 </details>
 
@@ -263,11 +272,17 @@ Body (`*` required): `target` *: `watchlist` | `investigation`; `watchlist_id`: 
 
 </details>
 
+<details><summary><code>GET /api/v1/signals/{signal_id}/ranking</code></summary>
+
+Parameters: `signal_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
 <details><summary><code>POST /api/v1/signals/{signal_id}/review</code></summary>
 
 Parameters: `signal_id` (path, required): integer (>=1, <=9007199254740992)
 
-Body (`*` required): `state` *: `pending_review` | `accepted` | `rejected` | `monitoring` | `investigating` | `archived`; `reason_code` *: `evidence_sufficient` | `evidence_insufficient` | `needs_more_data` | `false_positive` | `duplicate` | `known_entity` | `out_of_scope` | `reopened` | `other`; `note`: null or string (len<=500)
+Body (`*` required): `state` *: `pending_review` | `investigating` | `monitoring` | `confirmed` | `rejected` | `duplicate` | `insufficient_evidence` | `archived` | `accepted`; `reason_code` *: `evidence_sufficient` | `evidence_insufficient` | `evidence_contradicted` | `needs_more_data` | `false_positive` | `duplicate` | `known_entity` | `out_of_scope` | `dismissed` | `promoted_to_watchlist` | `promoted_to_investigation` | `reopened` | `dispute_resolved` | `other`; `note`: null or string (len<=500); `duplicate_of`: integer (>=1.0, <=9007199254740992.0) or null; `correction`: null or string (len<=500); `wallet_label`: null or string (len>=1, len<=40)
 
 </details>
 
@@ -676,6 +691,10 @@ Parameters: `investigation_id` (path, required): integer (>=1); `run_id` (path, 
 | GET | `/api/v1/ml/models` | viewer | List Models |
 | GET | `/api/v1/ml/models/{name}/{version}` | viewer | Get Model |
 | GET | `/api/v1/ml/models/{name}/{version}/drift` | viewer | Model Drift: Feature drift since the model was registered. Not an accuracy measure (see caveats). |
+| GET | `/api/v1/ml/signal-ranking` | viewer | Signal Ranking Status: Candidate-ranking status: snapshots, verified label counts per chain against the |
+| POST | `/api/v1/ml/signal-ranking/evaluate` | analyst | Signal Ranking Evaluate: Evaluate the rule baseline, the unsupervised score and (when the gate allows) a supervised |
+| GET | `/api/v1/ml/signal-ranking/runs` | viewer | Signal Ranking Runs |
+| GET | `/api/v1/ml/signal-ranking/runs/{run_id}` | viewer | Signal Ranking Run |
 | GET | `/api/v1/ml/taxonomy` | viewer | Get Taxonomy |
 | GET | `/api/v1/ml/training-runs` | viewer | Training Runs |
 | POST | `/api/v1/ml/training-runs` | admin | Start Training: Train synchronously (small CPU models). One training run at a time. |
@@ -733,6 +752,18 @@ Parameters: `name` (path, required): string; `version` (path, required): string
 <details><summary><code>GET /api/v1/ml/models/{name}/{version}/drift</code></summary>
 
 Parameters: `name` (path, required): string; `version` (path, required): string
+
+</details>
+
+<details><summary><code>GET /api/v1/ml/signal-ranking/runs</code></summary>
+
+Parameters: `limit` (query): integer (>=1, <=100)
+
+</details>
+
+<details><summary><code>GET /api/v1/ml/signal-ranking/runs/{run_id}</code></summary>
+
+Parameters: `run_id` (path, required): integer (>=1)
 
 </details>
 

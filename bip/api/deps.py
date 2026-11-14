@@ -25,6 +25,7 @@ from bip.intel.service import IntelligenceService
 from bip.intel.verify import Corroborator
 from bip.ml.labels import LabelStore
 from bip.ml.service import ClassificationService
+from bip.ml.signal_ranking import SignalRanking
 from bip.ml.training import Trainer
 from bip.ops.backup import BackupService
 from bip.ops.metrics import ApiMetrics
@@ -81,6 +82,7 @@ class AppContext:
     gap_recovery: GapRecovery
     memory: MemoryService
     review: ReviewService
+    ranking: SignalRanking
     expansion: ExpansionEngine
     entity_labels: EntityLabelService
     cases: CaseService
