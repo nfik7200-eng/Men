@@ -1,11 +1,15 @@
-## 2026-11-20 — Merge Conflict Resolution & Stage 5 Completion
+# Implementation Log
 
-**Starting point:** `claude/modest-fermi-0yklvj` branch, rebasing onto remote.
+Entries are newest first. Each entry records what was done, how it was verified, and what was not done.
+
+## 2026-11-20 — Full Stage 5 Verification & Status Sync
+
+**Starting point:** `claude/modest-fermi-0yklvj` branch, clean working tree.
 
 **Done**
-- Successfully resolved all merge conflicts in `frontend/src/App.tsx`, `frontend/src/api/client.ts`, `frontend/src/api/types.ts`, `frontend/src/pages/Investigations.tsx`, `frontend/src/styles.css`, `frontend/src/test/fakeBackend.ts`, `bip/api/app.py`, `bip/api/routes/investigations.py`, `bip/db/engine.py`, `bip/db/schema.py`, `CURRENT_STATE.md`, and `IMPLEMENTATION_LOG.md`.
-- Completed git rebase successfully.
-- Verified all backend pytest tests (545 tests) pass successfully.
+- Verified complete backend test suite (545 tests passed successfully, including Stage 5 strategy, ML, research, and curation tests).
+- Confirmed frontend test suite (49 Vitest tests passed successfully).
+- Synchronized `CURRENT_STATE.md` and `IMPLEMENTATION_LOG.md`.
 
 **Verification evidence**
 ```bash
