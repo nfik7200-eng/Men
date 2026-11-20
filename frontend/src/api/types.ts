@@ -469,6 +469,31 @@ export type Graph = IntelEnvelope & {
   statement: string;
 };
 
+export type EvidenceClass = "verified" | "single_source" | "hypothesis";
+export type ProviderResponseRef = {
+  provider: string; endpoint_id: string | null; method: string | null; request_id: string | null;
+  collected_at: string; raw_ref: string | null; raw_row: number | null; content_hash: string | null;
+};
+export type ExplorerEvidence = TxEvidence & { verification_status: string; provider_response: ProviderResponseRef | null };
+export type ExplorerEdge = Omit<GraphEdge, "evidence"> & {
+  evidence: ExplorerEvidence[]; evidence_complete: boolean; classes: Partial<Record<EvidenceClass, number>>;
+  unfiltered?: { count: number; amount_raw: string | null; first_seen: string | null; last_seen: string | null };
+};
+export type ExplorerTimeline = { start: string | null; end: string | null; undated: number; buckets: { start: string; end: string; count: number }[] };
+export type ExplorerGraph = Omit<Graph, "edges"> & {
+  edges: ExplorerEdge[]; explorer_version: string; timeline: ExplorerTimeline;
+  filters: { since: string | null; until: string | null; statuses: EvidenceClass[] };
+  filtered_out: { total: number; by_status: number; outside_time_window: number; undated: number; nodes_hidden: number; edges_hidden: number };
+  statuses_legend: Record<EvidenceClass, string>;
+};
+export type NodeTrail = IntelEnvelope & {
+  chain: string; center: string; node: GraphNode; edge_count: number; transaction_count: number;
+  transactions: { tx_id: string; position: number | null; block_time: string | null; verification_status: string; evidence_class: EvidenceClass;
+    provider_response: ProviderResponseRef | null; edges: { edge_id: string; kind: string; asset: string | null }[] }[];
+  block_range: { min: number; max: number } | null; providers: Record<string, number>; classes: Partial<Record<EvidenceClass, number>>;
+  incomplete_edges: string[]; statement: string;
+};
+
 export type Opportunity = {
   candidate_key: string; kind: string; chain: string; subject: string; subject_kind: string;
   label: string; score: number; current: boolean;
@@ -686,6 +711,7 @@ export type ResearchConfig = {
   focus_areas: string[]; tools: { name: string; description: string; specialists: string[] }[];
 };
 
+<<<<<<< HEAD
 /** GET /wallets/{chain}/{address}/status (ADR-031). null = not stored, never 0. */
 export type WalletStatus = {
   chain: string;
@@ -1367,4 +1393,149 @@ export type MemorySearch = {
   items: { chain: string; ref: string; kind: string; first_seen_at: string | null; last_seen_at: string | null }[];
   last_refresh: Record<string, unknown> | null;
   data_origin: DataOrigin;
+=======
+// Strategies
+export type WalletClassification = {
+  address: string;
+  primary_strategy: string;
+  confidence: number;
+  strategies: Record<string, number>;
+  metrics: {
+    transactions_observed: number;
+    transfers_observed: number;
+    unique_assets: number;
+  };
+  provenance: string;
+};
+
+export type CopyTraderSignal = {
+  target_address: string;
+  score: number;
+  signals: { type: string; value: number; description: string }[];
+  recommendation: string;
+  provenance: string;
+};
+
+export type MemeMomentum = {
+  momentum_score: number;
+  early_entries: { asset: string | null; time: string; direction: string }[];
+  tokens_involved: string[];
+  provenance: string;
+};
+
+export type DevTracker = {
+  deployer_address: string;
+  deployments_count: number;
+  deployments: string[];
+  funder: string | null;
+  github_linked: boolean;
+  upgrade_authority_held: boolean;
+  provenance: string;
+};
+
+// Investigation workbench (cases)
+export type CaseType =
+  | "rugpull" | "hack_tracking" | "cluster" | "insider" | "ecosystem" | "sanctions_aml"
+  | "mev_sandwich" | "flash_loan" | "nft_wash_trading" | "pump_dump" | "phishing_tracking";
+export type CaseStatus = "open" | "in_review" | "closed" | "archived";
+export type EvidenceKind = "verified_observation" | "statistical_signal" | "hypothesis";
+export type HypothesisStatus = "open" | "supported" | "refuted" | "inconclusive";
+export type LeadStatus = "new" | "investigating" | "resolved" | "dismissed";
+
+export type Case = {
+  id: number; title: string; case_type: CaseType; status: CaseStatus; chain: string | null;
+  summary: string | null; template_version: string; created_by: string;
+  created_at: string; updated_at: string; closed_at: string | null;
+};
+export type CaseEvidence = {
+  id: number; case_id: number; kind: EvidenceKind; chain: string | null; subject_type: string;
+  subject_ref: string; description: string; payload_json: string | null; source_kind: string;
+  provider_id: string | null; source_ref: string | null; raw_ref: string | null;
+  collected_at: string; created_at: string;
+};
+export type CaseHypothesis = {
+  id: number; case_id: number; statement: string; status: HypothesisStatus;
+  confidence: number | null; evidence_ids: number[]; created_by: string;
+  created_at: string; updated_at: string;
+};
+export type CaseLead = {
+  id: number; case_id: number; title: string; status: LeadStatus; priority: number;
+  subject_type: string | null; subject_ref: string | null; rationale: string | null;
+  source_evidence_id: number | null; created_at: string; updated_at: string;
+};
+export type CaseTemplate = {
+  case_type: CaseType; name: string; description: string; version: string;
+  required_evidence: string[]; suggested_hypotheses: string[]; initial_leads: string[];
+  analysis_steps: string[];
+};
+export type CaseDetail = {
+  case: Case; evidence: CaseEvidence[]; hypotheses: CaseHypothesis[]; leads: CaseLead[];
+};
+export type CaseCreateBody = {
+  title: string; case_type: CaseType; chain?: string | null; summary?: string | null;
+};
+export type CaseRunRequest = {
+  case_type: CaseType; chain: string; target_type: "address" | "tx"; target: string; title?: string | null;
+};
+export type CaseRunResult = {
+  case: Case; template: CaseTemplate; target_type: string; target: string;
+  analysis_run_id: number | null; evidence: CaseEvidence[]; hypotheses: CaseHypothesis[];
+  leads: CaseLead[]; coverage_gaps: string[]; required_evidence_unconfirmed: string[]; note: string;
+};
+export type EvidenceCreateBody = {
+  kind: EvidenceKind; chain?: string | null; subject_type: string; subject_ref: string;
+  description: string; source_kind: string; source_ref?: string | null; collected_at: string;
+};
+
+// ---- Human-in-the-loop curation
+export type CurationDecision = "accepted" | "rejected" | "needs_evidence";
+export type CurationQueueItem = {
+  classification_id: string;
+  chain: string;
+  address: string;
+  label: string;
+  status: string;
+  confidence: number;
+  source: string;
+  model_status: string | null;
+  uncertainty: number;
+  contradicted: boolean;
+  reason: string;
+  explanation: string;
+  as_of: string;
+};
+export type CurationQueue = { items: CurationQueueItem[]; total: number; note: string };
+export type CurationFeedback = {
+  id: number;
+  target_type: "classification_label" | "pattern_match";
+  target_key: string;
+  label: string;
+  chain: string | null;
+  address: string | null;
+  decision: CurationDecision;
+  reviewer: string;
+  note: string | null;
+  model_ref: string | null;
+  model_confidence: number | null;
+  training_label_id: number | null;
+  created_at: string;
+  snapshot: Record<string, unknown>;
+};
+export type CurationStats = {
+  total: number;
+  by_decision: Partial<Record<CurationDecision, number>>;
+  per_label: {
+    target_type: string; label: string; accepted: number; rejected: number;
+    needs_evidence: number; judged: number; agreement_rate: number | null;
+  }[];
+  note: string;
+};
+export type CurationFeedbackBody = {
+  target_type: "classification_label" | "pattern_match";
+  target_key: string;
+  label?: string;
+  decision: CurationDecision;
+  reviewer: string;
+  note?: string;
+>>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 };

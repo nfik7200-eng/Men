@@ -5,6 +5,10 @@ import type { DiscoveryRunResult,
   LoginResult,
   AnalysisRun,
   Classification,
+  CurationFeedback,
+  CurationFeedbackBody,
+  CurationQueue,
+  CurationStats,
   MLModel,
   ResearchConfig,
   ResearchPreview,
@@ -20,7 +24,9 @@ import type { DiscoveryRunResult,
   Behaviour,
   ChainStatus,
   Flows,
+  ExplorerGraph,
   Graph,
+  NodeTrail,
   IntelEnvelope,
   IntelProfile,
   IntelStatus,
@@ -46,6 +52,7 @@ import type { DiscoveryRunResult,
   Watchlist,
   WatchlistEntry,
   WatchlistSummary,
+<<<<<<< HEAD
   WalletStatus,
   JsonObject,
   LabelInput,
@@ -86,6 +93,25 @@ import type { DiscoveryRunResult,
   SignalPage,
   SignalQuery,
   SystemHealth,
+=======
+  WalletClassification,
+  CopyTraderSignal,
+  MemeMomentum,
+  DevTracker,
+  Case,
+  CaseCreateBody,
+  CaseDetail,
+  CaseEvidence,
+  CaseHypothesis,
+  CaseLead,
+  CaseRunRequest,
+  CaseRunResult,
+  CaseStatus,
+  CaseTemplate,
+  EvidenceCreateBody,
+  HypothesisStatus,
+  LeadStatus,
+>>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -148,6 +174,15 @@ function parseRetryAfter(value: string | null): number | null {
 type ErrorEnvelope = {
   error?: { code?: unknown; message?: unknown; details?: unknown };
 };
+
+export type ExplorerFilters = { since: string | null; until: string | null; statuses: string[] };
+function explorerQuery(f: ExplorerFilters): string {
+  return (
+    (f.since ? `&since=${enc(f.since)}` : "") +
+    (f.until ? `&until=${enc(f.until)}` : "") +
+    f.statuses.map((s) => `&status=${enc(s)}`).join("")
+  );
+}
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
@@ -275,6 +310,11 @@ export const api = {
   trainingRuns: () => request<{ items: TrainingRun[] }>("/ml/training-runs?limit=10"),
   train: (chain: string, source: "stored_labels" | "synthetic") =>
     request<{ status: string; message: string }>("/ml/training-runs", { method: "POST", ...json({ chain, source }) }),
+  curationQueue: () => request<CurationQueue>("/curation/queue?limit=50"),
+  curationStats: () => request<CurationStats>("/curation/stats"),
+  curationFeedback: () => request<{ items: CurationFeedback[]; total: number }>("/curation/feedback?limit=20"),
+  submitCuration: (body: CurationFeedbackBody) =>
+    request<CurationFeedback>("/curation/feedback", { method: "POST", ...json(body) }),
   researchConfig: () => request<ResearchConfig>("/research/config"),
   researchPreview: (body: { chain: string; address: string; question: string; focus?: string[] }) =>
     request<ResearchPreview>("/research/preview", { method: "POST", ...json(body) }),
@@ -335,6 +375,10 @@ export const api = {
   flows: (chain: string, address: string) => request<Flows>(`/intelligence/flows/${enc(chain)}/${enc(address)}`),
   graph: (chain: string, address: string, depth: number) =>
     request<Graph>(`/intelligence/graph/${enc(chain)}/${enc(address)}?depth=${depth}`),
+  explorerGraph: (chain: string, address: string, depth: number, f: ExplorerFilters) =>
+    request<ExplorerGraph>(`/intelligence/graph-explorer/${enc(chain)}/${enc(address)}?depth=${depth}${explorerQuery(f)}`),
+  explorerNode: (chain: string, address: string, nodeId: string, depth: number, f: ExplorerFilters) =>
+    request<NodeTrail>(`/intelligence/graph-explorer/${enc(chain)}/${enc(address)}/nodes/${enc(nodeId)}?depth=${depth}${explorerQuery(f)}`),
   opportunities: () => request<OpportunityPage>("/intelligence/opportunities?limit=50"),
   refreshOpportunities: (chain: string) =>
     request<OpportunityRefresh>(`/intelligence/opportunities/refresh/${enc(chain)}`, { method: "POST" }),
@@ -347,6 +391,7 @@ export const api = {
       method: "POST",
       ...json({ investigation_id: investigationId }),
     }),
+<<<<<<< HEAD
   // ---- discovery: signals, alerts, collectors (stored data; only the two collect* calls contact providers)
   discoveryFeed: (limit = 25, offset = 0) => request<DiscoveryFeed>(`/discovery/feed?limit=${limit}&offset=${offset}`),
   signals: (q: SignalQuery = {}) => request<SignalPage>(`/signals${queryString(q)}`),
@@ -398,6 +443,36 @@ export const api = {
   // ---- system
   systemHealth: () => request<SystemHealth>("/system/health"),
   createBackup: () => request<BackupCreated>("/system/backups", { method: "POST" }),
+=======
+  // ---- investigation workbench
+  cases: () => request<Case[]>("/cases"),
+  caseTemplates: () => request<CaseTemplate[]>("/cases/templates"),
+  createCase: (body: CaseCreateBody) => request<Case>("/cases", { method: "POST", ...json(body) }),
+  caseDetail: (id: number) => request<CaseDetail>(`/cases/${id}`),
+  updateCaseStatus: (id: number, status: CaseStatus) =>
+    request<Case>(`/cases/${id}`, { method: "PATCH", ...json({ status }) }),
+  addCaseEvidence: (id: number, body: EvidenceCreateBody) =>
+    request<CaseEvidence>(`/cases/${id}/evidence`, { method: "POST", ...json(body) }),
+  addCaseHypothesis: (id: number, statement: string) =>
+    request<CaseHypothesis>(`/cases/${id}/hypotheses`, { method: "POST", ...json({ statement }) }),
+  updateCaseHypothesis: (id: number, hid: number, body: { status?: HypothesisStatus; evidence_ids?: number[] }) =>
+    request<CaseHypothesis>(`/cases/${id}/hypotheses/${hid}`, { method: "PATCH", ...json(body) }),
+  addCaseLead: (id: number, title: string, priority = 3) =>
+    request<CaseLead>(`/cases/${id}/leads`, { method: "POST", ...json({ title, priority }) }),
+  updateCaseLead: (id: number, lid: number, status: LeadStatus) =>
+    request<CaseLead>(`/cases/${id}/leads/${lid}`, { method: "PATCH", ...json({ status }) }),
+  runInvestigation: (body: CaseRunRequest) =>
+    request<CaseRunResult>("/investigations/run", { method: "POST", ...json(body) }),
+  // ---- strategies
+  strategyClassification: (chain: string, address: string) =>
+    request<WalletClassification>(`/strategies/classification/${enc(chain)}/${enc(address)}`),
+  copyTraderSignals: (chain: string, address: string) =>
+    request<CopyTraderSignal>(`/strategies/copy-trader/${enc(chain)}/${enc(address)}`),
+  memeMomentum: (chain: string, address: string) =>
+    request<MemeMomentum>(`/strategies/meme-momentum/${enc(chain)}/${enc(address)}`),
+  devTracker: (chain: string, address: string) =>
+    request<DevTracker>(`/strategies/dev-tracker/${enc(chain)}/${enc(address)}`),
+>>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 };
 
 /** `?a=1&b=x` from the defined entries of `q` (empty string when there are none). */

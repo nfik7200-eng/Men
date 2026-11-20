@@ -175,6 +175,31 @@ export function intelResponse(path: string, method: string, opts: IntelOptions):
       time_buckets: [{ date: "2026-11-03", asset: "native", count: 1, in_raw: "2000000000000000000", out_raw: "0", in: "2", out: "0" }],
       largest_transfers: { native: [{ ...ev, asset: "native", amount_raw: "2000000000000000000", direction: "in", counterparty: OTHER, amount: "2" }] },
       repeated_paths: [], limitations: ["No USD values: no verified price source is configured."] };
+  if (path.startsWith("/intelligence/graph-explorer/") && path.includes("/nodes/"))
+    return { ...env, chain: "ethereum", center: ETH_WALLET, node: { id: ETH_WALLET, kind: "address", depth: 0, degree: 2, center: true }, edge_count: 2, transaction_count: 1,
+      transactions: [{ tx_id: TX, position: 19999995, block_time: now, verification_status: "single_source", evidence_class: "single_source", edges: [{ edge_id: "e0", kind: "native_transfer", asset: "native" }],
+        provider_response: { provider: "publicnode-eth", endpoint_id: null, method: "eth_getTransactionByHash", request_id: "req-42", collected_at: now, raw_ref: "bronze/eth/0001.parquet", raw_row: 7, content_hash: "a".repeat(64) } }],
+      block_range: { min: 19999995, max: 19999995 }, providers: { "publicnode-eth": 1 }, classes: { single_source: 1 }, incomplete_edges: [], statement: "Transactions listed are observed interactions involving this node. They do not establish ownership, control or identity." };
+  if (path.startsWith("/intelligence/graph-explorer/")) {
+    const onlyVerified = path.includes("status=verified") && !path.includes("status=single_source");
+    const windowed = path.includes("since=");
+    const pr = { provider: "publicnode-eth", endpoint_id: null, method: "eth_getTransactionByHash", request_id: "req-42", collected_at: now, raw_ref: null, raw_row: null, content_hash: null };
+    const xev = { ...ev, position: 19999995, verification_status: "single_source", provider_response: pr };
+    const edges = onlyVerified || windowed ? [] : [
+      { id: "e0", source: OTHER, target: ETH_WALLET, kind: "native_transfer", asset: "native", count: 1, amount_raw: "2000000000000000000", first_seen: now, last_seen: now, evidence: [xev], evidence_complete: true, classes: { single_source: 1 }, verification: verif },
+      { id: "e1", source: ETH_WALLET, target: TOKEN, kind: "token_activity", asset: TOKEN, count: 1, amount_raw: "1500000", first_seen: now, last_seen: now, evidence: [xev], evidence_complete: true, classes: { single_source: 1 }, verification: verif }];
+    const all = [{ id: ETH_WALLET, kind: "address", depth: 0, degree: 2, center: true }, { id: OTHER, kind: "address", depth: 1, degree: 1 }, { id: TOKEN, kind: "token", depth: 1, degree: 1 }];
+    const t0 = "2026-11-01T00:00:00+00:00";
+    return { ...env, chain: "ethereum", center: ETH_WALLET, graph_version: "1.0.0", explorer_version: "1.0.0", depth: 1,
+      nodes: edges.length ? all : all.slice(0, 1), edges,
+      limits: { max_depth: 1, max_nodes: 200, max_edges: 500, timeout_s: 5 }, truncation: { truncated: false, node_limit_reached: false, edge_limit_reached: false, timed_out: false, unexpanded_frontier: 0 },
+      verification: edges.length ? verif : { overall: "no evidence", total: 0, counts: {}, corroborated_share: null },
+      filters: { since: null, until: null, statuses: ["verified", "single_source", "hypothesis"] },
+      filtered_out: { total: edges.length ? 0 : 2, by_status: onlyVerified ? 2 : 0, outside_time_window: windowed ? 2 : 0, undated: 0, nodes_hidden: edges.length ? 0 : 2, edges_hidden: edges.length ? 0 : 2 },
+      timeline: { start: t0, end: "2026-11-05T00:00:00+00:00", undated: 0, buckets: [0, 1, 2, 3].map((i) => ({ start: `2026-11-0${i + 1}T00:00:00+00:00`, end: `2026-11-0${i + 2}T00:00:00+00:00`, count: i === 2 ? 2 : 0 })) },
+      statuses_legend: { verified: "cross-verified by independent providers", single_source: "observed through one provider; not independently corroborated", hypothesis: "conflicted or invalidated evidence; not established" },
+      statement: "Edges are observed on-chain interactions from BIP's stored data. They do not establish common ownership, control or identity." };
+  }
   if (path.startsWith("/intelligence/graph/"))
     return { ...env, chain: "ethereum", center: ETH_WALLET, graph_version: "1.0.0", depth: 1,
       nodes: [{ id: ETH_WALLET, kind: "address", depth: 0, degree: 2, center: true }, { id: OTHER, kind: "address", depth: 1, degree: 1 }, { id: TOKEN, kind: "token", depth: 1, degree: 1 }],
@@ -303,13 +328,38 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
   });
 
   const probeState = { probed: false };
+  const caseState = newCaseState();
+  const curation: { queue: Json[]; feedback: Json[] } = {
+    queue: [{ classification_id: "c1c1c1c1-0000-0000-0000-000000000001", chain: "ethereum", address: ETH_WALLET, label: "automated_bot", status: "low_confidence", confidence: 0.55, source: "wallet-classifier-ethereum@1.0.0", model_status: "experimental_synthetic", uncertainty: 0.9, contradicted: false, reason: "score near the decision boundary", explanation: "Model score 0.55. A prediction, not a fact.", as_of: now }],
+    feedback: [],
+  };
   const researchState = { started: false, polls: 0, cancelled: false };
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const path = url.replace(/^\/api\/v1/, "");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
+<<<<<<< HEAD
     if ((path.startsWith("/ml/") && !path.startsWith("/ml/labels") && !path.startsWith("/ml/signal-ranking") && path !== "/ml/taxonomy") || path.startsWith("/research/")) {
+=======
+    if (path.startsWith("/curation/")) {
+      if (path.startsWith("/curation/queue")) {
+        return json(200, { items: curation.queue, total: curation.queue.length, note: "Ordering prioritises review effort." });
+      }
+      if (path.startsWith("/curation/stats")) {
+        const n = (d: string) => curation.feedback.filter((f) => f.decision === d).length;
+        return json(200, { total: curation.feedback.length, by_decision: { accepted: n("accepted"), rejected: n("rejected"), needs_evidence: n("needs_evidence") }, per_label: [], note: "Agreement rate is a curation signal, not precision." });
+      }
+      if (method === "POST") {
+        const fb = { id: curation.feedback.length + 1, chain: "ethereum", address: ETH_WALLET, note: null, model_ref: "m@1", model_confidence: 0.5, training_label_id: body.decision === "needs_evidence" ? null : 1, created_at: now, snapshot: {}, ...body };
+        curation.feedback.unshift(fb);
+        curation.queue = curation.queue.filter((q) => !(q.classification_id === body.target_key && q.label === body.label));
+        return json(201, fb);
+      }
+      return json(200, { items: curation.feedback, total: curation.feedback.length });
+    }
+    if (path.startsWith("/ml/") || path.startsWith("/research/")) {
+>>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
       const r = researchResponse(path, method, research, researchState);
       return r ? json(method === "POST" && (path.startsWith("/research/runs") && !path.includes("/cancel") || path.startsWith("/ml/classify")) ? (path === "/research/runs" ? 202 : 201) : 200, r) : err(404, "not_found", "Not Found");
     }
@@ -358,6 +408,50 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     if (path.startsWith("/intelligence/")) {
       const r = intelResponse(path, method, intel);
       return r ? json(method === "POST" && path.includes("/analyze/") ? 201 : 200, r) : err(404, "not_found", "Not Found");
+    }
+    if (path.startsWith("/cases") || path === "/investigations/run") {
+      const r = caseResponse(path, method, body, caseState);
+      return r ? json(r.status, r.body) : err(404, "not_found", "Not Found");
+    }
+    if (path.startsWith("/strategies/")) {
+      if (path.includes("/classification/")) {
+        return json(200, {
+          address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          primary_strategy: "meme_trader",
+          confidence: 0.85,
+          strategies: { meme_trader: 0.85, copy_target: 0.4, investor: 0.2, dev: 0.1 },
+          metrics: { transactions_observed: 5, transfers_observed: 10, unique_assets: 3 },
+          provenance: "Mock strategy classification fixture",
+        });
+      }
+      if (path.includes("/copy-trader/")) {
+        return json(200, {
+          target_address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          score: 0.75,
+          signals: [{ type: "activity_frequency", value: 5, description: "Observed 5 transactions in dataset" }],
+          recommendation: "moderate_copy",
+          provenance: "Mock copy trader fixture",
+        });
+      }
+      if (path.includes("/meme-momentum/")) {
+        return json(200, {
+          momentum_score: 0.8,
+          early_entries: [{ asset: "MEME", time: now, direction: "in" }],
+          tokens_involved: ["MEME", "SOL"],
+          provenance: "Mock meme momentum fixture",
+        });
+      }
+      if (path.includes("/dev-tracker/")) {
+        return json(200, {
+          deployer_address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          deployments_count: 1,
+          deployments: ["Prog111111111111111111111111111111111111111"],
+          funder: "11111111111111111111111111111111",
+          github_linked: true,
+          upgrade_authority_held: false,
+          provenance: "Mock developer tracker fixture",
+        });
+      }
     }
     if (path === "/health") return json(200, { status: "ok", version: "0.1.0", environment: "test", database: "ok", storage_writes: "allowed", timestamp: now });
     if (path === "/chains") return json(200, [chain("ethereum", ethObserved), chain("solana")]);
@@ -480,4 +574,63 @@ function job(): Json {
     message: "1 new transactions, 0 new transfers, 0 new balance changes from 2 seen.", mode: "synchronous",
     errors: [{ occurred_at: now, stage: "sol_tx", item_ref: null, error_code: "not_available", detail: "history not available" }],
   };
+}
+
+// ---- investigation workbench fake
+type CaseState = { cases: Json[]; evidence: Json[]; hypotheses: Json[]; leads: Json[]; nextId: number };
+export const newCaseState = (): CaseState => ({ cases: [], evidence: [], hypotheses: [], leads: [], nextId: 1 });
+const CASE_TEMPLATE = {
+  case_type: "rugpull", name: "Rug pull", description: "Liquidity removal.", version: "1",
+  required_evidence: ["Liquidity removal transaction"], suggested_hypotheses: ["Deployer removed liquidity"],
+  initial_leads: ["Trace deployer funding"], analysis_steps: ["Review deployer activity"],
+};
+function caseResponse(path: string, method: string, body: Json, st: CaseState): { status: number; body: unknown } | null {
+  const ts = "2026-01-01T00:00:00Z";
+  const make = (kind: keyof CaseState, extra: Json) => {
+    const row = { id: st.nextId++, created_at: ts, updated_at: ts, ...extra };
+    (st[kind] as Json[]).push(row);
+    return row;
+  };
+  if (path === "/cases/templates") return { status: 200, body: [CASE_TEMPLATE] };
+  if (path === "/cases" && method === "GET") return { status: 200, body: st.cases };
+  if (path === "/cases" && method === "POST") {
+    const c = make("cases", { status: "open", chain: null, summary: null, template_version: "1", created_by: "analyst", closed_at: null, ...body });
+    return { status: 201, body: c };
+  }
+  if (path === "/investigations/run" && method === "POST") {
+    const c = make("cases", { title: `Rug pull: ${String(body.target)}`, status: "open", chain: body.chain, summary: null, template_version: "1", created_by: "analyst", closed_at: null, case_type: body.case_type });
+    return { status: 201, body: {
+      case: c, template: CASE_TEMPLATE, target_type: body.target_type, target: body.target, analysis_run_id: null,
+      evidence: [], hypotheses: [], leads: [],
+      coverage_gaps: ["No transactions or transfers are stored for this address; ingest it first."],
+      required_evidence_unconfirmed: CASE_TEMPLATE.required_evidence, note: "Template hypotheses are unsupported suggestions.",
+    } };
+  }
+  const m = /^\/cases\/(\d+)(?:\/(evidence|hypotheses|leads)(?:\/(\d+))?)?$/.exec(path);
+  if (!m) return null;
+  const cid = Number(m[1]);
+  const c = st.cases.find((x) => x.id === cid);
+  if (!c) return { status: 404, body: { error: { code: "not_found", message: "Case not found" } } };
+  if (!m[2]) {
+    if (method === "PATCH") Object.assign(c, body);
+    return { status: 200, body: method === "PATCH" ? c : {
+      case: c, evidence: st.evidence.filter((x) => x.case_id === cid), hypotheses: st.hypotheses.filter((x) => x.case_id === cid), leads: st.leads.filter((x) => x.case_id === cid),
+    } };
+  }
+  const kind = ({ evidence: "evidence", hypotheses: "hypotheses", leads: "leads" } as const)[m[2] as "evidence" | "hypotheses" | "leads"];
+  if (method === "POST") {
+    const defaults: Json = kind === "evidence" ? { payload_json: null, provider_id: null, raw_ref: null, collected_at: ts }
+      : kind === "hypotheses" ? { status: "open", confidence: null, evidence_ids: [], created_by: "analyst" }
+      : { status: "new", priority: 3, subject_type: null, subject_ref: null, rationale: null, source_evidence_id: null };
+    return { status: 201, body: make(kind, { case_id: cid, ...defaults, ...body }) };
+  }
+  if (method === "PATCH") {
+    const row = (st[kind] as Json[]).find((x) => x.id === Number(m[3]));
+    if (!row) return null;
+    if (kind === "hypotheses" && body.status === "supported" && !((body.evidence_ids ?? row.evidence_ids) as unknown[]).length)
+      return { status: 422, body: { error: { code: "invalid_record", message: "a supported hypothesis must cite evidence ids" } } };
+    Object.assign(row, body);
+    return { status: 200, body: row };
+  }
+  return null;
 }

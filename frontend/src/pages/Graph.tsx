@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { useMemo, useRef, useState, type PointerEvent, type ReactNode, type WheelEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Graph, GraphEdge, GraphNode } from "../api/types";
@@ -52,7 +52,7 @@ function NodeMark({ n, p, selected }: { n: GraphNode; p: Pos; selected: boolean 
   );
 }
 
-export function GraphCanvas({ graph }: { graph: Graph }) {
+export function GraphCanvas({ graph, nodeExtra }: { graph: Graph; nodeExtra?: (n: GraphNode) => ReactNode }) {
   const pos = useMemo(() => layout(graph.nodes), [graph.nodes]);
   // Parallel edges between the same pair are bent apart so each one stays visible and clickable.
   const bend = useMemo(() => {
@@ -150,6 +150,7 @@ export function GraphCanvas({ graph }: { graph: Graph }) {
             {selectedNode.kind === "address" && !selectedNode.center ? (
               <Link className="btn btn-small" to={`/wallets/${graph.chain}/${encodeURIComponent(selectedNode.id)}`}>Open wallet</Link>
             ) : null}
+            {nodeExtra ? nodeExtra(selectedNode) : null}
             <ul className="metric-list">
               {incident.slice(0, 30).map((e) => (
                 <li key={e.id}>
