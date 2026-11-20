@@ -124,24 +124,12 @@ def _ml_and_research(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
-<<<<<<< HEAD
 def _signals_and_alerts(conn: Connection) -> None:
     """v7: signals, signal evidence, discovery runs, alert rules, alerts. Additive, idempotent."""
-=======
-def _investigation_cases(conn: Connection) -> None:
-    """v6: investigation cases, evidence, hypotheses and leads. Additive, idempotent."""
-    for table in schema.V6_TABLES:
-        table.create(conn, checkfirst=True)
-
-
-def _curation_feedback(conn: Connection) -> None:
-    """v7: analyst curation feedback. Additive, idempotent."""
->>>>>>> 8e9112c (Commit remaining backend changes for BIP Detective Platform)
     for table in schema.V7_TABLES:
         table.create(conn, checkfirst=True)
 
 
-<<<<<<< HEAD
 def _auth_and_audit(conn: Connection) -> None:
     """v8: users, sessions, audit log. Additive, idempotent."""
     for table in schema.V8_TABLES:
@@ -378,8 +366,6 @@ def _supervision(conn: Connection) -> None:
     _rebuild_signal_decisions(conn)
 
 
-=======
->>>>>>> 8e9112c (Commit remaining backend changes for BIP Detective Platform)
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -388,7 +374,6 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(3, "verification and wallet intelligence", _intelligence),
     Migration(4, "provider capability probing and reliability", _provider_probing),
     Migration(5, "ML wallet classification and AI research", _ml_and_research),
-<<<<<<< HEAD
     Migration(6, "research runs linked to cases", _case_research_links),
     Migration(7, "signals, discovery runs and alerts", _signals_and_alerts),
     Migration(8, "users, sessions and audit log", _auth_and_audit),
@@ -403,10 +388,6 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(17, "provider daily usage", _provider_usage),
     Migration(18, "intelligence memory, review decisions, expansion log", _memory),
     Migration(19, "label history and human supervision", _supervision),
-=======
-    Migration(6, "investigation cases, evidence, hypotheses and leads", _investigation_cases),
-    Migration(7, "human-in-the-loop curation feedback", _curation_feedback),
->>>>>>> 8e9112c (Commit remaining backend changes for BIP Detective Platform)
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

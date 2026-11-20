@@ -38,11 +38,8 @@ from bip.api.routes import (
     providers,
     research,
     settings_route,
-<<<<<<< HEAD
-    system,
-=======
     strategies,
->>>>>>> 8e9112c (Commit remaining backend changes for BIP Detective Platform)
+    system,
     wallets,
     watchlists,
 )

@@ -32,11 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-<<<<<<< HEAD
 SCHEMA_VERSION = 19
-=======
-SCHEMA_VERSION = 7
->>>>>>> 8e9112c (Commit remaining backend changes for BIP Detective Platform)
 
 metadata = MetaData(
     naming_convention={
@@ -988,7 +984,6 @@ V5_TABLES = (
     research_model_usage,
 )
 
-<<<<<<< HEAD
 # ------------------------------------------------- v6: cases <-> research (ADR-030)
 
 investigation_research_runs = Table(
@@ -1672,143 +1667,3 @@ ever stored here; tests that exercise the supervised path with synthetic labels 
 
 V19_TABLES: list[Table] = [entity_label_events, signal_feature_snapshots, signal_ranking_runs]
 """Tables added in v19; later sections of this migration append to it."""
-=======
-
-# ---------------------------------------------------------------------------------------------
-# v6: investigation cases
-# ---------------------------------------------------------------------------------------------
-
-CASE_TYPES: tuple[str, ...] = (
-    "rugpull",
-    "hack_tracking",
-    "cluster",
-    "insider",
-    "ecosystem",
-    "sanctions_aml",
-    "mev_sandwich",
-    "flash_loan",
-    "nft_wash_trading",
-    "pump_dump",
-    "phishing_tracking",
-)
-CASE_STATUSES: tuple[str, ...] = ("open", "in_review", "closed", "archived")
-EVIDENCE_KINDS: tuple[str, ...] = ("verified_observation", "statistical_signal", "hypothesis")
-HYPOTHESIS_STATUSES: tuple[str, ...] = ("open", "supported", "refuted", "inconclusive")
-LEAD_STATUSES: tuple[str, ...] = ("new", "investigating", "resolved", "dismissed")
-
-cases = Table(
-    "cases",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("title", String(200), nullable=False),
-    Column("case_type", String(24), nullable=False),
-    Column("status", String(16), nullable=False),
-    Column("chain", String(32), nullable=True),
-    Column("summary", String(2000), nullable=True),
-    Column("template_version", String(16), nullable=False),
-    Column("created_by", String(80), nullable=False),
-    Column("created_at", UTCDateTime, nullable=False),
-    Column("updated_at", UTCDateTime, nullable=False),
-    Column("closed_at", UTCDateTime, nullable=True),
-    CheckConstraint(_in("case_type", CASE_TYPES), name="case_type"),
-    CheckConstraint(_in("status", CASE_STATUSES), name="status"),
-    Index(None, "case_type", "status"),
-)
-
-case_evidence = Table(
-    "case_evidence",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("case_id", Integer, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False),
-    Column("kind", String(24), nullable=False),
-    Column("chain", String(32), nullable=True),
-    Column("subject_type", String(24), nullable=False),
-    Column("subject_ref", String(200), nullable=False),
-    Column("description", String(1000), nullable=False),
-    Column("payload_json", Text, nullable=True),
-    Column("source_kind", String(24), nullable=False),
-    Column("provider_id", String(64), nullable=True),
-    Column("source_ref", String(300), nullable=True),
-    Column("raw_ref", String(100), nullable=True),
-    Column("collected_at", UTCDateTime, nullable=False),
-    Column("created_at", UTCDateTime, nullable=False),
-    CheckConstraint(_in("kind", EVIDENCE_KINDS), name="kind"),
-    Index(None, "case_id", "kind"),
-)
-"""Evidence attached to a case; provenance (source, provider, raw ref, collection time) required."""
-
-case_hypotheses = Table(
-    "case_hypotheses",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("case_id", Integer, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False),
-    Column("statement", String(1000), nullable=False),
-    Column("status", String(16), nullable=False),
-    Column("confidence", Float, nullable=True),
-    Column("evidence_ids_json", Text, nullable=False),
-    Column("created_by", String(80), nullable=False),
-    Column("created_at", UTCDateTime, nullable=False),
-    Column("updated_at", UTCDateTime, nullable=False),
-    CheckConstraint(_in("status", HYPOTHESIS_STATUSES), name="status"),
-    CheckConstraint("confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="conf"),
-    Index(None, "case_id", "status"),
-)
-"""Hypotheses are labelled as such; ``evidence_ids_json`` lists supporting case_evidence ids."""
-
-case_leads = Table(
-    "case_leads",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("case_id", Integer, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False),
-    Column("title", String(200), nullable=False),
-    Column("status", String(16), nullable=False),
-    Column("priority", Integer, nullable=False),
-    Column("subject_type", String(24), nullable=True),
-    Column("subject_ref", String(200), nullable=True),
-    Column("rationale", String(1000), nullable=True),
-    Column("source_evidence_id", Integer, ForeignKey("case_evidence.id"), nullable=True),
-    Column("created_at", UTCDateTime, nullable=False),
-    Column("updated_at", UTCDateTime, nullable=False),
-    CheckConstraint(_in("status", LEAD_STATUSES), name="status"),
-    CheckConstraint("priority BETWEEN 1 AND 5", name="priority"),
-    Index(None, "case_id", "status"),
-)
-
-V6_TABLES = (cases, case_evidence, case_hypotheses, case_leads)
-
-
-# ---------------------------------------------------------------------------------------------
-# v7: human-in-the-loop curation feedback
-# ---------------------------------------------------------------------------------------------
-
-CURATION_TARGETS: tuple[str, ...] = ("classification_label", "pattern_match")
-CURATION_DECISIONS: tuple[str, ...] = ("accepted", "rejected", "needs_evidence")
-
-curation_feedback = Table(
-    "curation_feedback",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("target_type", String(24), nullable=False),
-    Column("target_key", String(64), nullable=False),
-    Column("label", String(64), nullable=False),
-    Column("chain", String(32), nullable=True),
-    Column("address", String(100), nullable=True),
-    Column("decision", String(16), nullable=False),
-    Column("reviewer", String(80), nullable=False),
-    Column("note", String(500), nullable=True),
-    Column("model_ref", String(120), nullable=True),
-    Column("model_confidence", Float, nullable=True),
-    Column("snapshot_json", Text, nullable=False),
-    Column("training_label_id", Integer, ForeignKey("wallet_labels.id"), nullable=True),
-    Column("created_at", UTCDateTime, nullable=False),
-    CheckConstraint(_in("target_type", CURATION_TARGETS), name="target_type"),
-    CheckConstraint(_in("decision", CURATION_DECISIONS), name="decision"),
-    Index(None, "target_type", "target_key", "label"),
-)
-"""Append-only analyst verdicts on model classifications and pattern matches. ``snapshot_json``
-freezes what the analyst saw (prediction, confidence, evidence refs) so the signal keeps its
-provenance. ``training_label_id`` links the ``wallet_labels`` row written for accept/reject of a
-classification (human labels only; predictions are never written as labels)."""
-
-V7_TABLES = (curation_feedback,)
->>>>>>> 8e9112c (Commit remaining backend changes for BIP Detective Platform)
