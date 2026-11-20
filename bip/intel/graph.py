@@ -36,8 +36,11 @@ EVIDENCE_PER_EDGE = 10
 
 
 class _Builder:
-    def __init__(self, chain: str, max_nodes: int, max_edges: int) -> None:
+    def __init__(
+        self, chain: str, max_nodes: int, max_edges: int, evidence_cap: int = EVIDENCE_PER_EDGE
+    ) -> None:
         self.chain = chain
+        self.evidence_cap = evidence_cap
         self.nodes: dict[str, J] = {}
         self.edges: dict[tuple[str, str, str, str], J] = {}
         self.max_nodes = max_nodes
@@ -97,7 +100,7 @@ class _Builder:
         if t is not None:
             e["first_seen"] = min(e["first_seen"] or t, t)
             e["last_seen"] = max(e["last_seen"] or t, t)
-        if len(e["evidence"]) < EVIDENCE_PER_EDGE:
+        if len(e["evidence"]) < self.evidence_cap:
             e["evidence"].append({k: v for k, v in ev.items() if k != "verification_raw"})
 
     def finish(self) -> tuple[list[J], list[J]]:
@@ -122,6 +125,7 @@ def build_graph(
     depth: int = 1,
     max_nodes: int | None = None,
     max_edges: int | None = None,
+    evidence_cap: int = EVIDENCE_PER_EDGE,
     clock: Callable[[], float] = time.monotonic,
 ) -> J:
     ref = canonical_address(chain, address)
@@ -130,6 +134,7 @@ def build_graph(
         ref.chain,
         min(max_nodes or cfg.graph_max_nodes, cfg.graph_max_nodes),
         min(max_edges or cfg.graph_max_edges, cfg.graph_max_edges),
+        max(1, evidence_cap),
     )
     deadline = clock() + cfg.graph_timeout_s
     timed_out = False
@@ -197,6 +202,7 @@ def _ev(
     status: str,
 ) -> J:
     prov = Provenance.model_validate_json(prov_json)
+    raw = prov.raw_ref
     return {
         "tx_id": tx_id,
         "position": position,
@@ -205,6 +211,17 @@ def _ev(
         "amount_raw": str(amount) if amount is not None else None,
         "provider": prov.source_provider,
         "verification": label(status),
+        "verification_status": status,
+        "provider_response": {
+            "provider": prov.source_provider,
+            "endpoint_id": prov.source_endpoint_id,
+            "method": prov.source_method,
+            "request_id": prov.request_id,
+            "collected_at": prov.collected_at.isoformat(),
+            "raw_ref": raw.uri if raw else None,
+            "raw_row": raw.row if raw else None,
+            "content_hash": raw.content_hash if raw else None,
+        },
         "verification_raw": status,
     }
 

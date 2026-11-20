@@ -25,7 +25,15 @@ from bip.contracts.provenance import Provenance
 from bip.db import schema
 from bip.db.errors import InvalidRecordError, RecordNotFoundError
 from bip.db.repository import canonical_address
-from bip.intel import ANALYZER_VERSION, behaviour, flows, graph, opportunities, profile
+from bip.intel import (
+    ANALYZER_VERSION,
+    behaviour,
+    flows,
+    graph,
+    graph_explorer,
+    opportunities,
+    profile,
+)
 from bip.intel.anomaly import DETECTORS
 from bip.intel.common import J, iso, label
 from bip.intel.dataset import VERIFICATION_LABEL
@@ -279,6 +287,77 @@ def wallet_graph(
             max_nodes=max_nodes,
             max_edges=max_edges,
         ),
+    )
+
+
+def _explore(
+    ctx: AppContext,
+    chain: str,
+    address: str,
+    depth: int,
+    max_nodes: int | None,
+    max_edges: int | None,
+    since: datetime | None,
+    until: datetime | None,
+    status: list[str] | None,
+) -> J:
+    c, a = _wallet(ctx, chain, address)
+    for v in (since, until):
+        if v is not None and v.tzinfo is None:
+            raise InvalidRecordError("since/until must include a timezone (e.g. Z)")
+    try:
+        statuses = graph_explorer.parse_statuses(status)
+        built = graph.build_graph(
+            ctx.repo,
+            c,
+            a,
+            ctx.settings.intel,
+            depth=depth,
+            max_nodes=max_nodes,
+            max_edges=max_edges,
+            evidence_cap=graph_explorer.EXPLORER_EVIDENCE_CAP,
+        )
+        return graph_explorer.explore(built, since=since, until=until, statuses=statuses)
+    except ValueError as exc:
+        raise InvalidRecordError(str(exc)) from exc
+
+
+@router.get("/graph-explorer/{chain}/{address}")
+def explore_graph(
+    ctx: Context,
+    chain: ChainP,
+    address: AddressP,
+    depth: Annotated[int, Query(ge=1, le=3)] = 1,
+    max_nodes: Annotated[int | None, Query(ge=2, le=1000)] = None,
+    max_edges: Annotated[int | None, Query(ge=1, le=3000)] = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    status: Annotated[list[str] | None, Query(max_length=3)] = None,
+) -> J:
+    """Temporal graph: observations filtered by time window and evidence class."""
+    return envelope(
+        ctx, _explore(ctx, chain, address, depth, max_nodes, max_edges, since, until, status)
+    )
+
+
+@router.get("/graph-explorer/{chain}/{address}/nodes/{node_id}")
+def explore_graph_node(
+    ctx: Context,
+    chain: ChainP,
+    address: AddressP,
+    node_id: Annotated[str, Path(min_length=1, max_length=100)],
+    depth: Annotated[int, Query(ge=1, le=3)] = 1,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    status: Annotated[list[str] | None, Query(max_length=3)] = None,
+) -> J:
+    """Evidence trail for one node under the same filters: tx hashes, block range, providers."""
+    g = _explore(ctx, chain, address, depth, None, None, since, until, status)
+    trail = graph_explorer.inspect_node(g, node_id)
+    if trail is None:
+        raise RecordNotFoundError(f"node {node_id!r} is not in the filtered graph")
+    return envelope(
+        ctx, {"chain": g["chain"], "center": g["center"], "filters": g["filters"], **trail}
     )
 
 

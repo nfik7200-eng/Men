@@ -25,6 +25,7 @@ from bip.api.protection import ProtectionMiddleware
 from bip.api.routes import (
     auth,
     chains,
+    curation,
     dashboard,
     discovery,
     entities,
@@ -37,7 +38,11 @@ from bip.api.routes import (
     providers,
     research,
     settings_route,
+<<<<<<< HEAD
     system,
+=======
+    strategies,
+>>>>>>> 8e9112c (Commit remaining backend changes for BIP Detective Platform)
     wallets,
     watchlists,
 )
@@ -255,6 +260,8 @@ def create_app(
         entities,
         ml,
         research,
+        strategies,
+        curation,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

@@ -73,3 +73,20 @@ The owner's Contabo VPS (8 vCPU, 24 GB RAM, ~145 GB root disk, ~94% used at last
 
 - Agents use a typed, read-only tool API (query evidence, fetch entity profile, run approved analytical query templates). No raw SQL, no shell, no network egress except through approved tools.
 - Every agent conclusion must cite evidence IDs. Unsupported claims are labelled hypotheses.
+
+## 8. Persistent Git Workflow
+
+After completing a logical, tested unit of work:
+
+1. Inspect git status and the diff.
+2. Run the relevant tests and checks.
+3. Stage and commit the completed changes.
+4. Automatically push successful commits to: `origin/claude/modest-fermi-0yklvj`
+5. Never force push.
+6. Never use destructive commands that discard uncommitted work.
+7. Never amend or rewrite existing commits.
+8. Never push to another branch.
+9. If the branch is behind origin, stop and safely reconcile before pushing.
+10. If conflicts occur, preserve all work and report them.
+11. Never commit secrets, credentials, API keys, or local environment files.
+12. Report each commit and successful push.
