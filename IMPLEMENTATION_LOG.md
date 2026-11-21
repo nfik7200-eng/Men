@@ -4,6 +4,22 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-21 — Free provider expansion: owner onboarding checklist, ADR-052 and state docs
+
+**Done.** Across the branch `providers-expansion`: seven RPC-or-catalogue entries in the first batch (`validationcloud-eth`, `validationcloud-sol`, `ankr-sol`, `dwellir-eth`, `blockpi-eth`, `nodereal-eth` with adapters; `infstones-eth` catalogue only), then `chainbase` and `routescan` as catalogue entries, and a note on `infura-eth` that Infura Solana is limited to select customers. `dwellir-sol` was skipped (no Solana offering found). In this task: `docs/PROVIDER_ONBOARDING.md` (owner checklist: owner creates accounts and keys personally, no automated signups, keys only in `.env`, verify with the budgeted probe; Dune and Bitquery listed as not recommended), a second-batch section in `docs/PROVIDER_REGISTRY.md`, ADR-052 (Proposed), `CURRENT_STATE.md`. Review follow-ups: added the source URLs behind the `chainbase` and `routescan` notes to their `sources`; dropped the routescan "incompletely indexed" caveat because the research file names no page for it; removed a tautological `checked == len(ADAPTER_IDS)` assertion from the placeholder-host test. The plan file `docs/superpowers/plans/2026-11-21-free-provider-expansion-plan.md` is committed.
+
+**Checks (run after the final edit, offline).**
+```
+$ uv run --offline ruff check bip tests
+All checks passed!
+$ uv run --offline pyright bip/providers
+0 errors, 0 warnings, 0 informations
+$ uv run --offline pytest tests/stage2 -q
+137 passed in 166.15s (0:02:46)
+```
+
+**Not done.** No account or key was created, no live request or probe was made, so no new provider capability is verified; all facts are `search_derived`. Terms of several new providers were not reviewed in full. No adapter for Dune or Bitquery. The full test suite, frontend checks and `ruff format --check` were not re-run for this documentation and registry-data change.
+
 ## 2026-11-21 — ML training filters: framework and seven filters
 
 **Done.** `bip/ml/filters.py`: `Candidate` (generic adapter every trainer maps to), `FilterStep`/`StepResult`, the seven filters in fixed order (`human_verified`, `point_in_time`, `finite_values`, `feature_completeness`, `label_conflict`, `deduplicate`, `per_entity_cap`) and `run_pipeline(items, settings, now) -> (kept, report)`. The report is deterministic JSON (input sorted by key first, so shuffled input gives the same report), runs only `settings.filters.enabled` and always in pipeline order. `None` is missing, never 0; nothing is imputed. `MLSettings` gains `filters` (`enabled`, `max_missing_fraction` 0.5, `max_examples_per_entity` 5) and the flat `continuous_*` / `promotion_brier_tolerance` fields (defined only; used by a later task). Machine-origin set (`MACHINE_ORIGIN`) cites `training.py`, `research/engine.py` and the `entity_label_source` constraint; any status outside `labels.TRAINABLE` is also dropped (conservative). Tests: `tests/stage5/test_ml_filters.py` (42). Trainers are not wired yet.

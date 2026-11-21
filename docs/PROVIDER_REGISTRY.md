@@ -6,6 +6,17 @@ Status: **Research snapshot, 2026-11-03.**
 
 Nine providers were added to `bip/providers/registry.toml` as catalogue entries with no adapter and no configuration: `chainstack`, `drpc`, `moralis`, `coingecko`, `birdeye`, `getblock`, `solscan`, plus `dune` and `bitquery` (both not recommended: no free API tier). Keyless public endpoints already registered: PublicNode Ethereum (`ethereum-rpc.publicnode.com`, confirmed on publicnode.com 2026-11-21, free, archive via separate access) and Solana public (`api.mainnet.solana.com`, solana.com docs). PublicNode lists Solana, Base, Arbitrum, BNB and others at `<chain>.publicnode.com`, not yet registered because exact RPC hostnames per chain were not read. Free-tier figures were read from each provider's official pricing or docs page on 2026-11-21 (`documentation_basis = "official_docs"`, source URLs in each entry's `sources`). Birdeye's free-tier limits were not shown on its pricing page and stay unverified. Alchemy's free plan now reads 30M CU/month at 300 CU/s (about 15 requests/s) on its pricing page. No key was configured; the owner creates accounts and keys.
 
+## Catalogue additions (2026-11-21, second batch)
+
+Nine entries were added to `bip/providers/registry.toml` (`documentation_basis = "search_derived"`, checked 2026-11-21; sources in each entry's `sources`). Facts came from provider docs read as search excerpts or fetches; nothing was probed live and no account was created.
+
+- **RPC with an adapter (ordinary credentialed providers, key in the URL, host allow-listed):** `validationcloud-eth` and `validationcloud-sol` (50M compute units/month, 120 requests/s, no card, Solana archive stated as full), `ankr-sol` (docs conflict on whether the free plan serves Solana; verify with a key probe), `dwellir-eth` (100,000 responses/day, `eth_getLogs` not on Free), `blockpi-eth` (50M request units, monthly), `nodereal-eth` (10M CU/month, the lower of two conflicting figures).
+- **Catalogue only:** `infstones-eth` (host unknown until an endpoint exists; pricing page may be stale), `chainbase` (indexed API, 200,000 credits/month, Ethereum only; Solana unverified) and `routescan` (Etherscan-compatible, EVM only; keyless 2 requests/s, free key 5 requests/s; attribution needed unless private use). Indexed APIs are enrichment or backup, not independent RPC sources.
+- **Not added:** `dwellir-sol` (no Solana offering found) and `infura-sol` (Infura documents Solana as limited to select customers; recorded in the `infura-eth` notes).
+- **Still not recommended:** Dune (no API on the free plan) and Bitquery (7-day trial only). ADR-052 records that no adapter is built for either until the owner approves a paid plan or trial.
+- Terms for Validation Cloud, Dwellir, BlockPI, NodeReal, InfStones, Chainbase and Routescan were not reviewed in full; ToS URLs were not found for Chainbase, Routescan, NodeReal and InfStones, so their `terms_url` is the site root. Review terms before enabling any of them for bulk use.
+- Owner steps (accounts, keys, `.env`, verifying with the probe): `docs/PROVIDER_ONBOARDING.md`.
+
 ## Stage 5 note (2026-11-04)
 
 AI research reads provider state only through the `provider_status` tool, which reports Stage 4 probe connectivity and reliability and whether the data are offline fixtures. Research never calls providers. With no live probe, reports state that provider capabilities are unverified. A blocked development environment is never presented as a provider verdict.

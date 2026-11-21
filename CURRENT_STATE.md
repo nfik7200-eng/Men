@@ -1,8 +1,14 @@
 # Current State
 
-_Last updated: 2026-11-21 (state documents restored after a faulty rebase merge was repaired by forward commits; see the repair note below)_
+_Last updated: 2026-11-21 (free provider expansion added; state documents were restored after a faulty rebase merge, see the repair note below)_
 
 ## Phase
+**Free provider expansion, 2026-11-21 (branch `providers-expansion`, not merged, not pushed).**
+- **Registry.** Nine entries added to `bip/providers/registry.toml`: RPC with an adapter `validationcloud-eth`, `validationcloud-sol`, `ankr-sol`, `dwellir-eth`, `blockpi-eth`, `nodereal-eth`; catalogue only `infstones-eth`, `chainbase`, `routescan`. `dwellir-sol` and `infura-sol` were not added (no Solana offering found / Infura Solana limited to select customers). All facts are `search_derived`, checked 2026-11-21.
+- **Nothing is configured or probed.** No account or key exists; every new provider reports "requires configuration". No live request was made, so no new provider capability is verified.
+- **Owner steps** are in `docs/PROVIDER_ONBOARDING.md` (accounts and keys are created by the owner personally; verify afterwards with the budgeted `make probe`). ADR-052 (Proposed) records that Dune and Bitquery get no adapter until a paid plan or trial is approved.
+- **Tests:** `tests/stage2/test_free_provider_expansion.py` checks the entries and `.env.example` placeholder hosts offline.
+
 **Repair of the rebase merge, 2026-11-21: backend and frontend restored and verified; state documents rebuilt in this commit.**
 - **What went wrong.** A rebase of the local Detective work onto upstream `9765710` committed conflict markers (`b0c3f32`), overwrote this file and `IMPLEMENTATION_LOG.md` (`434ded3`), and dropped backend code (`b1d7fc3`). Measured at `b1d7fc3`: pytest 20 failed / 1033 passed, pyright 325 errors, ruff 15 errors, tsc 33 errors.
 - **What was done (forward commits, no history rewrite).** `7a666b7` restored the backend: union of the investigations routes (research-links plus the cases workbench) and the `curation_feedback` table; the local migrations 6 and 7 were renumbered to 20 and 21 because upstream already uses 6 and 7, so `SCHEMA_VERSION` was 21 at that commit (22 since the final review fix wave, which added repair migration 22; see ADR-051). `f4b2d6b` disposed an in-memory sqlite engine in `tests/investigations/test_models.py` that caused intermittent failures under `filterwarnings=error`. `5700e75` documented the curation and strategies routes in `docs/API_REFERENCE.md` (186 routes in 17 groups). `364108a` united the frontend (local `EvidenceClass` renamed `ExplorerEvidenceClass`, nav entries in `components/shell.tsx`, local `ConnectionBadge` superseded by upstream's `HealthProvider`). This commit restores the log, this file and the roadmap table.

@@ -132,7 +132,6 @@ def test_infura_solana_finding_is_recorded_on_infura_eth() -> None:
 def test_env_example_placeholder_hosts_are_allowed() -> None:
     env_text = (Path(__file__).resolve().parents[2] / ".env.example").read_text()
     placeholders = dict(re.findall(r"^# (BIP_PROVIDER_\w+)=(https?://\S+)", env_text, re.M))
-    checked = 0
     for pid in ADAPTER_IDS:
         spec = _spec(pid)
         assert spec.endpoint_env is not None
@@ -141,5 +140,3 @@ def test_env_example_placeholder_hosts_are_allowed() -> None:
         host = urlsplit(url).hostname
         assert host is not None
         assert host_allowed(host, spec.allowed_hosts), (pid, host)
-        checked += 1
-    assert checked == len(ADAPTER_IDS)

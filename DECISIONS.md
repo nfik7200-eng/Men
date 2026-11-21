@@ -707,3 +707,20 @@ The Stage 3 verification audit found three correctness problems.
 - Databases from either line upgrade to 22 with all tables present.
 - Version rows 6 and 7 in a repaired local-line database keep their local descriptions.
 - The analyst grant widens what analysts can do. Approval of this ADR, including that grant, is pending with the owner.
+
+## ADR-052 Widen the free RPC pool and keep Dune and Bitquery catalogue-only (Proposed; provider expansion, 2026-11-21)
+**Context.**
+- The router needs more independent free Ethereum and Solana sources than the existing PublicNode, Ankr, Alchemy, Infura, QuickNode and Helius entries.
+- An owner review proposed Dune for SQL validation and Bitquery behind an adapter during its trial.
+- Registry facts (checked 2026-11-21): Dune's free plan has no API access (API needs a 7-day trial or a plan from $65/month); Bitquery offers only a 7-day trial (1,000 API points, real-time only; paid plans from $29/month billed annually). Their low-tier licences restrict commercial use.
+
+**Decision.**
+- **Wider pool.** Register Validation Cloud (Ethereum and Solana), Ankr Solana, Dwellir (Ethereum), BlockPI and NodeReal as adapter-backed RPC entries; InfStones, Chainbase and Routescan as catalogue entries. Each is unconfigured until the owner creates a key (`docs/PROVIDER_ONBOARDING.md`). Facts are `search_derived` leads until a key probe confirms them.
+- **No Dune or Bitquery adapter** until the owner approves a paid plan or trial. Why: a 7-day trial cannot sustain ingestion, a free plan without an API cannot serve it, and both break the $0 target (CLAUDE.md section 2.1). They stay in the registry as catalogue entries marked "do not configure" so the decision stays visible.
+- **Hybrid architecture unchanged.** BIP's own ingestion stays the source of truth; indexed providers (Chainbase, Routescan, Etherscan, Blockscout and others) are enrichment and backup, which already matches `docs/DATA_ARCHITECTURE.md`.
+
+**Consequences.**
+- No new code path: all additions are registry data plus tests that check the entries.
+- Independence between the new providers is not established: operators differ, but upstream sharing cannot be ruled out. Cross-provider agreement is counted only per the registry's `infrastructure` rule.
+- Ankr Solana may need a paid plan (the docs conflict); if the probe fails it stays unconfigured.
+- Approval of this ADR is pending with the owner.
