@@ -502,6 +502,40 @@ class ProbeSettings(BaseModel):
     """Distance below the finalized slot for the single historical-block sample."""
 
 
+FilterName = Literal[
+    "human_verified",
+    "point_in_time",
+    "finite_values",
+    "feature_completeness",
+    "label_conflict",
+    "deduplicate",
+    "per_entity_cap",
+]
+FILTER_NAMES: tuple[FilterName, ...] = (
+    "human_verified",
+    "point_in_time",
+    "finite_values",
+    "feature_completeness",
+    "label_conflict",
+    "deduplicate",
+    "per_entity_cap",
+)
+"""Training-data filter names in pipeline order (the implementations are in ``bip.ml.filters``)."""
+
+
+class TrainingFilterSettings(BaseModel):
+    """Which training-data filters run and their thresholds (``BIP_ML__FILTERS__*``)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    enabled: tuple[FilterName, ...] = FILTER_NAMES
+    """Filters that run; they always run in pipeline order whatever the order given here."""
+    max_missing_fraction: Annotated[float, Field(ge=0.0, le=1.0)] = 0.5
+    """An example with a larger share of missing (``None``) features is dropped."""
+    max_examples_per_entity: Annotated[int, Field(ge=1, le=100_000)] = 5
+    """Newest examples kept per entity."""
+
+
 class MLSettings(BaseModel):
     """Wallet classification (``BIP_ML__*``). Models are trained only on request."""
 
@@ -526,6 +560,15 @@ class MLSettings(BaseModel):
     ranker is trained for that chain (below it the ranker is reported not ready)."""
     ranking_max_snapshots: Annotated[int, Field(ge=100, le=100_000)] = 5_000
     """Newest candidate feature snapshots one ranking evaluation reads (bounds its work)."""
+    filters: TrainingFilterSettings = TrainingFilterSettings()
+    continuous_training_enabled: bool = False
+    """Allow scheduled retraining of challenger models (off by default)."""
+    continuous_interval_hours: Annotated[int, Field(ge=1, le=24 * 30)] = 6
+    continuous_min_new_examples: Annotated[int, Field(ge=1, le=1_000_000)] = 20
+    """New filtered examples needed since the last run before a challenger is trained."""
+    promotion_brier_tolerance: Annotated[float, Field(ge=0.0, le=1.0)] = 0.005
+    """A challenger is promoted only if its Brier score is not worse than the champion's by more
+    than this."""
 
 
 class AISettings(BaseModel):
