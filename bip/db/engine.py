@@ -378,6 +378,14 @@ def _curation_feedback(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _repair_pre_merge_local_line(conn: Connection) -> None:
+    """v22: databases built on the pre-merge local line recorded cases as v6 and curation as v7,
+    so the upstream v6/v7 tables were never created there. Create any that are missing. Additive,
+    idempotent (a no-op on databases that already have them)."""
+    for table in schema.V6_TABLES + schema.V7_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -402,6 +410,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(19, "label history and human supervision", _supervision),
     Migration(20, "investigation cases, evidence, hypotheses and leads", _investigation_cases),
     Migration(21, "human-in-the-loop curation feedback", _curation_feedback),
+    Migration(22, "repair databases from the pre-merge local line", _repair_pre_merge_local_line),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

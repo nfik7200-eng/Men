@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 metadata = MetaData(
     naming_convention={

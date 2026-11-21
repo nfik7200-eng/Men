@@ -92,7 +92,7 @@ def test_version_six_data_survives_the_upgrade(tmp_path: Path) -> None:
                     updated_at=datetime.now(UTC),
                 )
             )
-        assert migrate(engine) == schema.SCHEMA_VERSION == 21
+        assert migrate(engine) == schema.SCHEMA_VERSION == 22
         with engine.connect() as conn:
             tables = set(
                 conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars()
@@ -359,5 +359,52 @@ def test_v19_rebuilds_the_v18_decision_table_keeps_every_row_and_renames_accepte
                     ),
                     {"s": rejected, "d": when},
                 )
+    finally:
+        engine.dispose()
+
+
+def test_a_database_from_the_pre_merge_local_line_gets_the_upstream_v6_v7_tables(
+    tmp_path: Path,
+) -> None:
+    """The local line recorded cases as v6 and curation as v7, so versions 6 and 7 look applied
+    although the upstream research-link and signals/alerts tables were never created."""
+    settings = load_settings(data_root=tmp_path / "data", env="test")
+    StorageRoot(settings.resolved_data_root).create()
+    path = database_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(URL.create("sqlite+pysqlite", database=str(path)))
+    _configure_sqlite(engine, settings.database.busy_timeout_ms)
+    try:
+        for migration in MIGRATIONS[:5]:
+            with engine.begin() as conn:
+                migration.apply(conn)
+                conn.execute(
+                    insert(schema.schema_migrations).values(
+                        version=migration.version,
+                        applied_at=datetime.now(UTC),
+                        description=migration.description,
+                    )
+                )
+        with engine.begin() as conn:
+            for table in schema.V20_TABLES + schema.V21_TABLES:
+                table.create(conn, checkfirst=True)
+            for version, description in (
+                (6, "investigation cases, evidence, hypotheses and leads"),
+                (7, "human-in-the-loop curation feedback"),
+            ):
+                conn.execute(
+                    insert(schema.schema_migrations).values(
+                        version=version, applied_at=datetime.now(UTC), description=description
+                    )
+                )
+        assert migrate(engine) == schema.SCHEMA_VERSION
+        with engine.connect() as conn:
+            tables = set(
+                conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars()
+            )
+            assert {t.name for t in schema.V6_TABLES + schema.V7_TABLES} <= tables
+            assert len(schema.V6_TABLES + schema.V7_TABLES) == 6
+            assert {t.name for t in schema.V20_TABLES + schema.V21_TABLES} <= tables
+        assert migrate(engine) == schema.SCHEMA_VERSION  # idempotent
     finally:
         engine.dispose()
