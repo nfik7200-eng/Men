@@ -1,0 +1,33 @@
+/* BIP design tokens. Dark only (owner decision 2026-11-06). Contrast measured in docs/FRONTEND_ARCHITECTURE.md §6.2. */
+:root {
+  color-scheme: dark;
+  --bg: #0b0f12;
+  --surface: #11171b;
+  --surface-2: #161e23;
+  --line: #1f2a30;
+  --line-2: #2a383f;
+  --text: #d9e3e6;
+  --muted: #84969c;
+  --faint: #7a8c92; /* >= 4.5:1 on --surface-2 */
+  --accent: #4fb8a8;
+  --accent-ink: #062320;
+  --ok: #57c08a;
+  --ok-bg: #11291d;
+  --warn: #d9ad4f;
+  --warn-bg: #2e2510;
+  --bad: #e2736b;
+  --bad-bg: #331615;
+  --info: #79a7e0;
+  --info-bg: #142336;
+  --idle: #93a3a8;
+  --idle-bg: #1b2428;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  --radius: 6px;
+  --radius-control: 4px;
+  --radius-panel: 8px;
+  --control-border: #566a72; /* >= 3:1 on --surface for form controls */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+  --fs-xs: 12px; --fs-sm: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 26px;
+  --target: 32px; /* minimum control height; raised to 44px for coarse pointers below */
+}

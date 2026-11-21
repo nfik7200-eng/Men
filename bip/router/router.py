@@ -1,0 +1,560 @@
+"""Quota- and capability-aware JSON-RPC routing.
+
+For each request the router builds the eligible set for ``(chain, method)``:
+the provider is enabled, has an adapter for the chain's protocol, lists the method,
+has a resolved endpoint, has not failed network-identity verification in this process, and is not
+in a rate-limit cooldown. Candidates are ordered healthy → untested → degraded → unavailable
+(failed providers are tried last, never first). It then:
+
+- verifies network identity (chain id / genesis hash) before a provider's first use;
+- spaces requests per provider by its ``client_rps`` (BIP's own politeness throttle);
+- retries transient failures with exponential backoff and full jitter, at most
+  ``rpc.max_attempts`` attempts per request in total;
+- on HTTP 429 / rate-limit errors, honours ``Retry-After`` (capped) as a provider cooldown and
+  fails over to the next eligible provider;
+- never retries ``invalid_request`` / ``not_available`` and never sends a method to a provider
+  that reported it unsupported;
+- records every outcome in :class:`ProviderStateStore`;
+- runs requests sequentially (no parallel fan-out).
+
+A :class:`CallBudget` bounds total calls and wall-clock time for one ingestion run.
+"""
+
+from __future__ import annotations
+
+import random
+import threading
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from bip.chains.identity import EXPECTED_IDENTITY, identity_matches
+from bip.config.settings import Settings
+from bip.core.exceptions import BIPError
+from bip.core.logging import get_logger
+from bip.db.types import utcnow
+from bip.providers.registry import ProviderSpec, Registry, is_write_capable
+from bip.providers.state import ProviderState, ProviderStateStore
+from bip.providers.status import ProviderView, compute_view
+from bip.rpc.jsonrpc import RpcError, RpcRequest, classify_http_status, parse_response
+from bip.rpc.transport import Transport, TransportError
+
+log = get_logger("bip.router")
+
+IDENTITY_TTL_S = 3600.0
+INLINE_RETRY_AFTER_MAX_S = 5.0
+_RANK = {"healthy": 0, "untested": 1, "degraded": 2, "unavailable": 3}
+
+
+class NoEligibleProviderError(BIPError):
+    def __init__(self, chain: str, method: str, reasons: Mapping[str, str]) -> None:
+        detail = "; ".join(f"{k}: {v}" for k, v in reasons.items()) or "no providers registered"
+        super().__init__(f"no eligible provider for {chain} {method} ({detail})")
+        self.chain = chain
+        self.method = method
+        self.reasons = dict(reasons)
+
+
+class RoutingFailedError(BIPError):
+    """Every attempt failed. ``last_error`` explains the final failure."""
+
+    def __init__(self, chain: str, method: str, attempts: list[str]) -> None:
+        super().__init__(
+            f"{chain} {method} failed after {len(attempts)} attempt(s): " + " | ".join(attempts)
+        )
+        self.attempts = attempts
+
+
+class BudgetExhaustedError(BIPError):
+    pass
+
+
+@dataclass
+class CallBudget:
+    max_calls: int
+    deadline: float
+    calls: int = 0
+
+    @classmethod
+    def create(
+        cls, max_calls: int, seconds: float, clock: Callable[[], float] = time.monotonic
+    ) -> CallBudget:
+        return cls(max_calls=max_calls, deadline=clock() + seconds)
+
+    def take(self, clock: Callable[[], float]) -> None:
+        if self.calls >= self.max_calls:
+            raise BudgetExhaustedError(f"RPC call budget of {self.max_calls} exhausted")
+        if clock() >= self.deadline:
+            raise BudgetExhaustedError("run deadline reached")
+        self.calls += 1
+
+
+@dataclass(frozen=True, slots=True)
+class RpcOutcome:
+    result: object
+    provider_id: str
+    method: str
+    latency_ms: int
+    raw: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeResponse:
+    """Everything observed for one probe request. Never raises for provider-side failures."""
+
+    provider_id: str
+    method: str
+    sent: bool
+    """False when BIP refused to send (see ``refused``); no request left the process."""
+    refused: str | None = None
+    http_status: int | None = None
+    latency_ms: int | None = None
+    has_result: bool = False
+    result: object = None
+    rpc_error_class: str | None = None
+    rpc_error_code: int | None = None
+    rpc_error_message: str | None = None
+    transport_failure: str | None = None
+    transport_detail: str | None = None
+    retry_after_s: float | None = None
+    response_bytes: int | None = None
+
+
+@dataclass
+class _ProviderRuntime:
+    next_slot: float = 0.0
+    cooldown_until: float = 0.0
+    half_open_until: float = 0.0
+    """While set in the future, a half-open trial call is in flight; others must wait."""
+    identity_ok_at: float | None = None
+    identity_failed: bool = False
+    unsupported: set[str] = field(default_factory=set[str])
+
+
+class ProviderRouter:
+    def __init__(
+        self,
+        registry: Registry,
+        settings: Settings,
+        transport: Transport,
+        state: ProviderStateStore | None = None,
+        *,
+        environ: Mapping[str, str] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+        rng: Callable[[], float] = random.random,
+        wall_clock: Callable[[], datetime] = utcnow,
+    ) -> None:
+        self._registry = registry
+        self._cfg = settings.rpc
+        self._circuits = settings.router.circuit_breakers_enabled
+        self._transport = transport
+        self._state = state
+        self._environ = environ
+        self._clock = clock
+        self._sleep = sleep
+        self._rng = rng
+        self._wall_clock = wall_clock
+        self._runtime: dict[str, _ProviderRuntime] = {}
+        self._lock = threading.Lock()
+        self._next_id = 0
+
+    @property
+    def environ(self) -> Mapping[str, str] | None:
+        return self._environ
+
+    # ------------------------------------------------------------------ selection
+
+    def _rt(self, provider_id: str) -> _ProviderRuntime:
+        return self._runtime.setdefault(provider_id, _ProviderRuntime())
+
+    def _states(self) -> dict[str, ProviderState]:
+        return self._state.states() if self._state is not None else {}
+
+    def _count_only(self, provider_id: str) -> None:
+        if self._state is not None:
+            try:
+                self._state.count_request(provider_id, ok=False)
+            except Exception:  # noqa: BLE001 - accounting must never break a call
+                log.warning("could not count a request for %s", provider_id)
+
+    def _usage_today(self) -> dict[str, int]:
+        if self._state is None or not self._cfg.daily_request_budgets:
+            return {}
+        return self._state.usage_today()
+
+    def view(self, spec: ProviderSpec, states: Mapping[str, ProviderState]) -> ProviderView:
+        return compute_view(spec, states.get(spec.id), self._environ)
+
+    def eligible(self, chain: str, method: str) -> tuple[list[ProviderView], dict[str, str]]:
+        """Providers that may serve ``method`` now, and why the others may not.
+
+        Listing never claims a half-open circuit's trial call; :meth:`call` claims it only for
+        the provider it is about to send to.
+        """
+        states = self._states()
+        now = self._clock()
+        used = self._usage_today()
+        usable: list[ProviderView] = []
+        reasons: dict[str, str] = {}
+        for spec in self._registry.for_chain(chain):
+            v = self.view(spec, states)
+            rt = self._rt(spec.id)
+            if not v.enabled:
+                reasons[spec.id] = "disabled"
+            elif not spec.has_adapter:
+                reasons[spec.id] = "no adapter"
+            elif method not in spec.methods:
+                reasons[spec.id] = f"{method} not supported"
+            elif method in rt.unsupported:
+                reasons[spec.id] = f"{method} reported unsupported by provider"
+            elif v.resolution.endpoint is None:
+                reasons[spec.id] = v.resolution.reason
+            elif rt.identity_failed:
+                reasons[spec.id] = "network identity mismatch"
+            elif rt.cooldown_until > now:
+                reasons[spec.id] = f"rate-limited for {rt.cooldown_until - now:.0f}s"
+            elif (left := self._circuit_open_for(states.get(spec.id))) is not None:
+                reasons[spec.id] = f"circuit open for {left:.0f}s after repeated failures"
+            elif (cap := self._cfg.daily_request_budgets.get(spec.id)) is not None and used.get(
+                spec.id, 0
+            ) >= cap:
+                reasons[spec.id] = f"daily request budget reached ({cap} requests)"
+            elif self._trial_in_flight(spec.id, states.get(spec.id), now):
+                reasons[spec.id] = "circuit half-open: a trial call is already in flight"
+            else:
+                usable.append(v)
+        usable.sort(key=lambda v: (_RANK.get(v.lifecycle, 9), v.state.consecutive_failures))
+        return usable, reasons
+
+    def _circuit_open_for(self, state: ProviderState | None) -> float | None:
+        """Seconds left on an open circuit, or ``None`` when calls may go through.
+
+        The circuit is derived from persisted state (consecutive failures and the time of the last
+        one), so it survives a restart. Once ``circuit_open_s`` has passed since the last failure
+        the next call is let through (half-open); its outcome closes or reopens the circuit.
+        """
+        if not self._circuits or state is None or state.last_failure_at is None:
+            return None
+        if state.consecutive_failures < self._cfg.circuit_failure_threshold:
+            return None
+        elapsed = (self._wall_clock() - state.last_failure_at).total_seconds()
+        left = self._cfg.circuit_open_s - elapsed
+        return left if left > 0 else None
+
+    def _tripped(self, state: ProviderState | None) -> bool:
+        return (
+            self._circuits
+            and state is not None
+            and state.last_failure_at is not None
+            and state.consecutive_failures >= self._cfg.circuit_failure_threshold
+        )
+
+    def _trial_in_flight(self, provider_id: str, state: ProviderState | None, now: float) -> bool:
+        if not self._tripped(state):
+            return False
+        with self._lock:
+            return self._rt(provider_id).half_open_until > now
+
+    def _claim_half_open(self, provider_id: str, state: ProviderState | None, now: float) -> bool:
+        """Let exactly one trial call through a half-open circuit (a tripped circuit whose open
+        window has passed). The claim expires after the request deadline, so a lost call cannot
+        keep the circuit shut; the trial's outcome closes or reopens the circuit."""
+        if not self._tripped(state):
+            return True
+        with self._lock:
+            rt = self._rt(provider_id)
+            if rt.half_open_until > now:
+                return False
+            rt.half_open_until = now + self._cfg.timeout_s * 3
+            return True
+
+    # ------------------------------------------------------------------ calls
+
+    def call(
+        self,
+        chain: str,
+        method: str,
+        params: list[object] | dict[str, object],
+        *,
+        budget: CallBudget | None = None,
+        provider_id: str | None = None,
+    ) -> RpcOutcome:
+        """Route one read-only request. ``provider_id`` pins the provider (no failover)."""
+        found, reasons = self.eligible(chain, method)
+        candidates: list[ProviderView] = found
+        if provider_id is not None:
+            candidates = [v for v in candidates if v.spec.id == provider_id]
+            if not candidates:
+                reasons = {provider_id: reasons.get(provider_id, "not registered for this chain")}
+        if not candidates:
+            raise NoEligibleProviderError(chain, method, reasons)
+
+        attempts: list[str] = []
+        attempt = 0
+        index = 0
+        while attempt < self._cfg.max_attempts and candidates:
+            view = candidates[index % len(candidates)]
+            spec = view.spec
+            if not self._claim_half_open(spec.id, self._states().get(spec.id), self._clock()):
+                # another caller holds this provider's half-open trial call
+                reasons[spec.id] = "circuit half-open: a trial call is already in flight"
+                candidates = [c for c in candidates if c.spec.id != spec.id]
+                continue
+            attempt += 1
+            try:
+                self._ensure_identity(chain, view, budget)
+                outcome = self._send(view, method, params, budget)
+                return outcome
+            except BudgetExhaustedError:
+                raise
+            except RpcError as exc:
+                attempts.append(f"{spec.id}: {exc.error_class} ({exc})")
+                exc.provider_id = spec.id
+                if exc.error_class in {"invalid_request", "not_available", "range_too_large"}:
+                    raise
+                if exc.error_class == "method_unsupported":
+                    self._rt(spec.id).unsupported.add(method)
+                    candidates = [c for c in candidates if c.spec.id != spec.id]
+                    continue
+                if exc.error_class == "unauthorized":
+                    candidates = [c for c in candidates if c.spec.id != spec.id]
+                    continue
+                if exc.error_class == "rate_limited":
+                    others = [c for c in candidates if c.spec.id != spec.id]
+                    if others:
+                        candidates = others
+                        continue
+                    wait = self._rt(spec.id).cooldown_until - self._clock()
+                    if wait > INLINE_RETRY_AFTER_MAX_S:
+                        break  # honour Retry-After: do not hammer a throttled provider
+                    self._sleep(max(wait, 0.0))
+                    self._rt(spec.id).cooldown_until = 0.0
+                    continue
+                self._backoff(attempt)
+                index += 1
+            except _IdentityMismatchError as exc:
+                attempts.append(f"{spec.id}: {exc}")
+                candidates = [c for c in candidates if c.spec.id != spec.id]
+            except TransportError as exc:
+                attempts.append(f"{spec.id}: {exc.kind}")
+                if exc.kind in {"unsafe_destination", "redirect", "too_large"}:
+                    candidates = [c for c in candidates if c.spec.id != spec.id]
+                    continue
+                self._backoff(attempt)
+                index += 1
+        if not attempts:  # every candidate's half-open trial was held by another caller
+            raise NoEligibleProviderError(chain, method, reasons)
+        raise RoutingFailedError(chain, method, attempts)
+
+    def _backoff(self, attempt: int) -> None:
+        cap = min(self._cfg.backoff_cap_s, self._cfg.backoff_base_s * (2 ** (attempt - 1)))
+        self._sleep(cap * self._rng())
+
+    def _ensure_identity(self, chain: str, view: ProviderView, budget: CallBudget | None) -> None:
+        rt = self._rt(view.spec.id)
+        now = self._clock()
+        if rt.identity_ok_at is not None and now - rt.identity_ok_at < IDENTITY_TTL_S:
+            return
+        check = EXPECTED_IDENTITY[chain]
+        outcome = self._send(view, check.method, [], budget)
+        if not identity_matches(chain, outcome.result):
+            rt.identity_failed = True
+            self._record(
+                view.spec.id, ok=False, latency_ms=outcome.latency_ms, outcome="network_mismatch"
+            )
+            raise _IdentityMismatchError(
+                f"expected {check.label}, got {str(outcome.result)[:80]!r}"
+            )
+        rt.identity_ok_at = now
+
+    def _send(
+        self,
+        view: ProviderView,
+        method: str,
+        params: list[object] | dict[str, object],
+        budget: CallBudget | None,
+    ) -> RpcOutcome:
+        spec = view.spec
+        endpoint = view.resolution.endpoint
+        assert endpoint is not None  # noqa: S101 - guaranteed by eligible()
+        rt = self._rt(spec.id)
+        if budget is not None:
+            budget.take(self._clock)
+        interval = 1.0 / spec.client_rps if spec.client_rps else 0.25
+        with self._lock:
+            now = self._clock()
+            wait = rt.next_slot - now
+            rt.next_slot = max(now, rt.next_slot) + interval
+            self._next_id += 1
+            request = RpcRequest(self._next_id, method, params)
+        if wait > 0:
+            self._sleep(wait)
+        try:
+            response = self._transport.post_json(
+                endpoint,
+                request.encode(),
+                timeout_s=self._cfg.timeout_s,
+                max_bytes=self._cfg.max_response_bytes,
+            )
+        except TransportError as exc:
+            self._record(spec.id, ok=False, latency_ms=None, outcome=f"transport_{exc.kind}")
+            raise
+        http_class = classify_http_status(response.status)
+        if http_class is not None:
+            if http_class == "rate_limited":
+                retry_after = response.retry_after_s
+                cooldown = min(
+                    retry_after if retry_after is not None else 10.0, self._cfg.max_retry_after_s
+                )
+                rt.cooldown_until = self._clock() + cooldown
+            self._record(
+                spec.id, ok=False, latency_ms=response.elapsed_ms, outcome=f"http_{response.status}"
+            )
+            raise RpcError(http_class, f"HTTP {response.status}")
+        try:
+            result = parse_response(response.body, request)
+        except RpcError as exc:
+            if exc.error_class == "rate_limited":
+                rt.cooldown_until = self._clock() + min(10.0, self._cfg.max_retry_after_s)
+            self._record(
+                spec.id,
+                ok=not exc.counts_against_provider,
+                latency_ms=response.elapsed_ms,
+                outcome=f"rpc_{exc.error_class}",
+            )
+            raise
+        self._record(spec.id, ok=True, latency_ms=response.elapsed_ms, outcome="ok")
+        return RpcOutcome(result, spec.id, method, response.elapsed_ms, response.body)
+
+    # ------------------------------------------------------------------ probing
+
+    def probe(
+        self,
+        spec: ProviderSpec,
+        method: str,
+        params: list[object] | dict[str, object],
+        *,
+        timeout_s: float,
+        max_bytes: int,
+        min_interval_s: float,
+    ) -> ProbeResponse:
+        """Send exactly one read-only request to ``spec`` (no retries, no failover, no identity
+        side-call) and return what happened. Used by the capability prober.
+
+        Refuses (without sending) methods outside the provider's read-only allow-list,
+        write-capable methods, disabled or unconfigured providers, and providers in a
+        rate-limit cooldown.
+        """
+        if is_write_capable(method) or method not in spec.methods:
+            return ProbeResponse(spec.id, method, False, refused="method not in allow-list")
+        view = self.view(spec, self._states())
+        if not view.enabled:
+            return ProbeResponse(spec.id, method, False, refused="provider disabled")
+        endpoint = view.resolution.endpoint
+        if not spec.has_adapter or endpoint is None:
+            return ProbeResponse(spec.id, method, False, refused="provider not configured")
+        cap = self._cfg.daily_request_budgets.get(spec.id)
+        if cap is not None and self._usage_today().get(spec.id, 0) >= cap:
+            return ProbeResponse(spec.id, method, False, refused="daily request budget reached")
+        rt = self._rt(spec.id)
+        interval = max(1.0 / spec.client_rps if spec.client_rps else 0.25, min_interval_s)
+        with self._lock:
+            now = self._clock()
+            if rt.cooldown_until > now:
+                return ProbeResponse(
+                    spec.id, method, False, refused="provider is in a rate-limit cooldown"
+                )
+            wait = rt.next_slot - now
+            rt.next_slot = max(now, rt.next_slot) + interval
+            self._next_id += 1
+            request = RpcRequest(self._next_id, method, params)
+        if wait > 0:
+            self._sleep(wait)
+        try:
+            response = self._transport.post_json(
+                endpoint, request.encode(), timeout_s=timeout_s, max_bytes=max_bytes
+            )
+        except TransportError as exc:
+            self._record(spec.id, ok=False, latency_ms=None, outcome=f"transport_{exc.kind}")
+            # the message after "(host): " never contains the URL; the host itself is dropped
+            detail = str(exc).split("): ", 1)[-1][:200]
+            return ProbeResponse(
+                spec.id, method, True, transport_failure=exc.kind, transport_detail=detail
+            )
+        status, elapsed, size = response.status, response.elapsed_ms, len(response.body)
+        http_class = classify_http_status(response.status)
+        if http_class is not None:
+            retry_after = response.retry_after_s
+            if http_class == "rate_limited":
+                cooldown = retry_after if retry_after is not None else 10.0
+                rt.cooldown_until = self._clock() + min(cooldown, self._cfg.max_retry_after_s)
+                self._count_only(spec.id)
+            else:  # a rate limit is a usage policy, not an outage: lifecycle stays unchanged
+                self._record(
+                    spec.id,
+                    ok=False,
+                    latency_ms=response.elapsed_ms,
+                    outcome=f"http_{response.status}",
+                )
+            return ProbeResponse(
+                spec.id,
+                method,
+                True,
+                http_status=status,
+                latency_ms=elapsed,
+                response_bytes=size,
+                rpc_error_class=http_class,
+                retry_after_s=retry_after,
+            )
+        try:
+            result = parse_response(response.body, request)
+        except RpcError as exc:
+            unhealthy = method == "getHealth" and any(
+                w in str(exc).lower() for w in ("behind", "unhealthy")
+            )  # Solana reports node lag on getHealth with -32005; that is not a rate limit
+            if exc.error_class == "rate_limited" and not unhealthy:
+                rt.cooldown_until = self._clock() + min(10.0, self._cfg.max_retry_after_s)
+                self._count_only(spec.id)
+            else:
+                self._record(
+                    spec.id,
+                    ok=not exc.counts_against_provider,
+                    latency_ms=response.elapsed_ms,
+                    outcome=f"rpc_{exc.error_class}",
+                )
+            return ProbeResponse(
+                spec.id,
+                method,
+                True,
+                http_status=status,
+                latency_ms=elapsed,
+                response_bytes=size,
+                rpc_error_class=exc.error_class,
+                rpc_error_code=exc.code,
+                rpc_error_message=str(exc)[:200],
+            )
+        self._record(spec.id, ok=True, latency_ms=response.elapsed_ms, outcome="ok")
+        return ProbeResponse(
+            spec.id,
+            method,
+            True,
+            http_status=status,
+            latency_ms=elapsed,
+            response_bytes=size,
+            has_result=True,
+            result=result,
+        )
+
+    def _record(self, provider_id: str, *, ok: bool, latency_ms: int | None, outcome: str) -> None:
+        if self._state is None:
+            return
+        try:
+            self._state.record_call(provider_id, ok=ok, latency_ms=latency_ms, outcome=outcome)
+        except BIPError as exc:  # recording must never break a read, but must be visible
+            log.warning("could not record provider outcome for %s: %s", provider_id, exc)
+
+
+class _IdentityMismatchError(BIPError):
+    pass

@@ -1,0 +1,10 @@
+# /etc/systemd/system/bip-backup-offsite.timer
+[Unit]
+Description=Daily off-disk copy of BIP backups
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

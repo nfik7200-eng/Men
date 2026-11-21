@@ -1,0 +1,21 @@
+# BIP Task 2 Design Doc: Advanced Strategy Extraction & Wallet Classification Engine
+
+- Intent: Implement Task 2 of the BIP plan: advanced strategy extraction and wallet classification modules (`classifier.py`, `copy_trader.py`, `meme_trader.py`, `dev_tracker.py`), and corresponding tests (`tests/stage5/test_advanced_strategies.py`).
+- Goals:
+  - Provide robust heuristic & signal extraction for specific sophisticated actor types: Copy Traders, Meme Traders, Developers/Deployers, and Investors.
+  - Implement copy-trade signal evaluation (detecting top-performing target wallets, timing, sizing, win rates).
+  - Implement meme momentum detection (identifying early entries into high-velocity tokens, DEX liquidity events, holder acceleration).
+  - Implement developer activity tracking (contract deployments, funding paths, GitHub metadata integration or stubbing, upgrade authority checks).
+  - Integrate cleanly with existing BIP data structures (`WalletDataset`, transactions, transfers, contract creations, features) adhering to all BIP principles ($0 cost, provenance, non-zero missingness, evidence tagging).
+- Non-Goals:
+  - Executing real trades or connecting to live brokerages (BIP is intelligence-only).
+  - Training deep black-box neural networks without deterministic feature bases.
+- Approaches considered:
+  - Approach A: Monolithic classification script. (Rejected: couples concerns, violates modular design standards).
+  - Approach B: Dedicated strategy modules under `bip/strategies/` (`classifier.py`, `copy_trader.py`, `meme_trader.py`, `dev_tracker.py`) with clean, tested interfaces. (Selected: matches BIP architecture, small independently testable modules).
+- Design decisions:
+  - `bip/strategies/classifier.py`: Extends wallet profiling with strategy-specific classification (`copy_target`, `meme_trader`, `investor`, `dev_tracker`, `detective`).
+  - `bip/strategies/copy_trader.py`: Evaluates copy trading signals based on historical consistency, profit signals, and frequency of replication.
+  - `bip/strategies/meme_trader.py`: Detects early token buys, high velocity DEX swaps, and quick rotation patterns.
+  - `bip/strategies/dev_tracker.py`: Tracks contract deployments, deployer funding source, and GitHub activity/codebase links.
+  - Test suite in `tests/stage5/test_advanced_strategies.py`: Comprehensive test coverage using builders and fixtures.
