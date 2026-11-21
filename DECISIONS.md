@@ -712,7 +712,8 @@ The Stage 3 verification audit found three correctness problems.
 **Context.**
 - The router needs more independent free Ethereum and Solana sources than the existing PublicNode, Ankr, Alchemy, Infura, QuickNode and Helius entries.
 - An owner review proposed Dune for SQL validation and Bitquery behind an adapter during its trial.
-- Registry facts (checked 2026-11-21): Dune's free plan has no API access (API needs a 7-day trial or a plan from $65/month); Bitquery offers only a 7-day trial (1,000 API points, real-time only; paid plans from $29/month billed annually). Their low-tier licences restrict commercial use.
+- Registry facts (checked 2026-11-21): Dune's free plan has no API access (API needs a 7-day trial or a plan from $65/month); Bitquery offers only a 7-day trial (1,000 API points, real-time only; paid plans from $29/month billed annually).
+- Unverified, not recorded in the registry: the owner's 2026-11-21 provider review reports that Dune's lower plans are for internal use and Bitquery's $49 Personal plan is non-commercial. To be confirmed before any paid plan is approved.
 
 **Decision.**
 - **Wider pool.** Register Validation Cloud (Ethereum and Solana), Ankr Solana, Dwellir (Ethereum), BlockPI and NodeReal as adapter-backed RPC entries; InfStones, Chainbase and Routescan as catalogue entries. Each is unconfigured until the owner creates a key (`docs/PROVIDER_ONBOARDING.md`). Facts are `search_derived` leads until a key probe confirms them.
