@@ -44,6 +44,8 @@ ANALYST_WRITE = tuple(
         r"^/entities/memory/refresh/",
         r"^/relationships/rebuild$",
         r"^/entities/labels(/|$)",
+        r"^/cases(/|$)",
+        r"^/curation/feedback$",
     )
 )
 

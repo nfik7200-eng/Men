@@ -140,7 +140,7 @@ Parameters: `chain` (path, required): string (len>=1, len<=32)
 | Method | Path | Role | Summary |
 |---|---|---|---|
 | GET | `/api/v1/curation/feedback` | viewer | List Feedback |
-| POST | `/api/v1/curation/feedback` | admin | Submit Feedback |
+| POST | `/api/v1/curation/feedback` | analyst | Submit Feedback |
 | GET | `/api/v1/curation/queue` | viewer | Queue |
 | GET | `/api/v1/curation/stats` | viewer | Stats |
 
@@ -656,22 +656,22 @@ Parameters: `watchlist_id` (path, required): integer (>=1, <=9007199254740992)
 | Method | Path | Role | Summary |
 |---|---|---|---|
 | GET | `/api/v1/cases` | viewer | List Cases |
-| POST | `/api/v1/cases` | admin | Create Case |
+| POST | `/api/v1/cases` | analyst | Create Case |
 | GET | `/api/v1/cases/templates` | viewer | List Case Templates |
 | GET | `/api/v1/cases/templates/{case_type}` | viewer | Get Case Template |
-| DELETE | `/api/v1/cases/{case_id}` | admin | Delete Case |
+| DELETE | `/api/v1/cases/{case_id}` | analyst | Delete Case |
 | GET | `/api/v1/cases/{case_id}` | viewer | Get Case |
-| PATCH | `/api/v1/cases/{case_id}` | admin | Update Case |
+| PATCH | `/api/v1/cases/{case_id}` | analyst | Update Case |
 | GET | `/api/v1/cases/{case_id}/evidence` | viewer | List Evidence |
-| POST | `/api/v1/cases/{case_id}/evidence` | admin | Add Case Evidence |
-| DELETE | `/api/v1/cases/{case_id}/evidence/{evidence_id}` | admin | Delete Case Evidence |
+| POST | `/api/v1/cases/{case_id}/evidence` | analyst | Add Case Evidence |
+| DELETE | `/api/v1/cases/{case_id}/evidence/{evidence_id}` | analyst | Delete Case Evidence |
 | GET | `/api/v1/cases/{case_id}/evidence/{evidence_id}` | viewer | Get Case Evidence |
 | GET | `/api/v1/cases/{case_id}/hypotheses` | viewer | List Hypotheses |
-| POST | `/api/v1/cases/{case_id}/hypotheses` | admin | Add Hypothesis |
-| PATCH | `/api/v1/cases/{case_id}/hypotheses/{hypothesis_id}` | admin | Update Hypothesis |
+| POST | `/api/v1/cases/{case_id}/hypotheses` | analyst | Add Hypothesis |
+| PATCH | `/api/v1/cases/{case_id}/hypotheses/{hypothesis_id}` | analyst | Update Hypothesis |
 | GET | `/api/v1/cases/{case_id}/leads` | viewer | List Leads |
-| POST | `/api/v1/cases/{case_id}/leads` | admin | Add Lead |
-| PATCH | `/api/v1/cases/{case_id}/leads/{lead_id}` | admin | Update Lead |
+| POST | `/api/v1/cases/{case_id}/leads` | analyst | Add Lead |
+| PATCH | `/api/v1/cases/{case_id}/leads/{lead_id}` | analyst | Update Lead |
 | GET | `/api/v1/investigations` | viewer | List Investigations |
 | POST | `/api/v1/investigations` | analyst | Create Investigation |
 | POST | `/api/v1/investigations/run` | analyst | Run Investigation: Open a case from a template and run the automated scan over locally stored data. |

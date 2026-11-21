@@ -27,6 +27,8 @@ const ANALYST_WRITE: RegExp[] = [
   /^\/entities\/memory\/refresh\//,
   /^\/relationships\/rebuild$/,
   /^\/entities\/labels(\/|$)/,
+  /^\/cases(\/|$)/,
+  /^\/curation\/feedback$/,
 ];
 
 /** Role needed for `method` on `path` (relative to /api/v1, without the query string); null if public. */
