@@ -68,6 +68,30 @@ class Example:
     ``None`` when the rules could not be evaluated for it."""
 
 
+@dataclass
+class Challenger:
+    """A fitted model that is not registered yet: everything :meth:`Trainer.register` needs, plus
+    the test split so a caller can compare it with the model currently served."""
+
+    run_id: int
+    name: str
+    chain: str
+    data_kind: str
+    params: J
+    dataset: J
+    dataset_version: str
+    artifact: J
+    modelled: dict[str, LabelModel]
+    skipped: dict[str, str]
+    evals: list[J]
+    summary: J
+    test_examples: list[Example]
+
+    def test_metrics(self) -> dict[str, J]:
+        """Per-label metrics on the test split."""
+        return {e["label"]: e["metrics"] for e in self.evals if e["split"] == "test"}
+
+
 def _rule_hits(repo: Repository, ds: Any, fv: FeatureVector) -> frozenset[str] | None:
     """What the transparent rule baseline says about a wallet at ``fv.as_of`` (point in time)."""
     try:
@@ -190,7 +214,29 @@ class Trainer:
 
     # ------------------------------------------------------------------ training
 
+    def eligible_examples(self, chain: str) -> tuple[list[Example], J]:
+        """Real-label examples that survive the training filters, and the filter report.
+        Reading only; the same data :meth:`fit` trains on."""
+        return self._filtered(self._stored(chain))
+
     def train(self, chain: str, source: str, *, seed: int = 7) -> J:
+        """Fit and register in one step (the manual training endpoint)."""
+        fitted = self.fit(chain, source, seed=seed)
+        return fitted if isinstance(fitted, dict) else self.register(fitted)
+
+    def fit(
+        self,
+        chain: str,
+        source: str,
+        *,
+        seed: int = 7,
+        prepared: tuple[list[Example], J] | None = None,
+    ) -> Challenger | J:
+        """Evaluate without registering: record the run, filter, apply the data gate, split and
+        fit. Returns the finished run result when no model can be made (``insufficient_data``),
+        otherwise a :class:`Challenger` whose run is still ``running``: the caller must call
+        :meth:`register` or :meth:`reject` on it. ``prepared`` is the result of
+        :meth:`eligible_examples` when the caller already computed it (stored labels only)."""
         if source == "synthetic" and not self._cfg.allow_synthetic_training:
             raise InvalidRecordError(
                 "synthetic training is disabled (BIP_ML__ALLOW_SYNTHETIC_TRAINING=false)"
@@ -219,7 +265,7 @@ class Trainer:
         if source == "synthetic":
             examples = self._synthetic(chain, seed)
         else:
-            examples, filters = self._filtered(self._stored(chain))
+            examples, filters = prepared or self.eligible_examples(chain)
         wallets = len({e.fv.address for e in examples})
         if data_kind == "real" and wallets < self._cfg.min_labelled_wallets:
             return self._finish(
@@ -341,9 +387,6 @@ class Trainer:
         anomaly = backend.fit_anomaly(x_tr, seed) if len(x_tr) >= 20 else None
         anomaly_ref = sorted(backend.anomaly_scores(anomaly, x_tr)) if anomaly is not None else []
         clusters = backend.cluster_summary(x_all)
-        version = self._next_version(name)
-        status = "experimental_synthetic" if data_kind == "synthetic" else "trained"
-        path = model_root(self._settings) / name / f"{version}.joblib"
         artifact = {
             "feature_names": list(FEATURE_NAMES),
             "medians": med,
@@ -358,7 +401,6 @@ class Trainer:
             "anomaly": anomaly,
             "anomaly_reference": anomaly_ref,
         }
-        sha, size = backend.save(artifact, path, self._cfg.max_artifact_bytes)
         summary = {
             split: backend.summarize(
                 {e["label"]: e["metrics"] for e in evals if e["split"] == split}
@@ -366,57 +408,93 @@ class Trainer:
             for split in ("train", "validation", "test")
         }
         dataset["clusters"] = clusters
+        return Challenger(
+            run_id=run_id,
+            name=name,
+            chain=chain,
+            data_kind=data_kind,
+            params=params,
+            dataset=dataset,
+            dataset_version=dataset_version,
+            artifact=artifact,
+            modelled=modelled,
+            skipped=skipped,
+            evals=evals,
+            summary=summary,
+            test_examples=splits["test"],
+        )
+
+    def register(self, ch: Challenger) -> J:
+        """Save the artifact and put the model in the registry (the existing registry path)."""
+        backend = runtime.backend()
+        version = self._next_version(ch.name)
+        status = "experimental_synthetic" if ch.data_kind == "synthetic" else "trained"
+        path = model_root(self._settings) / ch.name / f"{version}.joblib"
+        sha, size = backend.save(ch.artifact, path, self._cfg.max_artifact_bytes)
+        anomaly = ch.artifact["anomaly"]
         with self._repo.transaction() as conn:
             conn.execute(
                 insert(schema.ml_models).values(
-                    name=name,
+                    name=ch.name,
                     version=version,
                     kind="multilabel_random_forest",
-                    chain=chain,
+                    chain=ch.chain,
                     status=status,
                     feature_version=FEATURE_VERSION,
                     taxonomy_version=taxonomy.TAXONOMY_VERSION,
-                    dataset_version=dataset_version,
-                    data_kind=data_kind,
+                    dataset_version=ch.dataset_version,
+                    data_kind=ch.data_kind,
                     artifact_path=str(path.relative_to(self._settings.resolved_data_root)),
                     artifact_sha256=sha,
-                    params_json=json.dumps({**params, "artifact_bytes": size}),
+                    params_json=json.dumps({**ch.params, "artifact_bytes": size}),
                     labels_json=json.dumps(
                         {
-                            "modelled": sorted(modelled),
-                            "skipped": skipped,
-                            "calibration": {k: v.calibration for k, v in modelled.items()},
-                            "train_counts": {k: v.train_counts for k, v in modelled.items()},
+                            "modelled": sorted(ch.modelled),
+                            "skipped": ch.skipped,
+                            "calibration": {k: v.calibration for k, v in ch.modelled.items()},
+                            "train_counts": {k: v.train_counts for k, v in ch.modelled.items()},
                             "anomaly_model": "IsolationForest" if anomaly is not None else None,
-                            "summary": summary,
+                            "summary": ch.summary,
                         }
                     ),
-                    thresholds_json=json.dumps({k: v.thresholds for k, v in modelled.items()}),
-                    training_run_id=run_id,
+                    thresholds_json=json.dumps({k: v.thresholds for k, v in ch.modelled.items()}),
+                    training_run_id=ch.run_id,
                     created_at=utcnow(),
-                    note=SYNTHETIC_NOTE if data_kind == "synthetic" else None,
+                    note=SYNTHETIC_NOTE if ch.data_kind == "synthetic" else None,
                 )
             )
-            for e in evals:
+            for e in ch.evals:
                 conn.execute(
                     insert(schema.ml_evaluation_results).values(
-                        training_run_id=run_id,
-                        model_name=name,
+                        training_run_id=ch.run_id,
+                        model_name=ch.name,
                         model_version=version,
                         split=e["split"],
                         label=e["label"],
-                        data_kind=data_kind,
+                        data_kind=ch.data_kind,
                         payload_json=json.dumps(e["metrics"]),
                     )
                 )
         return self._finish(
-            run_id,
+            ch.run_id,
             "succeeded",
-            dataset_version,
-            dataset,
-            f"Registered {name} {version} ({status}); modelled "
-            f"{len(modelled)} label(s), skipped {len(skipped)}.",
-            model=(name, version),
+            ch.dataset_version,
+            ch.dataset,
+            f"Registered {ch.name} {version} ({status}); modelled "
+            f"{len(ch.modelled)} label(s), skipped {len(ch.skipped)}.",
+            model=(ch.name, version),
+        )
+
+    def reject(self, ch: Challenger, reason: str) -> J:
+        """Close a challenger's run without registering it: it is never inserted in
+        ``ml_models`` (so it is never served); the run keeps its metrics and the reason."""
+        dataset: J = {
+            **ch.dataset,
+            "challenger_metrics": {"summary": ch.summary, "test": ch.test_metrics()},
+            "not_promoted_reason": reason,
+        }
+        return self._finish(
+            ch.run_id, "succeeded", ch.dataset_version, dataset, "challenger not promoted"
         )
 
     # ------------------------------------------------------------------ bookkeeping

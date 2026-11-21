@@ -125,6 +125,10 @@ class ClassificationService:
                     return _model_row(row)
         return None
 
+    def load_artifact(self, model: J) -> J:
+        """The verified artifact of a registered model (hash-checked, cached)."""
+        return self._artifact(model)
+
     def _artifact(self, model: J) -> J:
         key = (model["name"], model["version"])
         if key not in self._cache:

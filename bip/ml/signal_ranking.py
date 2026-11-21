@@ -582,6 +582,10 @@ class SignalRanking:
         }
         return {"needed_per_class": need, "chains": per_chain}
 
+    def label_counts(self) -> dict[str, dict[str, int]]:
+        """Verified human review outcomes per chain: ``{chain: {positive, negative}}``."""
+        return dict(self._review.ground_truth_set(limit=1)["counts"])
+
     def status(self) -> dict[str, Any]:
         truth = self._review.ground_truth_set(limit=1)
         fs = schema.signal_feature_snapshots

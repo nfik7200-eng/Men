@@ -4,6 +4,25 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-21 — Controlled continuous retraining (Task 3)
+
+**Done.** `bip/ml/continuous.py` adds `ContinuousTraining`: per chain it counts filtered eligible examples (`Trainer.eligible_examples`), skips when fewer than `continuous_min_new_examples` are new since the count stored at the last decision (missing or garbled stored count is 0), otherwise fits a challenger without registering it and applies the promotion gate (no champion: promote; champion `feature_version` differs: promote with reason `feature version changed`; else re-score the champion on the challenger's test split and promote only if macro PR-AUC is not lower and Brier is within `promotion_brier_tolerance`, both over the labels both models score). `Trainer.train` is now `fit` (evaluate without registering, returns a `Challenger`) plus `register` (the unchanged registry path) or `reject` (run closed as `succeeded` / `challenger not promoted` with metrics, never inserted in `ml_models`). `ClassificationService.active_model` serves the newest `trained` row, so a rejected challenger cannot be served (tested through `/ml/models` and classify). Signal ranking: when new human review outcomes reach the minimum, the existing `SignalRanking.evaluate` runs once and a decision is recorded per chain. Job `ml_continuous_training` (`bip/ops/jobs.py`) is registered only when `continuous_training_enabled`, uses `continuous_interval_hours`, `contacts_providers=False`, and takes `train_lock` (wallet) and `analysis_lock` (ranking), the same locks as the manual routes. State is in `app_metadata` keys `ml:continuous:<kind>:<chain>:examples` and `:last_decision`; no migration. 21 new tests in `tests/stage5/test_continuous_training.py`.
+
+**Checks.**
+```
+$ uv run ruff check bip tests
+All checks passed!
+$ uv run ruff format --check bip tests
+264 files already formatted
+$ pyright (whole repo)
+3 errors (all in tests/stage2/test_free_provider_expansion.py, pre-existing)
+$ uv run pytest -q
+1155 passed in 718.72s (0:11:58)
+```
+Pyright was run with `extraPaths` set to the worktree, because the venv's editable install points at the main checkout.
+
+**Not done.** No API or UI for the decisions (Task 4). The champion/challenger better and worse cases fake only `score_champion`; the real re-scoring path has its own test. No task review was run.
+
 ## 2026-11-21 — ML training filters: applied in both trainers (Task 2)
 
 **Done.** `Trainer` (`bip/ml/training.py`) maps each stored (example, label) to a `Candidate` and runs `run_pipeline` before the data gate, so the gate counts filtered data. A label is kept only if its candidate survived; examples left with no labels are dropped. A reviewer-accepted weak or inferred label trains with status `analyst_reviewed` and keeps its real source. The report is stored in `dataset_json["filters"]` (also on `insufficient_data` runs) and included in the dataset hash. The synthetic path records `"filters": "not_applied_synthetic"`. `SignalRanking` (`bip/ml/signal_ranking.py`) maps labelled snapshots to `Candidate`s: the label is the human review outcome, `label_time` is the latest human decision time (caller-supplied experimental labels have none), and the features are the snapshot features. The filters run before the split and readiness gate. The report is returned as `filters`, saved in the run's summary JSON and included in its dataset hash. Timestamps are made timezone-aware and features are passed as floats or `None`. New tests: `tests/stage5/test_training_filters.py` (6) and 3 in `tests/discovery/test_signal_ranking.py` (machine label excluded, accepted weak label kept, incomplete example excluded and counted, post-review snapshot excluded as leakage, report persisted, synthetic path untouched). No existing test needed a count change.

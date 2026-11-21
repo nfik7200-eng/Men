@@ -108,6 +108,16 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 "Bounded relationship expansion from seeds BIP chose. Local database only.",
             )
         )
+    if ctx.settings.ml.continuous_training_enabled:
+        jobs.append(
+            Job(
+                "ml_continuous_training",
+                timedelta(hours=ctx.settings.ml.continuous_interval_hours),
+                lambda: _continuous_training(ctx),
+                "Retrain a challenger wallet classifier when enough new reviewed labels exist and "
+                "promote it only if it is not worse than the served model. Local database only.",
+            )
+        )
     # Historical work is registered after the live collectors, so on a shared tick the live
     # jobs run first; backfill and recovery also wait while live is running or behind.
     for chain, enabled in (
@@ -159,6 +169,37 @@ def _memory(ctx: AppContext) -> str:
             f"{chain}: {r['entities_touched']} entities, {r['facts_new']} new, "
             f"{r['facts_changed']} changed facts"
         )
+    return "; ".join(parts)
+
+
+def _continuous_training(ctx: AppContext) -> str:
+    from bip.ml.continuous import ContinuousTraining
+    from bip.ml.runtime import MLUnavailableError
+
+    run = ContinuousTraining(ctx.repo, ctx.settings, ctx.trainer, ctx.classifier, ctx.ranking)
+    chains = [c for c in ("ethereum", "solana") if c in ctx.settings.enabled_chains]
+    parts: list[str] = []
+    # the same locks as the manual training and ranking routes
+    if not ctx.train_lock.acquire(blocking=False):
+        return "skipped: a training run is in progress"
+    try:
+        for chain in chains:
+            try:  # one chain failing must not stop the other
+                parts.append(f"{chain}: {run.run_wallet(chain)['decision']}")
+            except MLUnavailableError:
+                return "skipped: the ML runtime is not installed"
+            except Exception as exc:  # noqa: BLE001 - reported in the job detail
+                parts.append(f"{chain}: failed ({type(exc).__name__})")
+    finally:
+        ctx.train_lock.release()
+    if ctx.analysis_lock.acquire(blocking=False):
+        try:
+            decisions = run.run_ranking(chains)
+            parts.append(f"ranking: {', '.join(d['decision'] for d in decisions)}")
+        finally:
+            ctx.analysis_lock.release()
+    else:
+        parts.append("ranking: skipped (an analysis is running)")
     return "; ".join(parts)
 
 

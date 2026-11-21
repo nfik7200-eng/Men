@@ -112,6 +112,7 @@ Earlier in this phase:
 Previous phase:
 **Stage 5: ML wallet classification and AI research**, on top of Stage 4. Built and verified offline.
 - **No real ML model is trained.** No real, provenance-backed labelled wallets exist, so training on stored labels honestly returns `insufficient_data`. Classification uses the deterministic `bip-rules` baseline, plus an `experimental_synthetic` model only where someone explicitly trained the labelled synthetic demo set (this is enabled only on the fixture backend).
+- **Controlled continuous retraining** (`bip/ml/continuous.py`, job `ml_continuous_training`, off unless `BIP_ML__CONTINUOUS_TRAINING_ENABLED`). A challenger is fitted without registering and replaces the served model only if its macro PR-AUC is not lower and its Brier is within `promotion_brier_tolerance` of the champion re-scored on the challenger's test split (no champion or a changed feature version promotes). A rejected challenger is never inserted in `ml_models`. Decisions live in `app_metadata` under `ml:continuous:<kind>:<chain>:`. Local data only. Tests: `tests/stage5/test_continuous_training.py`. Not yet exposed in the API or UI.
 - **No LLM is configured** (`BIP_AI__PROVIDER=none`). Investigations produce deterministic reports with that limitation stated. LLM synthesis is tested with a deterministic fake provider only.
 
 Earlier phase:
