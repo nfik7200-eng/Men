@@ -48,7 +48,8 @@ def test_adapter_entry_shape(provider_id: str, monkeypatch: pytest.MonkeyPatch) 
     assert spec.allowed_hosts
     assert spec.methods
     assert spec.infrastructure
-    assert spec.client_rps is not None and spec.client_rps <= 4.0
+    assert spec.client_rps is not None
+    assert spec.client_rps <= 4.0
     monkeypatch.delenv(spec.endpoint_env, raising=False)
     assert resolve_endpoint(spec).configuration == "not_configured"
 
