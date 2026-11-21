@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-158 routes in 15 groups.
+186 routes in 17 groups.
 
 ### auth
 
@@ -132,6 +132,33 @@ Parameters: `chain` (path, required): string (len>=1, len<=32)
 <details><summary><code>GET /api/v1/chains/{chain}/network</code></summary>
 
 Parameters: `chain` (path, required): string (len>=1, len<=32)
+
+</details>
+
+### curation
+
+| Method | Path | Role | Summary |
+|---|---|---|---|
+| GET | `/api/v1/curation/feedback` | viewer | List Feedback |
+| POST | `/api/v1/curation/feedback` | admin | Submit Feedback |
+| GET | `/api/v1/curation/queue` | viewer | Queue |
+| GET | `/api/v1/curation/stats` | viewer | Stats |
+
+<details><summary><code>GET /api/v1/curation/feedback</code></summary>
+
+Parameters: `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000); `target_type` (query): `classification_label` | `pattern_match` or null
+
+</details>
+
+<details><summary><code>POST /api/v1/curation/feedback</code></summary>
+
+Body (`*` required): `target_type` *: `classification_label` | `pattern_match`; `target_key` *: string (len>=1, len<=64); `label`: null or string; `decision` *: `accepted` | `rejected` | `needs_evidence`; `reviewer` *: string (len>=1, len<=80); `note`: null or string (len<=500)
+
+</details>
+
+<details><summary><code>GET /api/v1/curation/queue</code></summary>
+
+Parameters: `limit` (query): integer (>=1, <=200); `chain` (query): `ethereum` | `solana` or null
 
 </details>
 
@@ -492,6 +519,8 @@ Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path,
 | GET | `/api/v1/intelligence/anomalies/{finding_id}` | viewer | Get Anomaly |
 | POST | `/api/v1/intelligence/findings/{finding_id}/attach` | analyst | Attach Finding |
 | GET | `/api/v1/intelligence/flows/{chain}/{address}` | viewer | Wallet Flows |
+| GET | `/api/v1/intelligence/graph-explorer/{chain}/{address}` | viewer | Explore Graph: Temporal graph: observations filtered by time window and evidence class. |
+| GET | `/api/v1/intelligence/graph-explorer/{chain}/{address}/nodes/{node_id}` | viewer | Explore Graph Node: Evidence trail for one node under the same filters: tx hashes, block range, providers. |
 | GET | `/api/v1/intelligence/graph/{chain}/{address}` | viewer | Wallet Graph |
 | GET | `/api/v1/intelligence/opportunities` | viewer | List Opportunities |
 | POST | `/api/v1/intelligence/opportunities/refresh/{chain}` | analyst | Refresh Opportunities |
@@ -535,6 +564,18 @@ Body (`*` required): `investigation_id` *: integer (>=1.0, <=9007199254740992.0)
 <details><summary><code>GET /api/v1/intelligence/flows/{chain}/{address}</code></summary>
 
 Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=1, len<=100); `since` (query): null or string; `until` (query): null or string
+
+</details>
+
+<details><summary><code>GET /api/v1/intelligence/graph-explorer/{chain}/{address}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=1, len<=100); `depth` (query): integer (>=1, <=3); `max_nodes` (query): integer (>=2, <=1000) or null; `max_edges` (query): integer (>=1, <=3000) or null; `since` (query): null or string; `until` (query): null or string; `status` (query): list of string or null
+
+</details>
+
+<details><summary><code>GET /api/v1/intelligence/graph-explorer/{chain}/{address}/nodes/{node_id}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=1, len<=100); `node_id` (path, required): string (len>=1, len<=100); `depth` (query): integer (>=1, <=3); `since` (query): null or string; `until` (query): null or string; `status` (query): list of string or null
 
 </details>
 
@@ -614,14 +655,140 @@ Parameters: `watchlist_id` (path, required): integer (>=1, <=9007199254740992)
 
 | Method | Path | Role | Summary |
 |---|---|---|---|
+| GET | `/api/v1/cases` | viewer | List Cases |
+| POST | `/api/v1/cases` | admin | Create Case |
+| GET | `/api/v1/cases/templates` | viewer | List Case Templates |
+| GET | `/api/v1/cases/templates/{case_type}` | viewer | Get Case Template |
+| DELETE | `/api/v1/cases/{case_id}` | admin | Delete Case |
+| GET | `/api/v1/cases/{case_id}` | viewer | Get Case |
+| PATCH | `/api/v1/cases/{case_id}` | admin | Update Case |
+| GET | `/api/v1/cases/{case_id}/evidence` | viewer | List Evidence |
+| POST | `/api/v1/cases/{case_id}/evidence` | admin | Add Case Evidence |
+| DELETE | `/api/v1/cases/{case_id}/evidence/{evidence_id}` | admin | Delete Case Evidence |
+| GET | `/api/v1/cases/{case_id}/evidence/{evidence_id}` | viewer | Get Case Evidence |
+| GET | `/api/v1/cases/{case_id}/hypotheses` | viewer | List Hypotheses |
+| POST | `/api/v1/cases/{case_id}/hypotheses` | admin | Add Hypothesis |
+| PATCH | `/api/v1/cases/{case_id}/hypotheses/{hypothesis_id}` | admin | Update Hypothesis |
+| GET | `/api/v1/cases/{case_id}/leads` | viewer | List Leads |
+| POST | `/api/v1/cases/{case_id}/leads` | admin | Add Lead |
+| PATCH | `/api/v1/cases/{case_id}/leads/{lead_id}` | admin | Update Lead |
 | GET | `/api/v1/investigations` | viewer | List Investigations |
 | POST | `/api/v1/investigations` | analyst | Create Investigation |
+| POST | `/api/v1/investigations/run` | analyst | Run Investigation: Open a case from a template and run the automated scan over locally stored data. |
 | GET | `/api/v1/investigations/{investigation_id}` | viewer | Get Investigation |
 | PATCH | `/api/v1/investigations/{investigation_id}` | analyst | Update Investigation |
 | POST | `/api/v1/investigations/{investigation_id}/findings` | analyst | Add Finding: Attach a finding. The body must satisfy the evidence rules of the Finding contract. |
 | GET | `/api/v1/investigations/{investigation_id}/research-runs` | viewer | List Research Links |
 | POST | `/api/v1/investigations/{investigation_id}/research-runs` | analyst | Link Research Run |
 | DELETE | `/api/v1/investigations/{investigation_id}/research-runs/{run_id}` | analyst | Unlink Research Run |
+
+<details><summary><code>GET /api/v1/cases</code></summary>
+
+Parameters: `status` (query): `open` | `in_review` | `closed` | `archived` or null; `case_type` (query): `rugpull` | `hack_tracking` | `cluster` | `insider` | `ecosystem` | `sanctions_aml` | `mev_sandwich` | `flash_loan` | `nft_wash_trading` | `pump_dump` | `phishing_tracking` or null
+
+</details>
+
+<details><summary><code>POST /api/v1/cases</code></summary>
+
+Body (`*` required): `title` *: string (len>=1, len<=200); `case_type` *: `rugpull` | `hack_tracking` | `cluster` | `insider` | `ecosystem` | `sanctions_aml` | `mev_sandwich` | `flash_loan` | `nft_wash_trading` | `pump_dump` | `phishing_tracking`; `chain`: null or string (len<=32); `summary`: null or string (len<=2000); `created_by`: string (len>=1, len<=80)
+
+</details>
+
+<details><summary><code>GET /api/v1/cases/templates/{case_type}</code></summary>
+
+Parameters: `case_type` (path, required): `rugpull` | `hack_tracking` | `cluster` | `insider` | `ecosystem` | `sanctions_aml` | `mev_sandwich` | `flash_loan` | `nft_wash_trading` | `pump_dump` | `phishing_tracking`
+
+</details>
+
+<details><summary><code>DELETE /api/v1/cases/{case_id}</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+<details><summary><code>GET /api/v1/cases/{case_id}</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+<details><summary><code>PATCH /api/v1/cases/{case_id}</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `title`: null or string (len>=1, len<=200); `status`: `open` | `in_review` | `closed` | `archived` or null; `summary`: null or string (len<=2000)
+
+</details>
+
+<details><summary><code>GET /api/v1/cases/{case_id}/evidence</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992); `kind` (query): `verified_observation` | `statistical_signal` | `hypothesis` or null
+
+</details>
+
+<details><summary><code>POST /api/v1/cases/{case_id}/evidence</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `kind` *: `verified_observation` | `statistical_signal` | `hypothesis`; `chain`: null or string (len<=32); `subject_type` *: string (len>=1, len<=24); `subject_ref` *: string (len>=1, len<=200); `description` *: string (len>=1, len<=1000); `payload`: null or object; `source_kind` *: string (len>=1, len<=24); `provider_id`: null or string (len<=64); `source_ref`: null or string (len<=300); `raw_ref`: null or string (len<=100); `collected_at` *: string
+
+</details>
+
+<details><summary><code>DELETE /api/v1/cases/{case_id}/evidence/{evidence_id}</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992); `evidence_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+<details><summary><code>GET /api/v1/cases/{case_id}/evidence/{evidence_id}</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992); `evidence_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+<details><summary><code>GET /api/v1/cases/{case_id}/hypotheses</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+<details><summary><code>POST /api/v1/cases/{case_id}/hypotheses</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `statement` *: string (len>=1, len<=1000); `status`: `open` | `supported` | `refuted` | `inconclusive`; `confidence`: null or number (>=0.0, <=1.0); `evidence_ids`: list of integer; `created_by`: string (len>=1, len<=80)
+
+</details>
+
+<details><summary><code>PATCH /api/v1/cases/{case_id}/hypotheses/{hypothesis_id}</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992); `hypothesis_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `status`: `open` | `supported` | `refuted` | `inconclusive` or null; `confidence`: null or number (>=0.0, <=1.0); `evidence_ids`: list of integer or null
+
+</details>
+
+<details><summary><code>GET /api/v1/cases/{case_id}/leads</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992); `status` (query): `new` | `investigating` | `resolved` | `dismissed` or null
+
+</details>
+
+<details><summary><code>POST /api/v1/cases/{case_id}/leads</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `title` *: string (len>=1, len<=200); `priority`: integer (>=1.0, <=5.0); `subject_type`: null or string (len<=24); `subject_ref`: null or string (len<=200); `rationale`: null or string (len<=1000); `source_evidence_id`: integer or null
+
+</details>
+
+<details><summary><code>PATCH /api/v1/cases/{case_id}/leads/{lead_id}</code></summary>
+
+Parameters: `case_id` (path, required): integer (>=1, <=9007199254740992); `lead_id` (path, required): integer (>=1, <=9007199254740992)
+
+Body (`*` required): `status`: `new` | `investigating` | `resolved` | `dismissed` or null; `priority`: integer (>=1.0, <=5.0) or null
+
+</details>
 
 <details><summary><code>GET /api/v1/investigations</code></summary>
 
@@ -632,6 +799,12 @@ Parameters: `status` (query): `open` | `in_progress` | `closed` or null
 <details><summary><code>POST /api/v1/investigations</code></summary>
 
 Body (`*` required): `title` *: string (len>=1, len<=200); `description`: null or string (len<=2000); `subject_chain`: null or string (len>=1, len<=32); `subject_address`: null or string (len>=1, len<=100)
+
+</details>
+
+<details><summary><code>POST /api/v1/investigations/run</code></summary>
+
+Body (`*` required): `case_type` *: `rugpull` | `hack_tracking` | `cluster` | `insider` | `ecosystem` | `sanctions_aml` | `mev_sandwich` | `flash_loan` | `nft_wash_trading` | `pump_dump` | `phishing_tracking`; `chain` *: string (len>=1, len<=32); `target_type`: `address` | `tx`; `target` *: string (len>=1, len<=100); `title`: null or string (len>=1, len<=200); `created_by`: string (len>=1, len<=80)
 
 </details>
 
@@ -924,6 +1097,39 @@ Parameters: `run_id` (path, required): string
 <details><summary><code>POST /api/v1/research/runs/{run_id}/rerun</code></summary>
 
 Parameters: `run_id` (path, required): string
+
+</details>
+
+### strategies
+
+| Method | Path | Role | Summary |
+|---|---|---|---|
+| GET | `/api/v1/strategies/classification/{chain}/{address}` | viewer | Classify Wallet |
+| GET | `/api/v1/strategies/copy-trader/{chain}/{address}` | viewer | Copy Trader Signals |
+| GET | `/api/v1/strategies/dev-tracker/{chain}/{address}` | viewer | Dev Tracker |
+| GET | `/api/v1/strategies/meme-momentum/{chain}/{address}` | viewer | Meme Momentum |
+
+<details><summary><code>GET /api/v1/strategies/classification/{chain}/{address}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=1, len<=100)
+
+</details>
+
+<details><summary><code>GET /api/v1/strategies/copy-trader/{chain}/{address}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=1, len<=100)
+
+</details>
+
+<details><summary><code>GET /api/v1/strategies/dev-tracker/{chain}/{address}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=1, len<=100)
+
+</details>
+
+<details><summary><code>GET /api/v1/strategies/meme-momentum/{chain}/{address}</code></summary>
+
+Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path, required): string (len>=1, len<=100)
 
 </details>
 
