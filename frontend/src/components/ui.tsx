@@ -46,7 +46,7 @@ export function Panel({ title, aside, children, className }: {
   );
 }
 
-export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) {
+export function Stat({ label, value, hint }: { label: string; value: ReactNode; hint?: string | undefined }) {
   return (
     <div className="stat">
       <span className="stat-value">{value}</span>

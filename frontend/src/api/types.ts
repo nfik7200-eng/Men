@@ -469,28 +469,28 @@ export type Graph = IntelEnvelope & {
   statement: string;
 };
 
-export type EvidenceClass = "verified" | "single_source" | "hypothesis";
+export type ExplorerEvidenceClass = "verified" | "single_source" | "hypothesis";
 export type ProviderResponseRef = {
   provider: string; endpoint_id: string | null; method: string | null; request_id: string | null;
   collected_at: string; raw_ref: string | null; raw_row: number | null; content_hash: string | null;
 };
 export type ExplorerEvidence = TxEvidence & { verification_status: string; provider_response: ProviderResponseRef | null };
 export type ExplorerEdge = Omit<GraphEdge, "evidence"> & {
-  evidence: ExplorerEvidence[]; evidence_complete: boolean; classes: Partial<Record<EvidenceClass, number>>;
+  evidence: ExplorerEvidence[]; evidence_complete: boolean; classes: Partial<Record<ExplorerEvidenceClass, number>>;
   unfiltered?: { count: number; amount_raw: string | null; first_seen: string | null; last_seen: string | null };
 };
 export type ExplorerTimeline = { start: string | null; end: string | null; undated: number; buckets: { start: string; end: string; count: number }[] };
 export type ExplorerGraph = Omit<Graph, "edges"> & {
   edges: ExplorerEdge[]; explorer_version: string; timeline: ExplorerTimeline;
-  filters: { since: string | null; until: string | null; statuses: EvidenceClass[] };
+  filters: { since: string | null; until: string | null; statuses: ExplorerEvidenceClass[] };
   filtered_out: { total: number; by_status: number; outside_time_window: number; undated: number; nodes_hidden: number; edges_hidden: number };
-  statuses_legend: Record<EvidenceClass, string>;
+  statuses_legend: Record<ExplorerEvidenceClass, string>;
 };
 export type NodeTrail = IntelEnvelope & {
   chain: string; center: string; node: GraphNode; edge_count: number; transaction_count: number;
-  transactions: { tx_id: string; position: number | null; block_time: string | null; verification_status: string; evidence_class: EvidenceClass;
+  transactions: { tx_id: string; position: number | null; block_time: string | null; verification_status: string; evidence_class: ExplorerEvidenceClass;
     provider_response: ProviderResponseRef | null; edges: { edge_id: string; kind: string; asset: string | null }[] }[];
-  block_range: { min: number; max: number } | null; providers: Record<string, number>; classes: Partial<Record<EvidenceClass, number>>;
+  block_range: { min: number; max: number } | null; providers: Record<string, number>; classes: Partial<Record<ExplorerEvidenceClass, number>>;
   incomplete_edges: string[]; statement: string;
 };
 
@@ -711,7 +711,6 @@ export type ResearchConfig = {
   focus_areas: string[]; tools: { name: string; description: string; specialists: string[] }[];
 };
 
-<<<<<<< HEAD
 /** GET /wallets/{chain}/{address}/status (ADR-031). null = not stored, never 0. */
 export type WalletStatus = {
   chain: string;
@@ -1393,7 +1392,8 @@ export type MemorySearch = {
   items: { chain: string; ref: string; kind: string; first_seen_at: string | null; last_seen_at: string | null }[];
   last_refresh: Record<string, unknown> | null;
   data_origin: DataOrigin;
-=======
+};
+
 // Strategies
 export type WalletClassification = {
   address: string;
@@ -1537,5 +1537,4 @@ export type CurationFeedbackBody = {
   decision: CurationDecision;
   reviewer: string;
   note?: string;
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 };

@@ -1,16 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api/client";
-<<<<<<< HEAD
-import type { InvestigationStatus } from "../api/types";
-import { RoleHint } from "../auth/RoleHint";
-import { useCan } from "../auth/useAuth";
-=======
 import type {
   Case, CaseDetail, CaseRunResult, CaseStatus, CaseTemplate, CaseType, EvidenceKind,
   HypothesisStatus, InvestigationStatus, LeadStatus,
 } from "../api/types";
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
+import { RoleHint } from "../auth/RoleHint";
+import { useCan } from "../auth/useAuth";
 import { EmptyState, ErrorState, FieldError, Loading, Mono, PageHeader, Panel, Pill } from "../components/ui";
 import { CHAINS, chainLabel, validateAddress } from "../lib/address";
 import { fmtTime, humanize } from "../lib/format";
@@ -212,7 +208,6 @@ export function InvestigationDetail() {
   );
 }
 
-<<<<<<< HEAD
 function CaseResearch({ id }: { id: number }) {
   const links = useApi(() => api.caseResearchRuns(id), [id]);
   const can = useCan("DELETE", "/investigations/1/research-runs/x");
@@ -241,7 +236,7 @@ function CaseResearch({ id }: { id: number }) {
     </section>
   );
 }
-=======
+
 // ------------------------------------------------------------------------------------------
 // Case workbench: templated cases, evidence, hypotheses, leads and the automated local scan.
 // ------------------------------------------------------------------------------------------
@@ -714,4 +709,3 @@ export function CaseDetailPage() {
     </>
   );
 }
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))

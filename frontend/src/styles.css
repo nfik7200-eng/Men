@@ -201,7 +201,6 @@ tr:last-child td { border-bottom: 0; }
 .tabs { margin-bottom: 14px; }
 .field textarea { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 7px 10px; width: 100%; resize: vertical; }
 
-<<<<<<< HEAD
 /* ---------------------------------------------------------------- touch targets */
 .btn, select, input:not([type=checkbox]):not([type=radio]) { min-height: var(--target); }
 .check { min-height: var(--target); }
@@ -333,7 +332,6 @@ td a, dd a, li > a:only-child { display: inline-flex; align-items: center; min-h
   .filters .field { flex: 1 1 140px; }
 }
 .disc summary, .modal summary { min-height: var(--target); display: inline-flex; align-items: center; cursor: pointer; color: var(--accent); }
-=======
 .status-filter { border: 0; padding: 0; margin: 0 0 10px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 .status-filter legend { font-size: 12px; color: var(--muted); padding: 0; margin-bottom: 4px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
@@ -342,4 +340,3 @@ td a, dd a, li > a:only-child { display: inline-flex; align-items: center; min-h
 .time-slider .spark i.on { background: var(--accent); }
 .time-slider input[type="range"] { width: 100%; }
 .legend-list { margin: 6px 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))

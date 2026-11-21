@@ -52,7 +52,6 @@ import type { DiscoveryRunResult,
   Watchlist,
   WatchlistEntry,
   WatchlistSummary,
-<<<<<<< HEAD
   WalletStatus,
   JsonObject,
   LabelInput,
@@ -93,7 +92,6 @@ import type { DiscoveryRunResult,
   SignalPage,
   SignalQuery,
   SystemHealth,
-=======
   WalletClassification,
   CopyTraderSignal,
   MemeMomentum,
@@ -111,7 +109,6 @@ import type { DiscoveryRunResult,
   EvidenceCreateBody,
   HypothesisStatus,
   LeadStatus,
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 } from "./types";
 
 export const API_BASE = "/api/v1";
@@ -391,7 +388,6 @@ export const api = {
       method: "POST",
       ...json({ investigation_id: investigationId }),
     }),
-<<<<<<< HEAD
   // ---- discovery: signals, alerts, collectors (stored data; only the two collect* calls contact providers)
   discoveryFeed: (limit = 25, offset = 0) => request<DiscoveryFeed>(`/discovery/feed?limit=${limit}&offset=${offset}`),
   signals: (q: SignalQuery = {}) => request<SignalPage>(`/signals${queryString(q)}`),
@@ -443,7 +439,6 @@ export const api = {
   // ---- system
   systemHealth: () => request<SystemHealth>("/system/health"),
   createBackup: () => request<BackupCreated>("/system/backups", { method: "POST" }),
-=======
   // ---- investigation workbench
   cases: () => request<Case[]>("/cases"),
   caseTemplates: () => request<CaseTemplate[]>("/cases/templates"),
@@ -472,7 +467,6 @@ export const api = {
     request<MemeMomentum>(`/strategies/meme-momentum/${enc(chain)}/${enc(address)}`),
   devTracker: (chain: string, address: string) =>
     request<DevTracker>(`/strategies/dev-tracker/${enc(chain)}/${enc(address)}`),
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 };
 
 /** `?a=1&b=x` from the defined entries of `q` (empty string when there are none). */

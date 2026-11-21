@@ -339,9 +339,6 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     const path = url.replace(/^\/api\/v1/, "");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as Json) : {};
-<<<<<<< HEAD
-    if ((path.startsWith("/ml/") && !path.startsWith("/ml/labels") && !path.startsWith("/ml/signal-ranking") && path !== "/ml/taxonomy") || path.startsWith("/research/")) {
-=======
     if (path.startsWith("/curation/")) {
       if (path.startsWith("/curation/queue")) {
         return json(200, { items: curation.queue, total: curation.queue.length, note: "Ordering prioritises review effort." });
@@ -358,8 +355,7 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
       }
       return json(200, { items: curation.feedback, total: curation.feedback.length });
     }
-    if (path.startsWith("/ml/") || path.startsWith("/research/")) {
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
+    if ((path.startsWith("/ml/") && !path.startsWith("/ml/labels") && !path.startsWith("/ml/signal-ranking") && path !== "/ml/taxonomy") || path.startsWith("/research/")) {
       const r = researchResponse(path, method, research, researchState);
       return r ? json(method === "POST" && (path.startsWith("/research/runs") && !path.includes("/cancel") || path.startsWith("/ml/classify")) ? (path === "/research/runs" ? 202 : 201) : 200, r) : err(404, "not_found", "Not Found");
     }

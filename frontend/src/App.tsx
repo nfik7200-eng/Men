@@ -19,52 +19,16 @@ import ProviderDetail from "./pages/ProviderDetail";
 import Research from "./pages/Research";
 import RunPage from "./pages/research/RunPage";
 import Settings from "./pages/Settings";
-<<<<<<< HEAD
+import Curation from "./pages/Curation";
 import SignalDetailPage from "./pages/signals/SignalDetail";
 import Signals from "./pages/Signals";
+import Strategies from "./pages/Strategies";
 import System from "./pages/System";
 import Wallets from "./pages/Wallets";
 import WalletWorkspacePage from "./pages/wallet/Workspace";
-=======
-import Curation from "./pages/Curation";
-import Strategies from "./pages/Strategies";
-import Wallets, { WalletProfilePage } from "./pages/Wallets";
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 import Watchlists from "./pages/Watchlists";
 
-<<<<<<< HEAD
 export { NAV, NAV_GROUPS } from "./components/shell";
-=======
-export const NAV = [
-  { to: "/", label: "Overview" },
-  { to: "/chains", label: "Chains" },
-  { to: "/wallets", label: "Wallet Intelligence" },
-  { to: "/flows", label: "Capital Flows" },
-  { to: "/graph", label: "Relationship Graph" },
-  { to: "/explorer", label: "Temporal Explorer" },
-  { to: "/opportunities", label: "Opportunities" },
-  { to: "/strategies", label: "Strategies & Trackers" },
-  { to: "/research", label: "AI Research" },
-  { to: "/curation", label: "Model Curation" },
-  { to: "/cases", label: "Case Workbench" },
-  { to: "/investigations", label: "Investigations" },
-  { to: "/providers", label: "Providers" },
-  { to: "/watchlists", label: "Watchlists" },
-  { to: "/settings", label: "Settings" },
-] as const;
-
-function ConnectionBadge() {
-  const health = useApi(api.health);
-  if (health.status === "loading") return <Pill tone="idle">Connecting…</Pill>;
-  if (health.status === "error")
-    return (
-      <button type="button" className="badge-button" onClick={health.reload} title="Retry">
-        <Pill tone="bad">Backend offline</Pill>
-      </button>
-    );
-  return <Pill tone={health.data.status === "ok" ? "ok" : "warn"}>API {health.data.status}</Pill>;
-}
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
 
 function NotFound() {
   return (
@@ -123,12 +87,9 @@ function Shell() {
           <Route path="/strategies" element={<Strategies />} />
           <Route path="/curation" element={<Curation />} />
           <Route path="/research" element={<Research />} />
-<<<<<<< HEAD
           <Route path="/research/runs/:runId" element={<RunPage />} />
-=======
           <Route path="/cases" element={<CaseWorkbench />} />
           <Route path="/cases/:id" element={<CaseDetailPage />} />
->>>>>>> 7ec5992 (Implement BIP Crypto Detective & Investigation Platform (Phases 1-3))
           <Route path="/investigations" element={<Investigations />} />
           <Route path="/investigations/:id" element={<InvestigationDetail />} />
           <Route path="/providers" element={<Providers />} />

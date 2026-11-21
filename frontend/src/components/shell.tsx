@@ -26,6 +26,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/wallets", label: "Wallets", heading: "Wallet Intelligence" },
       { to: "/flows", label: "Flows", heading: "Capital Flows" },
       { to: "/graph", label: "Graph", heading: "Relationship Graph" },
+      { to: "/explorer", label: "Explorer", heading: "Temporal Explorer" },
     ],
   },
   {
@@ -36,12 +37,15 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/research", label: "Research", heading: "AI Research" },
       { to: "/opportunities", label: "Opportunities", heading: "Opportunities" },
       { to: "/attribution", label: "Attribution", heading: "Attribution" },
+      { to: "/strategies", label: "Strategies", heading: "Strategies & Trackers" },
+      { to: "/curation", label: "Curation", heading: "Model Curation" },
     ],
   },
   {
     label: "Cases",
     items: [
       { to: "/investigations", label: "Investigations", heading: "Investigations" },
+      { to: "/cases", label: "Case Workbench", heading: "Case Workbench" },
       { to: "/watchlists", label: "Watchlists", heading: "Watchlists" },
     ],
   },

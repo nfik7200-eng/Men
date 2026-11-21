@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { EvidenceClass, ExplorerGraph, ExplorerTimeline, GraphNode } from "../api/types";
+import type { ExplorerEvidenceClass, ExplorerGraph, ExplorerTimeline, GraphNode } from "../api/types";
 import { DataOriginBanner, VerificationLine, WalletPicker } from "../components/intel";
 import { EmptyState, ErrorState, Loading, Mono, PageHeader, Panel, Pill } from "../components/ui";
 import { fmtTime, humanize, shortId } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { GraphCanvas } from "./Graph";
 
-const CLASSES: { id: EvidenceClass; label: string }[] = [
+const CLASSES: { id: ExplorerEvidenceClass; label: string }[] = [
   { id: "verified", label: "Verified" },
   { id: "single_source", label: "Single-source" },
   { id: "hypothesis", label: "Hypothesis" },
 ];
 
-type Filters = { since: string | null; until: string | null; statuses: EvidenceClass[] };
+type Filters = { since: string | null; until: string | null; statuses: ExplorerEvidenceClass[] };
 
 /** Slider positions are bucket boundaries 0..n of the (unfiltered) timeline. */
 function windowOf(tl: ExplorerTimeline, lo: number, hi: number): { since: string | null; until: string | null } {
@@ -89,7 +89,7 @@ function NodeTrailPanel({ chain, address, node, depth, filters }: { chain: strin
 }
 
 function ExplorerView({ chain, address, depth }: { chain: string; address: string; depth: number }) {
-  const [statuses, setStatuses] = useState<EvidenceClass[]>(CLASSES.map((c) => c.id));
+  const [statuses, setStatuses] = useState<ExplorerEvidenceClass[]>(CLASSES.map((c) => c.id));
   const [range, setRange] = useState<[number, number] | null>(null);
   const [tl, setTl] = useState<ExplorerTimeline | null>(null);
   const n = tl?.buckets.length ?? 0;
@@ -100,7 +100,7 @@ function ExplorerView({ chain, address, depth }: { chain: string; address: strin
   const g = useApi(() => api.explorerGraph(chain, address, depth, sent), [chain, address, depth, sent.since, sent.until, sent.statuses.join(",")]);
   // The timeline is unfiltered, so the first response fixes the slider range for this wallet and depth.
   if (g.status === "ready" && tl === null) setTl(g.data.timeline);
-  const toggle = (id: EvidenceClass) => setStatuses((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const toggle = (id: ExplorerEvidenceClass) => setStatuses((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   return (
     <>
