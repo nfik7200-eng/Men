@@ -4,6 +4,18 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-21 — Provider catalogue additions, live probe and synthetic ML evaluation
+
+**Done.** Nine providers added to `bip/providers/registry.toml` as catalogue entries with no adapter (chainstack, drpc, getblock, moralis, coingecko, birdeye, solscan, dune, bitquery). Each cites official sources with `documentation_checked = 2026-11-21`. Birdeye and Solscan free limits are recorded as unverified (not published on the pages read). Dune and Bitquery have no free API tier and are marked "do not configure". `.env.example` has commented placeholders; `docs/PROVIDER_REGISTRY.md` has a section. No keys exist and none were written to `.env` (it does not exist). An earlier plan to mine the owner's Gmail was cancelled by the owner; four Gmail search calls were made, all failed ("needs to be connected"), and nothing was read.
+
+**Live check.** `make probe`: publicnode-eth reachable (6 supported, 1 timeout), solana-public reachable (10 supported); 15 requests, 18.7 s. `make live-smoke`: publicnode-eth ok (identity 0x1, head block, balance); keyed providers skipped (not configured); 0 failures.
+
+**ML.** `stored_labels` training: `insufficient_data` (0 of 30 wallets) on both chains. Synthetic training succeeded (240 synthetic wallets, test n=48 per label). The models score F1 0.78 to 1.00; this is a statistical signal on separable synthetic data, not real accuracy. high_frequency_activity: model P 0.90 / R 0.69 versus rules P 0.81 / R 1.00 (Ethereum).
+
+**Checks.** ruff check passed; ruff format --check passed after formatting one tracked plan doc that had failed it; pyright 0 errors; `uv run pytest -q`: `1059 passed in 642.66s (0:10:42)`; frontend typecheck clean; `npm run build` built; `npm test` (run alone): `Test Files 29 passed (29), Tests 295 passed (295)` (a first run concurrent with pytest had 2 timeout failures).
+
+**Not done.** No Gmail discovery, no adapters for the new providers, no Flipside or label-dataset entries, no per-chain PublicNode hostnames, no e2e run.
+
 ## 2026-11-21 — Merge repair — final review fix wave
 
 A final whole-branch review found two Important issues and several minor ones. Commits (forward only, nothing amended): `dfd973f` (migration 22), `8fd5eb2` (analyst grant), and the docs commit that carries this entry.

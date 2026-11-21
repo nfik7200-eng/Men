@@ -257,6 +257,10 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 13. Whether to confirm an orphaned block with a second provider before orphaning, and whether to build a chain-wide collector (with its data source and cost).
 14. Partly done: Solana v1 handling was live-checked on `solana-public` (legacy/0/1 parsed). Still open: `getTokenAccountsByOwner` support and token-account discovery on a real provider.
 
+## Provider catalogue (2026-11-21)
+
+The registry lists nine more free or free-trial providers (chainstack, drpc, getblock, moralis, coingecko, birdeye, solscan, dune, bitquery) as catalogue entries with no adapter and no configuration. A live probe on 2026-11-21 reached PublicNode Ethereum and the Solana public endpoint. No stored wallet labels exist, so only synthetic-data models (`experimental_synthetic`) have been trained; their metrics are not evidence of real accuracy.
+
 ## Known limitations
 - Ethereum wallet history is discovered only through Transfer logs in the last 2,000 blocks (configurable). Plain ETH transfers without logs, internal transfers and ERC-1155 are not covered.
 - Solana history is bounded to the most recent signatures per run. Cursors continue older history on later runs.

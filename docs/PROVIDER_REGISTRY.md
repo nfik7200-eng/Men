@@ -2,6 +2,10 @@
 
 Status: **Research snapshot, 2026-11-03.**
 
+## Catalogue additions (2026-11-21)
+
+Nine providers were added to `bip/providers/registry.toml` as catalogue entries with no adapter and no configuration: `chainstack`, `drpc`, `moralis`, `coingecko`, `birdeye`, `getblock`, `solscan`, plus `dune` and `bitquery` (both not recommended: no free API tier). Keyless public endpoints already registered: PublicNode Ethereum (`ethereum-rpc.publicnode.com`, confirmed on publicnode.com 2026-11-21, free, archive via separate access) and Solana public (`api.mainnet.solana.com`, solana.com docs). PublicNode lists Solana, Base, Arbitrum, BNB and others at `<chain>.publicnode.com`, not yet registered because exact RPC hostnames per chain were not read. Free-tier figures were read from each provider's official pricing or docs page on 2026-11-21 (`documentation_basis = "official_docs"`, source URLs in each entry's `sources`). Birdeye's free-tier limits were not shown on its pricing page and stay unverified. Alchemy's free plan now reads 30M CU/month at 300 CU/s (about 15 requests/s) on its pricing page. No key was configured; the owner creates accounts and keys.
+
 ## Stage 5 note (2026-11-04)
 
 AI research reads provider state only through the `provider_status` tool, which reports Stage 4 probe connectivity and reliability and whether the data are offline fixtures. Research never calls providers. With no live probe, reports state that provider capabilities are unverified. A blocked development environment is never presented as a provider verdict.

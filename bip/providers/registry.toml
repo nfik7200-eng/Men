@@ -405,3 +405,176 @@ rate_limit = "REST: 5,000 requests/h with a token, 60/h without."
 docs_url = "https://docs.github.com/en/rest"
 terms_url = "https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
 sources = ["https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api"]
+
+# ---------------------------------------------------------------- Added 2026-11-21 (catalogue only)
+# Free-tier facts below were read from each provider's official pricing or docs page on
+# 2026-11-21. No adapter exists for these yet; none is configured.
+
+[[provider]]
+id = "chainstack"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "Chainstack RPC"
+operator = "Chainstack"
+kind = "rpc"
+protocol = "none"
+chains = ["ethereum", "solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_CHAINSTACK_URL"
+enabled = true
+methods = []
+rate_limit = "Developer (free): 3M request units/month, 25 RPS, 1 project; full node 1 RU/request, archive node 2 RU (Chainstack pricing, checked 2026-11-21)."
+docs_url = "https://docs.chainstack.com/"
+terms_url = "https://chainstack.com/terms/"
+sources = ["https://chainstack.com/pricing", "https://docs.chainstack.com/docs/rps-plan-limits"]
+notes = "Catalogue entry only; no adapter. Endpoint URLs are per-project, so the host is unknown until the owner creates one. Supported methods and chains not yet verified."
+
+[[provider]]
+id = "drpc"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "dRPC"
+operator = "dRPC"
+kind = "rpc"
+protocol = "none"
+chains = ["ethereum", "solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_DRPC_URL"
+enabled = true
+methods = []
+rate_limit = "Free: 50M CU per 30 days, 25 RPS, public nodes only, no archive, no WebSocket; eth_getLogs capped at 10,000 entries, batches of 3, filter methods off (dRPC docs, checked 2026-11-21)."
+docs_url = "https://drpc.org/docs"
+terms_url = "https://drpc.org/terms-of-use"
+sources = ["https://drpc.org/docs/pricing/plans", "https://drpc.org/docs/howitworks/ratelimiting"]
+notes = "Catalogue entry only; no adapter. Free tier uses public nodes, so independence from other providers is unverified."
+
+[[provider]]
+id = "moralis"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "Moralis Web3 Data API"
+operator = "Moralis"
+kind = "indexer_api"
+protocol = "none"
+chains = ["ethereum", "solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_MORALIS_KEY"
+enabled = true
+methods = []
+rate_limit = "Free: 40,000 compute units/day, 40 RPS (Moralis pricing, checked 2026-11-21)."
+docs_url = "https://docs.moralis.com/"
+terms_url = "https://moralis.com/terms-of-service/"
+sources = ["https://developers.moralis.com/pricing"]
+notes = "Indexed data API, not an independent RPC source. Catalogue entry only; no adapter. Solana coverage per endpoint not verified."
+
+[[provider]]
+id = "coingecko"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "CoinGecko API"
+operator = "CoinGecko"
+kind = "indexer_api"
+protocol = "none"
+chains = ["ethereum", "solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_COINGECKO_KEY"
+enabled = true
+methods = []
+rate_limit = "Demo (free): 10,000 calls/month, 100 calls/min, attribution required; a keyless public API also exists (CoinGecko pricing page, checked 2026-11-21)."
+docs_url = "https://docs.coingecko.com/"
+terms_url = "https://www.coingecko.com/en/api_terms"
+sources = ["https://www.coingecko.com/en/api/pricing"]
+notes = "Market prices and metadata only; context, never evidence of on-chain facts. Catalogue entry only; no adapter. Keyless limits not verified."
+
+[[provider]]
+id = "birdeye"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "Birdeye Data API"
+operator = "Birdeye"
+kind = "indexer_api"
+protocol = "none"
+chains = ["solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_BIRDEYE_KEY"
+enabled = true
+methods = []
+docs_url = "https://docs.birdeye.so/"
+terms_url = "https://birdeye.so/terms-of-service"
+sources = ["https://birdeye.so/data-api/pricing"]
+notes = "A free Standard package exists, but its compute-unit and rate limits were not shown on the pricing page, so they are unverified. Paid tiers start at $39/month and are not used. Catalogue entry only; no adapter."
+
+[[provider]]
+id = "getblock"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "GetBlock RPC"
+operator = "GetBlock"
+kind = "rpc"
+protocol = "none"
+chains = ["ethereum", "solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_GETBLOCK_URL"
+enabled = true
+methods = []
+rate_limit = "Free shared node: 50,000 CU/day (renewed daily, no carry-over), 20 RPS, 2 access tokens (GetBlock CU and rate limits docs, checked 2026-11-21)."
+docs_url = "https://docs.getblock.io/"
+terms_url = "https://getblock.io/terms-of-service/"
+sources = ["https://docs.getblock.io/getting-started/plans-and-limits/cu-and-rate-limits", "https://getblock.io/pricing/"]
+notes = "Catalogue entry only; no adapter. Endpoint host depends on the owner's access token and is unknown. Archive access is limited to selected networks (pricing page)."
+
+[[provider]]
+id = "solscan"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "Solscan API"
+operator = "Solscan"
+kind = "indexer_api"
+protocol = "none"
+chains = ["solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_SOLSCAN_KEY"
+enabled = true
+methods = []
+docs_url = "https://docs.solscan.io/"
+terms_url = "https://solscan.io/apis"
+sources = ["https://docs.solscan.io/build-with-ai/solscan-mcp", "https://docs.solscan.io/solscan-api/solscan-pro-api-endpoints"]
+notes = "A free (Level 1) key exists with a lower rate limit and core endpoints, but its numbers are not published in the pages read, so they are unverified. Pro levels start at $199/month and are not used. Catalogue entry only; no adapter."
+
+[[provider]]
+id = "dune"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "Dune"
+operator = "Dune Analytics"
+kind = "dataset"
+protocol = "none"
+chains = ["ethereum", "solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_DUNE_KEY"
+enabled = true
+methods = []
+rate_limit = "Free plan is view-only: no API access, exports or credits. API needs a 7-day trial (2,500 credits) or a paid plan from $65/month (Dune pricing and billing docs, checked 2026-11-21)."
+docs_url = "https://docs.dune.com/"
+terms_url = "https://dune.com/terms"
+sources = ["https://dune.com/pricing", "https://docs.dune.com/api-reference/overview/billing"]
+notes = "Do not configure: no free API tier, so it cannot meet the $0 target. Listed so the decision is visible. No adapter."
+
+[[provider]]
+id = "bitquery"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+name = "Bitquery GraphQL"
+operator = "Bitquery"
+kind = "indexer_api"
+protocol = "none"
+chains = ["ethereum", "solana"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_BITQUERY_KEY"
+enabled = true
+methods = []
+rate_limit = "No ongoing free tier: 7-day trial with 1,000 API points, real-time data only, no archive; paid plans from $29/month billed annually (Bitquery pricing, checked 2026-11-21). Free sample files exist for Data Store datasets."
+docs_url = "https://docs.bitquery.io/"
+terms_url = "https://bitquery.io/terms"
+sources = ["https://bitquery.io/pricing", "https://docs.bitquery.io/docs/plans/how-billing-works"]
+notes = "Do not configure: no free tier beyond a short trial. No adapter. Free Parquet sample files could be evaluated for fixtures."

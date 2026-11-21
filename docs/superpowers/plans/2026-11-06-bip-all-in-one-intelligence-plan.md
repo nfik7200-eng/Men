@@ -17,6 +17,7 @@
 ```python
 def test_expanded_providers_registration():
     from bip.providers.registry import load_registry
+
     registry = load_registry()
     assert "publicnode-eth" in registry
     assert "defillama" in registry
@@ -58,6 +59,7 @@ git commit -m "feat: expand provider registry with public RPC and non-RPC source
 def test_wallet_classification_and_copy_trading():
     from bip.strategies.classifier import classify_wallet_profile
     from bip.strategies.copy_trader import evaluate_copy_trade_signals
+
     # Mock data test
     profile = classify_wallet_profile("0x123", transactions=[], transfers=[])
     assert profile["classification"] in ["unknown", "meme_trader", "investor", "dev", "copy_target"]
