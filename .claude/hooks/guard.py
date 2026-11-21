@@ -6,7 +6,10 @@ Blocks (exit 2, reason on stderr, which Claude sees):
 - Bash `git commit` whose message carries model attribution (CLAUDE.md section 4).
 - Bash `git push` to any branch other than ALLOWED_BRANCH, or with force/delete/all/mirror
   (CLAUDE.md section 8).
-- Edit/Write/NotebookEdit of `.env*` files (except `.env.example`) and `uv.lock`.
+- Bash `git commit` with a `.env*` file (other than `.env.example`) staged: secrets never
+  enter git (CLAUDE.md section 8.11).
+- Edit/Write/NotebookEdit of `uv.lock`. Editing `.env` is allowed by owner decision
+  (2026-11-21); `.env*` is gitignored and the commit check above blocks staging it.
 
 Reads the hook payload as JSON on stdin. Fails open on internal errors so a guard bug never
 wedges a session; every failure path still prints a warning.
@@ -89,6 +92,21 @@ def check_commit(command: str, tokens: list[str], cwd: str) -> None:
             "CLAUDE.md section 4 forbids model identifiers in commits; remove it."
         )
 
+    # Secrets: a staged .env file (only possible via `git add -f`, since .env* is gitignored).
+    staged = git("diff", "--cached", "--name-only", cwd=cwd).splitlines()
+    secret_files = [
+        f
+        for f in staged
+        if (Path(f).name == ".env" or Path(f).name.startswith(".env."))
+        and Path(f).name != ".env.example"
+    ]
+    if secret_files:
+        block(
+            "staged secret file(s) "
+            + ", ".join(secret_files)
+            + "; unstage them (`git restore --staged <file>`). Secrets never enter git."
+        )
+
     # 2. Conflict markers in what will be committed. A compound `git add ... && git commit`
     # or `commit -a` has not staged yet, so scan all tracked changes plus untracked files.
     stages_now = "git add" in command or any(t in {"-a", "--all"} for t in tokens[2:])
@@ -152,8 +170,6 @@ def check_file(path_str: str) -> None:
         block(
             "uv.lock is generated; change pyproject.toml and run `uv lock` instead of editing it."
         )
-    if (name == ".env" or name.startswith(".env.")) and name != ".env.example":
-        block(f"{name} holds local secrets and must not be edited by Claude.")
 
 
 def main() -> None:
