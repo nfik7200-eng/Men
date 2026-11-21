@@ -4,6 +4,29 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-21 — Merge repair — final review fix wave
+
+A final whole-branch review found two Important issues and several minor ones. Commits (forward only, nothing amended): `dfd973f` (migration 22), `8fd5eb2` (analyst grant), and the docs commit that carries this entry.
+
+**Fixed.**
+- **Migration 22** ("repair databases from the pre-merge local line", `SCHEMA_VERSION` 22): databases built on the pre-merge local line recorded cases as v6 and curation as v7, so upstream's v6/v7 tables (research links, signals, discovery runs, alert rules, alerts) were never created there. Migration 22 runs `create(checkfirst=True)` for `V6_TABLES + V7_TABLES`; additive and idempotent.
+- **Analyst grant**: analysts may write `/cases/*` and `/curation/feedback` (`bip/api/access.py`, mirrored in `frontend/src/auth/access.ts`).
+- **ADR-051** added to `DECISIONS.md` (Proposed) recording the renumbering, migration 22 and the analyst grant.
+- **Doc wording**: `CURRENT_STATE.md` (roadmap row, "Awaiting owner approval" item 0, repair note now says `SCHEMA_VERSION` is 22) and a "(now migration 21)" note on the curation entry in this log. The merge-repair plan file is committed under `docs/superpowers/plans/`.
+
+**Check output (working tree after the fixes).**
+- `uv run ruff check .`: All checks passed!
+- `uv run pyright`: 0 errors, 0 warnings, 0 informations
+- `uv run pytest -q`, run 1: `1059 passed in 953.52s (0:15:53)`
+- `uv run pytest -q`, run 2: `1059 passed in 813.77s (0:13:33)`
+- `npx tsc --noEmit`: no errors
+- `npm run build`: built OK (chunk-size warning only)
+- `npx vitest run`: a first run concurrent with pytest had 3 files fail (5 s timeouts in `App.test.tsx` and `cases.test.tsx`, one text assertion in `research/runpage.test.tsx`); the contention cause was not isolated. Run alone: `Test Files 29 passed (29), Tests 295 passed (295)`.
+
+**Also in this push (owner request).** `970228a` adds a Claude Code PreToolUse commit guard (`.claude/hooks/guard.py`: blocks commits with conflict markers, model attribution or a staged `.env*` file, pushes other than to `claude/modest-fermi-0yklvj` or with force, and edits to `uv.lock`) and a user-invoked `create-migration` skill whose `check_numbers.py` checks migration numbers on every branch (it reproduces the v6/v7 collision between `9765710` and `5bdddbf`). The guard was then changed to allow `.env` edits (owner decision) and to block staging them. 19 + 5 piped allow/block cases pass; ruff clean (`pyproject.toml` ignores T201, S603, S607, BLE001 for `.claude/**`).
+
+**Not done.** No browser (e2e) run in this wave.
+
 ## 2026-11-21 — Repair of the botched rebase merge (backend, frontend, state documents)
 
 **Starting point:** branch `claude/modest-fermi-0yklvj` at `b1d7fc3`. A rebase of the local Detective work onto upstream `9765710` had gone wrong in three steps:
@@ -71,7 +94,7 @@ $ uv run pytest                      # as in 9dc8899
 
 _Date not recorded in the original entry; it was appended to the log in commit 8e9112c (2026-11-20)._
 
-Added schema v7 `curation_feedback`, `bip/ml/curation.py`, `/api/v1/curation/*` routes and the `/curation` page. tests/api: 65 passed (7 new curation tests); vitest 9 files / 59 tests passed; ruff clean on new Python files.
+Added schema v7 `curation_feedback` (now migration 21), `bip/ml/curation.py`, `/api/v1/curation/*` routes and the `/curation` page. tests/api: 65 passed (7 new curation tests); vitest 9 files / 59 tests passed; ruff clean on new Python files.
 
 ## 2026-11-19/20 — Task 4: Temporal Graph Explorer and Evidence Trail
 

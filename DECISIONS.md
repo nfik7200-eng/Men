@@ -689,3 +689,21 @@ The Stage 3 verification audit found three correctness problems.
 - Candidates created before v19 have no snapshot and are excluded.
 - Graph features are approximate, because relationship rows change after the fact.
 - Approval of this ADR is pending with the owner.
+
+## ADR-051 Renumber local migrations 6/7 to 20/21 and repair affected databases; analyst grant for cases and curation (Proposed; merge repair, 2026-11-21)
+**Context.**
+- The local Detective line numbered its cases tables as migration 6 and `curation_feedback` as migration 7.
+- Upstream `9765710` already used 6 (`investigation_research_runs`) and 7 (signals, signal evidence, discovery runs, alert rules, alerts).
+- `migrate()` skips every version at or below the highest recorded one.
+- `ANALYST_WRITE` in `bip/api/access.py` is fail-closed and predates the cases and curation routes, so their writes required admin.
+
+**Decision.**
+- **Renumbering.** The local migrations became 20 (cases, evidence, hypotheses, leads) and 21 (`curation_feedback`). Upstream keeps 6 and 7. Why: upstream's numbers may already be recorded in other databases, so they cannot move.
+- **Upgrade consequence.** A database built on the pre-merge local line has versions 6 and 7 recorded with the local meaning. A plain upgrade would skip upstream's 6 and 7, leaving research links, signals, discovery runs and alerts without tables ("no such table").
+- **Repair.** Migration 22, "repair databases from the pre-merge local line", runs `create(checkfirst=True)` for every table in `V6_TABLES + V7_TABLES`. It is additive and idempotent. Migrations 8 to 19 never alter those tables, so creating them late is safe. `SCHEMA_VERSION` is 22.
+- **Analyst grant.** Analysts may write `/cases/*` and `/curation/feedback`, mirrored in `frontend/src/auth/access.ts`. Why: the access module's docstring lets analysts change cases, and curation statistics are defined as analyst verdicts. Everything else stays fail-closed.
+
+**Consequences.**
+- Databases from either line upgrade to 22 with all tables present.
+- Version rows 6 and 7 in a repaired local-line database keep their local descriptions.
+- The analyst grant widens what analysts can do. Approval of this ADR, including that grant, is pending with the owner.
