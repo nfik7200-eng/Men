@@ -120,8 +120,8 @@ client_rps = 5.0
 rate_limit = "Free: 3,000,000 credits/day and 500 credits/s; eth_getLogs costs 255 credits, returns at most 10,000 results within 10 s, 5,000 parameters per request, no block-range cap (Infura pricing and eth_getLogs reference, checked 2026-11-13)."
 docs_url = "https://docs.infura.io/api/networks/ethereum"
 terms_url = "https://consensys.io/terms-of-use"
-sources = ["https://docs.infura.io/get-started/pricing/", "https://docs.metamask.io/services/reference/ethereum/json-rpc-methods/eth_getlogs/"]
-notes = "URL format https://mainnet.infura.io/v3/<API-KEY> (Infura docs). Requires a free account."
+sources = ["https://docs.infura.io/get-started/pricing/", "https://docs.metamask.io/services/reference/ethereum/json-rpc-methods/eth_getlogs/", "https://docs.infura.io/get-started/endpoints"]
+notes = "URL format https://mainnet.infura.io/v3/<API-KEY> (Infura docs). Requires a free account. Infura Solana (solana-mainnet.infura.io) is not registered: the endpoints docs say Solana access is currently limited to select customers (checked 2026-11-21)."
 
 [[provider]]
 id = "quicknode-eth"
@@ -708,7 +708,7 @@ client_rps = 4.0
 rate_limit = "Free package: 50M request units, 20 requests/s, 400 RU/s, granted monthly (expires after 32 days); eth_getLogs limited to 1,024 blocks without address/topic filter, 5,000 with one (BlockPI docs, search excerpts, checked 2026-11-21)."
 docs_url = "https://docs.blockpi.io/"
 terms_url = "https://blockpi.io/terms-of-use"
-sources = ["https://docs.blockpi.io/pricing/pricing-and-rate-limit", "https://docs.blockpi.io/llms-full.txt"]
+sources = ["https://docs.blockpi.io/pricing/pricing-and-rate-limit", "https://docs.blockpi.io/llms-full.txt", "https://blockpi.io/chain/bsc"]
 max_log_block_range = 1024
 archive = "yes"
 notes = "URL https://ethereum.blockpi.network/v1/rpc/<KEY>. No card required per site FAQ. A keyless public endpoint (ethereum.public.blockpi.network, 10 req/s) exists but is not allow-listed here. Terms unread."
@@ -735,8 +735,8 @@ client_rps = 2.0
 rate_limit = "Free: 10M compute units/month, 150 CU/s per key, 3 keys (newer docs); older marketplace page says 100M CU and 300 CU/s, so the lower figures are used (NodeReal docs, search excerpts, checked 2026-11-21)."
 docs_url = "https://docs.nodereal.io"
 terms_url = "https://nodereal.io/"
-sources = ["https://docs.nodereal.io/docs/pricing-plan", "https://nodereal.io/pricing"]
-notes = "URL https://eth-mainnet.nodereal.io/v1/<KEY>. No card needed. Archive on Free, eth_getLogs range and terms URL unconfirmed (terms URL not found; terms_url is the site root). Solana not offered by MegaNode."
+sources = ["https://docs.nodereal.io/docs/pricing-plan", "https://nodereal.io/pricing", "https://docs.nodereal.io/docs/pricing"]
+notes = "URL https://eth-mainnet.nodereal.io/v1/<KEY>. No card needed. Archive on Free, eth_getLogs range and terms URL unconfirmed (ToS URL not found; terms_url is the site root). Solana not offered by MegaNode."
 
 [[provider]]
 id = "infstones-eth"
@@ -755,4 +755,44 @@ rate_limit = "Fast API Free: $0/month, 30M request cost, 15 requests/s, 1 projec
 docs_url = "https://docs.infstones.com"
 terms_url = "https://infstones.com/terms"
 sources = ["https://infstones.com/fast-api", "https://docs.infstones.com/docs/api-security"]
-notes = "Catalogue entry only; no adapter. Ethereum endpoint format unverified (only a BSC example: api.infstones.com/bsc/mainnet/<project-id>), so host unknown until the owner creates an endpoint. Pricing page may be stale. Card requirement, archive and terms unknown."
+notes = "Catalogue entry only; no adapter. Ethereum endpoint format unverified (only a BSC example: api.infstones.com/bsc/mainnet/<project-id>), so host unknown until the owner creates an endpoint. Pricing page may be stale. Card requirement, archive and terms unknown; terms_url is unconfirmed (footer link only)."
+
+# ---------------------------------------------------------------- Indexed-data APIs (no adapter)
+
+[[provider]]
+id = "chainbase"
+documentation_basis = "search_derived"
+documentation_checked = "2026-11-21"
+name = "Chainbase Web3 API"
+operator = "Chainbase"
+kind = "indexer_api"
+protocol = "none"
+chains = ["ethereum"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_CHAINBASE_KEY"
+enabled = true
+methods = []
+rate_limit = "Free: 200,000 credits/month (UTC calendar month), Web3 API 3 credits/s, SQL API flat 100 credits per query (about 2,000 queries/month), HTTP 429 over limit (Chainbase credit overview, search excerpt, checked 2026-11-21)."
+docs_url = "https://docs.chainbase.com"
+terms_url = "https://chainbase.com/"
+sources = ["https://docs.chainbase.com/resources/platform/credit/overview", "https://docs.chainbase.com/resources/platform/pricing/pricing", "https://docs.chainbase.com/resources/platform/supported-networks/supported-networks"]
+notes = "Indexed data API, not an independent RPC source; no adapter. Host api.chainbase.com, X-API-KEY header; demo key is not keyless. No card. CONFLICT: legacy page says 2 req/s for Free vs 3 credits/s; use the lower. Solana unverified (asterisk in networks table, absent from Web3 API list), so only ethereum. ToS URL not found; terms_url is the site root."
+
+[[provider]]
+id = "routescan"
+documentation_basis = "search_derived"
+documentation_checked = "2026-11-21"
+name = "Routescan Etherscan-compatible API"
+operator = "Routescan"
+kind = "indexer_api"
+protocol = "none"
+chains = ["ethereum"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_ROUTESCAN_KEY"
+enabled = true
+methods = []
+rate_limit = "Free keyless: 2 requests/s, 10,000 calls/day, IP-limited. Free registered key: 5 requests/s, 100,000 calls/day, no card (Routescan rate limits and pricing, search excerpts, checked 2026-11-21)."
+docs_url = "https://docs.routescan.io"
+terms_url = "https://routescan.io/"
+sources = ["https://docs.routescan.io/plans-and-limits/rate-limits", "https://routescan.io/pricing", "https://routescan.io/products/etherscan-api"]
+notes = "Indexed data API, not an independent RPC source; no adapter. EVM only, no Solana. api.routescan.io/v2/network/mainnet/evm/1/etherscan/api; key optional on free tier (apikey header). Free plans need a backlink or 'Powered by Routescan.io APIs' mention unless private use. Some chains may be incompletely indexed: validate. ToS URL not found; terms_url is the site root."
