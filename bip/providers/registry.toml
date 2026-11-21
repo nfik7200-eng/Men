@@ -578,3 +578,181 @@ docs_url = "https://docs.bitquery.io/"
 terms_url = "https://bitquery.io/terms"
 sources = ["https://bitquery.io/pricing", "https://docs.bitquery.io/docs/plans/how-billing-works"]
 notes = "Do not configure: no free tier beyond a short trial. No adapter. Free Parquet sample files could be evaluated for fixtures."
+
+# ---------------------------------------------------------------- Added 2026-11-21 (free RPC expansion)
+# Entries marked documentation_basis = "search_derived" rely on search-result excerpts of the
+# official pages, not a direct page read; treat their limits as leads until probed.
+# Skipped: dwellir-sol (no Solana offering found), infura-sol (Solana gated for select customers).
+
+[[provider]]
+id = "validationcloud-eth"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+infrastructure = "validationcloud"
+name = "Validation Cloud Ethereum"
+operator = "Validation Cloud"
+kind = "rpc"
+protocol = "evm-jsonrpc"
+chains = ["ethereum"]
+network = "mainnet"
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_VALIDATIONCLOUD_ETH_URL"
+allowed_hosts = ["mainnet.ethereum.validationcloud.io"]
+enabled = true
+methods = ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBalance",
+           "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
+           "eth_getTransactionCount", "eth_getCode"]
+client_rps = 4.0
+rate_limit = "Free: 50M compute units/month, 120 requests/s shared across the team; eth_getLogs costs 80 CU; over limit returns JSON-RPC error -32077 (Validation Cloud billing and Ethereum overview, checked 2026-11-21)."
+docs_url = "https://docs.validationcloud.io/nodeapi"
+terms_url = "https://www.validationcloud.io/terms"
+sources = ["https://docs.validationcloud.io/nodeapi/about/billing.md", "https://docs.validationcloud.io/nodeapi/ethereum/overview"]
+archive = "yes"
+notes = "URL https://mainnet.ethereum.validationcloud.io/v1/<KEY> (key in path). No card required; no keyless access. eth_getLogs block range not documented. A FAQ says no arbitrary throttling, conflicting with the 120 rps free limit; the billing figure is used. Terms restrictions unreviewed."
+
+[[provider]]
+id = "validationcloud-sol"
+documentation_basis = "official_docs"
+documentation_checked = "2026-11-21"
+infrastructure = "validationcloud"
+name = "Validation Cloud Solana"
+operator = "Validation Cloud"
+kind = "rpc"
+protocol = "solana-jsonrpc"
+chains = ["solana"]
+network = "mainnet-beta"
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_VALIDATIONCLOUD_SOL_URL"
+allowed_hosts = ["mainnet.solana.validationcloud.io"]
+enabled = true
+methods = ["getHealth", "getGenesisHash", "getSlot", "getBlock", "getBalance",
+           "getSignaturesForAddress", "getTransaction", "getVersion", "getBlockHeight",
+           "getLatestBlockhash"]
+client_rps = 4.0
+rate_limit = "Free: 50M compute units/month, 120 requests/s shared across the team; most Solana HTTP methods cost 30 CU (Validation Cloud billing and Solana overview, checked 2026-11-21)."
+docs_url = "https://docs.validationcloud.io/nodeapi"
+terms_url = "https://www.validationcloud.io/terms"
+sources = ["https://docs.validationcloud.io/nodeapi/about/billing.md", "https://docs.validationcloud.io/nodeapi/solana/overview"]
+notes = "URL https://mainnet.solana.validationcloud.io/v1/<KEY> (key in path). No card required; no keyless access. Archive depth not read from a primary page, so left unknown. Terms restrictions unreviewed."
+
+[[provider]]
+id = "ankr-sol"
+documentation_basis = "search_derived"
+documentation_checked = "2026-11-21"
+infrastructure = "ankr"
+name = "Ankr Solana"
+operator = "Ankr"
+kind = "rpc"
+protocol = "solana-jsonrpc"
+chains = ["solana"]
+network = "mainnet-beta"
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_ANKR_SOL_URL"
+allowed_hosts = ["rpc.ankr.com"]
+enabled = true
+methods = ["getHealth", "getGenesisHash", "getSlot", "getBlock", "getBalance",
+           "getSignaturesForAddress", "getTransaction", "getVersion", "getBlockHeight",
+           "getLatestBlockhash"]
+client_rps = 2.0
+rate_limit = "Service-plans page: Public and Freemium about 1,800 requests/minute for Solana; Freemium 200M credits/month, Solana 500 credits/request under premium charging (Ankr service plans, checked 2026-11-21)."
+docs_url = "https://www.ankr.com/docs/rpc-service/"
+terms_url = "https://www.ankr.com/terms"
+sources = ["https://www.ankr.com/docs/rpc-service/service-plans/", "https://www.ankr.com/docs/rpc-service/chains/chains-list/s-t/"]
+notes = "CONFLICT: service-plans page lists Solana for Public and Freemium, but the chains list says Solana is Premium only; may need a paid plan, so verify with a key probe. Mainnet URL https://rpc.ankr.com/solana/<KEY> is pattern-derived (devnet is solana_devnet). Ledger keeps about 16 hours of history. Terms: internal business use."
+
+[[provider]]
+id = "dwellir-eth"
+documentation_basis = "search_derived"
+documentation_checked = "2026-11-21"
+infrastructure = "dwellir"
+name = "Dwellir Ethereum"
+operator = "Dwellir AB"
+kind = "rpc"
+protocol = "evm-jsonrpc"
+chains = ["ethereum"]
+network = "mainnet"
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_DWELLIR_ETH_URL"
+allowed_hosts = ["api-ethereum-mainnet.n.dwellir.com", "api-ethereum-mainnet-erigon.n.dwellir.com"]
+enabled = true
+methods = ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBalance",
+           "eth_getTransactionByHash", "eth_getTransactionReceipt",
+           "eth_getTransactionCount", "eth_getCode"]
+client_rps = 4.0
+rate_limit = "Free: 20 responses/s and 100,000 responses/day (one response is one credit); a pricing page says 500K/day, the lower figure is used. eth_getLogs is not available on Free (Dwellir docs, search excerpts, checked 2026-11-21)."
+docs_url = "https://www.dwellir.com/docs"
+terms_url = "https://www.dwellir.com/terms-of-service"
+sources = ["https://www.dwellir.com/docs/ethereum", "https://www.dwellir.com/docs/getting-started/rate-limits.md", "https://www.dwellir.com/public-rpc-endpoints"]
+archive = "yes"
+notes = "URL https://api-ethereum-mainnet.n.dwellir.com/<KEY>; key also accepted in X-Api-Key header. No keyless EVM access. Credit-card requirement unknown. Terms: one account per entity, multiple accounts to bypass limits prohibited; resale terms unread. dwellir-sol skipped: no Solana offering found."
+
+[[provider]]
+id = "blockpi-eth"
+documentation_basis = "search_derived"
+documentation_checked = "2026-11-21"
+infrastructure = "blockpi"
+name = "BlockPI Ethereum"
+operator = "BlockPI Network"
+kind = "rpc"
+protocol = "evm-jsonrpc"
+chains = ["ethereum"]
+network = "mainnet"
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_BLOCKPI_ETH_URL"
+allowed_hosts = ["ethereum.blockpi.network"]
+enabled = true
+methods = ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBalance",
+           "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
+           "eth_getTransactionCount", "eth_getCode"]
+client_rps = 4.0
+rate_limit = "Free package: 50M request units, 20 requests/s, 400 RU/s, granted monthly (expires after 32 days); eth_getLogs limited to 1,024 blocks without address/topic filter, 5,000 with one (BlockPI docs, search excerpts, checked 2026-11-21)."
+docs_url = "https://docs.blockpi.io/"
+terms_url = "https://blockpi.io/terms-of-use"
+sources = ["https://docs.blockpi.io/pricing/pricing-and-rate-limit", "https://docs.blockpi.io/llms-full.txt"]
+max_log_block_range = 1024
+archive = "yes"
+notes = "URL https://ethereum.blockpi.network/v1/rpc/<KEY>. No card required per site FAQ. A keyless public endpoint (ethereum.public.blockpi.network, 10 req/s) exists but is not allow-listed here. Terms unread."
+
+[[provider]]
+id = "nodereal-eth"
+documentation_basis = "search_derived"
+documentation_checked = "2026-11-21"
+infrastructure = "nodereal"
+name = "NodeReal MegaNode Ethereum"
+operator = "NodeReal"
+kind = "rpc"
+protocol = "evm-jsonrpc"
+chains = ["ethereum"]
+network = "mainnet"
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_NODEREAL_ETH_URL"
+allowed_hosts = ["eth-mainnet.nodereal.io"]
+enabled = true
+methods = ["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBalance",
+           "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
+           "eth_getTransactionCount", "eth_getCode"]
+client_rps = 2.0
+rate_limit = "Free: 10M compute units/month, 150 CU/s per key, 3 keys (newer docs); older marketplace page says 100M CU and 300 CU/s, so the lower figures are used (NodeReal docs, search excerpts, checked 2026-11-21)."
+docs_url = "https://docs.nodereal.io"
+terms_url = "https://nodereal.io/"
+sources = ["https://docs.nodereal.io/docs/pricing-plan", "https://nodereal.io/pricing"]
+notes = "URL https://eth-mainnet.nodereal.io/v1/<KEY>. No card needed. Archive on Free, eth_getLogs range and terms URL unconfirmed (terms URL not found; terms_url is the site root). Solana not offered by MegaNode."
+
+[[provider]]
+id = "infstones-eth"
+documentation_basis = "search_derived"
+documentation_checked = "2026-11-21"
+name = "InfStones Ethereum"
+operator = "InfStones"
+kind = "rpc"
+protocol = "none"
+chains = ["ethereum"]
+access = "credentials"
+endpoint_env = "BIP_PROVIDER_INFSTONES_ETH_URL"
+enabled = true
+methods = []
+rate_limit = "Fast API Free: $0/month, 30M request cost, 15 requests/s, 1 project, no overages (InfStones pricing page, search excerpt, checked 2026-11-21)."
+docs_url = "https://docs.infstones.com"
+terms_url = "https://infstones.com/terms"
+sources = ["https://infstones.com/fast-api", "https://docs.infstones.com/docs/api-security"]
+notes = "Catalogue entry only; no adapter. Ethereum endpoint format unverified (only a BSC example: api.infstones.com/bsc/mainnet/<project-id>), so host unknown until the owner creates an endpoint. Pricing page may be stale. Card requirement, archive and terms unknown."
