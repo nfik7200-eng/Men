@@ -28,6 +28,7 @@ import hashlib
 import json
 import random
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,7 +42,8 @@ from bip.db.types import utcnow
 from bip.intel.dataset import load_wallet
 from bip.ml import rules, runtime, synthetic, taxonomy
 from bip.ml.features import FEATURE_NAMES, FEATURE_VERSION, FeatureVector, extract
-from bip.ml.labels import LabelStore
+from bip.ml.filters import Candidate, run_pipeline
+from bip.ml.labels import TRAINABLE, LabelStore
 
 if TYPE_CHECKING:
     from bip.ml.backend import LabelModel
@@ -128,8 +130,6 @@ class Trainer:
         for r in rows:
             key = (r["address"], r["observed_at"])
             if key not in groups:
-                from datetime import datetime
-
                 as_of = datetime.fromisoformat(r["observed_at"])
                 ds = load_wallet(
                     self._repo, chain, r["address"], self._settings.intel.max_records_per_wallet
@@ -141,7 +141,9 @@ class Trainer:
             if lab in ex.labels and ex.labels[lab] != value:
                 ex.conflicts.add(lab)  # sources disagree: the label is dropped, not guessed
             ex.labels[lab] = value
-            ex.statuses[lab] = r["status"]
+            # a weak or inferred label is only in ``training_rows`` because a reviewer accepted
+            # it: that review makes it ``analyst_reviewed``; its source stays the real one
+            ex.statuses[lab] = r["status"] if r["status"] in TRAINABLE else "analyst_reviewed"
             ex.sources[lab] = r["source"]
         out = list(groups.values())
         for ex in out:
@@ -149,6 +151,42 @@ class Trainer:
                 for d in (ex.labels, ex.statuses, ex.sources):
                     d.pop(lab, None)
         return [ex for ex in out if ex.labels]
+
+    def _filtered(self, examples: list[Example]) -> tuple[list[Example], J]:
+        """Run the training-data filters; keep a label only if its candidate survived and drop
+        examples left with no labels. Label conflicts are already resolved by :meth:`_stored`."""
+        items: list[Candidate] = []
+        by_key: dict[str, tuple[Example, str]] = {}
+        for ex in examples:
+            as_of = _aware(ex.fv.as_of)
+            features = {k: None if v is None else float(v) for k, v in ex.fv.values.items()}
+            for lab, value in ex.labels.items():
+                key = f"{ex.fv.address}|{as_of.isoformat()}|{lab}"
+                by_key[key] = (ex, lab)
+                items.append(
+                    Candidate(
+                        key=key,
+                        entity=f"{ex.fv.chain}:{ex.fv.address}",
+                        as_of=as_of,
+                        label_time=as_of,  # the label's ``observed_at`` is the as-of time
+                        label=lab,
+                        value=value,
+                        label_source=ex.sources[lab],
+                        label_status=ex.statuses[lab],
+                        features=features,
+                    )
+                )
+        kept, report = run_pipeline(items, self._cfg, utcnow())
+        keep = {(id(by_key[c.key][0]), by_key[c.key][1]) for c in kept}
+        out: list[Example] = []
+        for ex in examples:
+            for lab in list(ex.labels):
+                if (id(ex), lab) not in keep:
+                    for d in (ex.labels, ex.statuses, ex.sources):
+                        d.pop(lab, None)
+            if ex.labels:
+                out.append(ex)
+        return out, report
 
     # ------------------------------------------------------------------ training
 
@@ -177,14 +215,23 @@ class Trainer:
         }
         run_id = self._start(name, chain, data_kind, params)
         random.seed(seed)
-        examples = self._synthetic(chain, seed) if source == "synthetic" else self._stored(chain)
+        filters: J | str = "not_applied_synthetic"
+        if source == "synthetic":
+            examples = self._synthetic(chain, seed)
+        else:
+            examples, filters = self._filtered(self._stored(chain))
         wallets = len({e.fv.address for e in examples})
         if data_kind == "real" and wallets < self._cfg.min_labelled_wallets:
             return self._finish(
                 run_id,
                 "insufficient_data",
                 None,
-                None,
+                {
+                    "examples": len(examples),
+                    "wallets": wallets,
+                    "data_kind": data_kind,
+                    "filters": filters,
+                },
                 f"{wallets} distinct labelled wallet(s) with trainable labels "
                 f"({len(examples)} snapshots); at least {self._cfg.min_labelled_wallets} "
                 "distinct wallets are needed. "
@@ -216,6 +263,7 @@ class Trainer:
                     f"|{e.fv.address}|{lab}|{e.labels[lab]}|"
                     f"{e.statuses[lab]}|{e.sources[lab]}".encode()
                 )
+        version_src.update(json.dumps(filters, sort_keys=True).encode())
         dataset_version = version_src.hexdigest()
         dataset: J = {
             "examples": n,
@@ -223,6 +271,7 @@ class Trainer:
             "split_unit": "wallet (no wallet appears in two splits)",
             "conflicting_labels_dropped": sum(len(e.conflicts) for e in examples),
             "data_kind": data_kind,
+            "filters": filters,
             "splits": {
                 k: {
                     "n": len(v),
@@ -427,6 +476,10 @@ class Trainer:
                 ).scalar_one()
             )
         return f"1.0.{n}"
+
+
+def _aware(t: datetime) -> datetime:
+    return t if t.tzinfo is not None else t.replace(tzinfo=UTC)
 
 
 def _count(values: Any) -> J:

@@ -31,7 +31,7 @@ import math
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy import func, insert, or_, select, union
@@ -44,8 +44,9 @@ from bip.db.canonical import orphaned_tx_ids
 from bip.db.errors import RecordNotFoundError
 from bip.db.repository import Repository
 from bip.db.types import utcnow
-from bip.discovery.review import ReviewService
+from bip.discovery.review import ReviewService, is_human
 from bip.ml.drift import population_stability_index
+from bip.ml.filters import Candidate, run_pipeline
 
 log = get_logger(__name__)
 
@@ -621,7 +622,11 @@ class SignalRanking:
             excluded = truth["excluded_because"]
         rows = self._snapshots()
         anomalies = anomaly_scores(rows)
-        labelled = [r for r in rows if r.signal_id in truth_labels]
+        labelled, filters = self._filtered(
+            [r for r in rows if r.signal_id in truth_labels],
+            truth_labels,
+            "caller_supplied" if experimental else "human_review",
+        )
         counts: dict[str, dict[str, int]] = defaultdict(lambda: {"positive": 0, "negative": 0})
         for r in labelled:
             counts[r.chain]["positive" if truth_labels[r.signal_id] else "negative"] += 1
@@ -633,6 +638,7 @@ class SignalRanking:
             "labels_excluded_because": excluded,
             "snapshots": len(rows),
             "labelled": len(labelled),
+            "filters": filters,
             "labelled_without_snapshot": self._without_snapshot(truth_labels),
             "label_counts": dict(counts),
             "gate": gate,
@@ -704,7 +710,8 @@ class SignalRanking:
                 [
                     [r.signal_id, truth_labels.get(r.signal_id), r.features, r.rule_score]
                     for r in rows
-                ],
+                ]
+                + [filters],
                 sort_keys=True,
                 default=str,
             ).encode()
@@ -736,6 +743,53 @@ class SignalRanking:
                 ).inserted_primary_key
             result["run_id"] = int(pk[0]) if pk is not None else None
         return result
+
+    def _review_times(self, ids: Sequence[int]) -> dict[int, datetime]:
+        """The time of each signal's latest human decision (the label's time)."""
+        d = schema.signal_decisions
+        latest: dict[int, datetime] = {}
+        with self._repo.transaction() as conn:
+            for i in range(0, len(ids), 400):
+                rows = conn.execute(
+                    select(d.c.signal_id, d.c.actor, d.c.decided_at).where(
+                        d.c.signal_id.in_(list(ids[i : i + 400]))
+                    )
+                ).all()
+                for r in rows:
+                    sid, at = int(r.signal_id), _aware(r.decided_at)
+                    if is_human(str(r.actor)) and (sid not in latest or at > latest[sid]):
+                        latest[sid] = at
+        return latest
+
+    def _filtered(
+        self, labelled: list[_Row], labels: dict[int, int], source: str
+    ) -> tuple[list[_Row], dict[str, Any]]:
+        """Run the training-data filters on the labelled snapshots. The label is the human
+        review outcome, taken at the review time. ``ground_truth_set`` only returns undisputed
+        human outcomes, so they carry the reviewer source and the ``analyst_reviewed`` status;
+        caller-supplied test labels have no review time."""
+        reviewed = (
+            {}
+            if source == "caller_supplied"
+            else self._review_times([r.signal_id for r in labelled])
+        )
+        items = [
+            Candidate(
+                key=str(r.signal_id),
+                entity=f"{r.chain}:{r.subject}",
+                as_of=_aware(r.observed_at),
+                label_time=reviewed.get(r.signal_id),
+                label="review_outcome",
+                value=bool(labels[r.signal_id]),
+                label_source=source,
+                label_status="analyst_reviewed",
+                features={k: None if v is None else float(v) for k, v in r.features.items()},
+            )
+            for r in labelled
+        ]
+        kept, report = run_pipeline(items, self._cfg, utcnow())
+        keep = {c.key for c in kept}
+        return [r for r in labelled if str(r.signal_id) in keep], report
 
     def _without_snapshot(self, labels: dict[int, int]) -> int:
         """Labelled candidates that have no snapshot at all (created before snapshots existed,
@@ -849,6 +903,10 @@ class SignalRanking:
                 model["_run_id"] = int(row.id)
                 return cast(dict[str, Any], model)
         return None
+
+
+def _aware(t: datetime) -> datetime:
+    return t if t.tzinfo is not None else t.replace(tzinfo=UTC)
 
 
 def _drift(train: Sequence[_Row], rows: Sequence[_Row]) -> dict[str, Any]:

@@ -4,6 +4,24 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-21 — ML training filters: applied in both trainers (Task 2)
+
+**Done.** `Trainer` (`bip/ml/training.py`) maps each stored (example, label) to a `Candidate` and runs `run_pipeline` before the data gate, so the gate counts filtered data. A label is kept only if its candidate survived; examples left with no labels are dropped. A reviewer-accepted weak or inferred label trains with status `analyst_reviewed` and keeps its real source. The report is stored in `dataset_json["filters"]` (also on `insufficient_data` runs) and included in the dataset hash. The synthetic path records `"filters": "not_applied_synthetic"`. `SignalRanking` (`bip/ml/signal_ranking.py`) maps labelled snapshots to `Candidate`s: the label is the human review outcome, `label_time` is the latest human decision time (caller-supplied experimental labels have none), and the features are the snapshot features. The filters run before the split and readiness gate. The report is returned as `filters`, saved in the run's summary JSON and included in its dataset hash. Timestamps are made timezone-aware and features are passed as floats or `None`. New tests: `tests/stage5/test_training_filters.py` (6) and 3 in `tests/discovery/test_signal_ranking.py` (machine label excluded, accepted weak label kept, incomplete example excluded and counted, post-review snapshot excluded as leakage, report persisted, synthetic path untouched). No existing test needed a count change.
+
+**Checks.**
+```
+$ uv run ruff check bip tests
+All checks passed!
+$ uv run ruff format --check bip tests
+262 files already formatted
+$ uv run pyright bip/ml tests/stage5/test_training_filters.py tests/discovery/test_signal_ranking.py
+0 errors, 0 warnings, 0 informations
+$ uv run pytest -q
+1134 passed in 1217.76s (0:20:17)
+```
+
+**Not done.** Continuous retraining (champion/challenger, Task 3) and the endpoint/UI (Task 4) are not started. Pyright was run on the touched paths only, not the whole repo. No task review was run on this diff.
+
 ## 2026-11-21 — Free provider expansion: owner onboarding checklist, ADR-052 and state docs
 
 **Done.** Across the branch `providers-expansion`: seven RPC-or-catalogue entries in the first batch (`validationcloud-eth`, `validationcloud-sol`, `ankr-sol`, `dwellir-eth`, `blockpi-eth`, `nodereal-eth` with adapters; `infstones-eth` catalogue only), then `chainbase` and `routescan` as catalogue entries, and a note on `infura-eth` that Infura Solana is limited to select customers. `dwellir-sol` was skipped (no Solana offering found). In this task: `docs/PROVIDER_ONBOARDING.md` (owner checklist: owner creates accounts and keys personally, no automated signups, keys only in `.env`, verify with the budgeted probe; Dune and Bitquery listed as not recommended), a second-batch section in `docs/PROVIDER_REGISTRY.md`, ADR-052 (Proposed), `CURRENT_STATE.md`. Review follow-ups: added the source URLs behind the `chainbase` and `routescan` notes to their `sources`; dropped the routescan "incompletely indexed" caveat because the research file names no page for it; removed a tautological `checked == len(ADAPTER_IDS)` assertion from the placeholder-host test. The plan file `docs/superpowers/plans/2026-11-21-free-provider-expansion-plan.md` is committed.

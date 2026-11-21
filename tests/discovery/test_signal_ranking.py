@@ -439,3 +439,57 @@ def test_tied_scores_are_ranked_pessimistically_and_independently_of_input_order
     m1 = evaluate_scores([(s, y, "ethereum") for s, y in a], 0.6)
     m2 = evaluate_scores([(s, y, "ethereum") for s, y in b], 0.6)
     assert m1["precision_at_10"] == m2["precision_at_10"]
+
+
+# ------------------------------------------------------------------ training-data filters
+
+
+def test_the_filter_report_is_persisted_with_the_run(engine: Engine) -> None:
+    rank, review, repo = ranking(engine, ranking_min_labels_per_class=10)
+    repo.set_meta("data_origin", "live_network")
+    labels = synthetic_dataset(repo, 60)
+    for sid, y in labels.items():
+        if y:
+            review.decide(sid, "confirmed", "evidence_sufficient", None, "alice")
+        else:
+            review.decide(sid, "rejected", "false_positive", None, "alice")
+    result = rank.evaluate("alice")
+    assert result["filters"]["input"] == 60
+    assert result["filters"]["output"] == result["labelled"] == 60
+    stored = rank.run(result["run_id"])
+    assert stored["filters"] == result["filters"]
+
+
+def test_a_candidate_whose_features_are_mostly_missing_is_excluded_and_counted(
+    engine: Engine,
+) -> None:
+    rank, review, repo = ranking(engine)
+    repo.set_meta("data_origin", "live_network")
+    good, bad = add(repo, 1), add(repo, 2)
+    with repo.transaction() as conn:
+        fs = schema.signal_feature_snapshots
+        conn.execute(
+            fs.update()
+            .where(fs.c.signal_id == bad)
+            .values(features_json=json.dumps(dict.fromkeys(NUMERIC_FEATURES)))
+        )
+    for sid in (good, bad):
+        review.decide(sid, "confirmed", "evidence_sufficient", None, "alice")
+    result = rank.evaluate("x", persist=False)
+    assert result["labelled"] == 1
+    step = next(s for s in result["filters"]["steps"] if s["name"] == "feature_completeness")
+    assert step["reasons"] == {"too_many_missing": 1}
+
+
+def test_a_snapshot_taken_after_the_review_is_excluded_as_leakage(engine: Engine) -> None:
+    rank, review, repo = ranking(engine)
+    repo.set_meta("data_origin", "live_network")
+    late = add(repo, 1, at=datetime.now(UTC) - timedelta(seconds=1))
+    review.decide(late, "confirmed", "evidence_sufficient", None, "alice")
+    with repo.transaction() as conn:
+        d = schema.signal_decisions
+        conn.execute(d.update().values(decided_at=T0))  # reviewed before the snapshot existed
+    result = rank.evaluate("x", persist=False)
+    assert result["labelled"] == 0
+    step = next(s for s in result["filters"]["steps"] if s["name"] == "point_in_time")
+    assert step["reasons"] == {"as_of_after_label_time": 1}
