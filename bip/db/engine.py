@@ -366,6 +366,18 @@ def _supervision(conn: Connection) -> None:
     _rebuild_signal_decisions(conn)
 
 
+def _investigation_cases(conn: Connection) -> None:
+    """v20: investigation cases, evidence, hypotheses and leads. Additive, idempotent."""
+    for table in schema.V20_TABLES:
+        table.create(conn, checkfirst=True)
+
+
+def _curation_feedback(conn: Connection) -> None:
+    """v21: analyst curation feedback. Additive, idempotent."""
+    for table in schema.V21_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -388,6 +400,8 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(17, "provider daily usage", _provider_usage),
     Migration(18, "intelligence memory, review decisions, expansion log", _memory),
     Migration(19, "label history and human supervision", _supervision),
+    Migration(20, "investigation cases, evidence, hypotheses and leads", _investigation_cases),
+    Migration(21, "human-in-the-loop curation feedback", _curation_feedback),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

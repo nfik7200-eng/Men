@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from tests.stage3.test_intel_api import INTEL, Env, client, env, ingest  # noqa: F401
+from tests.stage3.test_intel_api import INTEL, Env, client, env, ingest  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 
 def test_explorer_endpoint_filters_and_trail(env: Env, client: TestClient) -> None:  # noqa: F811

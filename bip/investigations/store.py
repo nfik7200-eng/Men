@@ -22,7 +22,7 @@ from bip.investigations.models import (
 )
 
 
-def _case_row(conn: Connection, case_id: int) -> Mapping[str, Any]:
+def _case_row(conn: Connection, case_id: int) -> Mapping[Any, Any]:
     row = conn.execute(select(schema.cases).where(schema.cases.c.id == case_id)).mappings().first()
     if row is None:
         raise RecordNotFoundError(f"case {case_id} not found")
@@ -35,7 +35,7 @@ def _touch(conn: Connection, case_id: int) -> None:
     )
 
 
-def _hyp(row: Mapping[str, Any]) -> CaseHypothesis:
+def _hyp(row: Mapping[Any, Any]) -> CaseHypothesis:
     d = dict(row)
     d["evidence_ids"] = tuple(json.loads(d.pop("evidence_ids_json")))
     return CaseHypothesis(**d)
@@ -224,7 +224,7 @@ class CaseStore:
             cur = self._hypothesis(conn, case_id, hid)
             ids = cur.evidence_ids if evidence_ids is None else evidence_ids
             self._check_evidence_ids(conn, case_id, ids)
-            merged = {
+            merged: dict[str, Any] = {
                 **cur.model_dump(),
                 "status": status or cur.status,
                 "confidence": cur.confidence if confidence is None else confidence,

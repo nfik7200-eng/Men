@@ -7,6 +7,7 @@ and quick rotation patterns.
 from __future__ import annotations
 
 from typing import Any
+
 from bip.intel.dataset import WalletDataset
 
 
@@ -28,6 +29,6 @@ def detect_meme_momentum(ds: WalletDataset) -> dict[str, Any]:
     return {
         "momentum_score": round(momentum_score, 2),
         "early_entries": early_entries,
-        "tokens_involved": sorted(list(tokens)),
+        "tokens_involved": sorted(tokens),
         "provenance": "Derived from retrieved transfer dataset momentum analysis",
     }

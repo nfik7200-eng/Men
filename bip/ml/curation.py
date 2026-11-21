@@ -221,7 +221,8 @@ class CurationStore:
                     created_at=utcnow(),
                 )
             )
-            fid = res.inserted_primary_key[0]
+            assert res.inserted_primary_key is not None  # noqa: S101 - INSERT always returns a key
+            fid = int(res.inserted_primary_key[0])
             row = (
                 conn.execute(
                     select(schema.curation_feedback).where(schema.curation_feedback.c.id == fid)

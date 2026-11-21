@@ -11,6 +11,7 @@ Classifies wallet profiles into specific trading and operational strategies:
 from __future__ import annotations
 
 from typing import Any
+
 from bip.intel.dataset import WalletDataset
 
 
@@ -32,7 +33,11 @@ def classify_wallet_profile(address: str, ds: WalletDataset) -> dict[str, Any]:
     meme_score = min(1.0, (transfer_count / max(1, tx_count)) * 0.3 + (len(unique_tokens) * 0.1))
     copy_target_score = min(1.0, 0.4 if tx_count > 10 else 0.2)
     investor_score = 0.8 if tx_count <= 15 and len(unique_tokens) <= 3 else 0.2
-    dev_score = 0.9 if any(t.created_contract is not None or t.to_address is None for t in ds.transactions) else 0.1
+    dev_score = (
+        0.9
+        if any(t.created_contract is not None or t.to_address is None for t in ds.transactions)
+        else 0.1
+    )
 
     scores = {
         "meme_trader": meme_score,

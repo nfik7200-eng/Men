@@ -1,12 +1,14 @@
-"""Multi-strategy intelligence API routes: copy trader, meme momentum, dev tracker, wallet classification."""
+"""Multi-strategy intelligence API routes: copy trader, meme momentum, dev tracker,
+wallet classification."""
 
 from __future__ import annotations
 
 from typing import Annotated
+
 from fastapi import APIRouter, Path
 
 from bip.api.deps import AppContext, Context
-from bip.api.routes.chains import _require_chain
+from bip.api.routes.chains import _require_chain  # pyright: ignore[reportPrivateUsage]
 from bip.intel.common import J
 from bip.strategies.classifier import classify_wallet_profile
 from bip.strategies.copy_trader import evaluate_copy_trade_signals

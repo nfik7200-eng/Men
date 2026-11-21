@@ -9,15 +9,13 @@ Tests:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
-import pytest
+from datetime import timedelta
 
-from bip.intel.dataset import WalletDataset
 from bip.strategies.classifier import classify_wallet_profile
 from bip.strategies.copy_trader import evaluate_copy_trade_signals
-from bip.strategies.meme_trader import detect_meme_momentum
 from bip.strategies.dev_tracker import track_developer_activity
-from tests.stage3.builders import Builder, a, T0
+from bip.strategies.meme_trader import detect_meme_momentum
+from tests.stage3.builders import T0, Builder, a
 
 
 def test_advanced_strategies_comprehensive() -> None:
@@ -38,7 +36,13 @@ def test_advanced_strategies_comprehensive() -> None:
 
     # 1. Classification
     profile = classify_wallet_profile(w, ds)
-    assert profile["primary_strategy"] in ["meme_trader", "copy_target", "investor", "dev", "unknown"]
+    assert profile["primary_strategy"] in [
+        "meme_trader",
+        "copy_target",
+        "investor",
+        "dev",
+        "unknown",
+    ]
     assert "strategies" in profile
 
     # 2. Copy Trader Signals

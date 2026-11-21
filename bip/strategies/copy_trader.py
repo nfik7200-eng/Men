@@ -7,6 +7,7 @@ frequency, timing, and position replication metrics.
 from __future__ import annotations
 
 from typing import Any
+
 from bip.intel.dataset import WalletDataset
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 from pydantic import ValidationError
@@ -65,7 +65,7 @@ def test_case_rejects_bad_type_and_naive_time() -> None:
 
 
 def test_hypothesis_supported_requires_evidence_and_bounds() -> None:
-    common = {
+    common: dict[str, Any] = {
         "case_id": 1,
         "statement": "s",
         "created_by": "me",
@@ -108,7 +108,7 @@ def test_migration_v6_creates_tables_and_enforces_constraints() -> None:
     names = set(inspect(engine).get_table_names())
     assert {"cases", "case_evidence", "case_hypotheses", "case_leads"} <= names
     with engine.begin() as conn:
-        cid = conn.execute(
+        res = conn.execute(
             insert(schema.cases).values(
                 title="t",
                 case_type="rugpull",
@@ -118,7 +118,9 @@ def test_migration_v6_creates_tables_and_enforces_constraints() -> None:
                 created_at=NOW,
                 updated_at=NOW,
             )
-        ).inserted_primary_key[0]
+        )
+        assert res.inserted_primary_key is not None
+        cid = int(res.inserted_primary_key[0])
         assert conn.execute(select(schema.cases.c.id)).scalar_one() == cid
     with pytest.raises(IntegrityError), engine.begin() as conn:
         conn.execute(

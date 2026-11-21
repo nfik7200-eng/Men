@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 from pathlib import Path
+
+from fastapi.testclient import TestClient
 
 from tests.stage5.test_research import API, World
 
