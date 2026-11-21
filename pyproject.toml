@@ -46,6 +46,8 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PT", "C4", "N", "BL
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106", "S108"]
+# Claude Code hook and skill helpers are CLIs: they print, shell out to git and fail open.
+".claude/**" = ["T201", "S603", "S607", "BLE001"]
 
 [tool.pyright]
 include = ["bip", "tests"]
