@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, get_args
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import create_engine, insert, inspect, select
+from sqlalchemy import Engine, create_engine, insert, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from bip.db import schema
@@ -101,9 +102,15 @@ def test_evidence_requires_provenance_fields() -> None:
         )
 
 
-def test_migration_v6_creates_tables_and_enforces_constraints() -> None:
-    engine = create_engine("sqlite://")
-    assert migrate(engine) == schema.SCHEMA_VERSION >= 6
+@pytest.fixture
+def engine() -> Iterator[Engine]:
+    eng = create_engine("sqlite://")
+    yield eng
+    eng.dispose()  # an undisposed sqlite connection fails a later test under filterwarnings=error
+
+
+def test_migration_v20_creates_tables_and_enforces_constraints(engine: Engine) -> None:
+    assert migrate(engine) == schema.SCHEMA_VERSION >= 20
     assert migrate(engine) == schema.SCHEMA_VERSION  # idempotent
     names = set(inspect(engine).get_table_names())
     assert {"cases", "case_evidence", "case_hypotheses", "case_leads"} <= names
