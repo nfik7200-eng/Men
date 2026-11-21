@@ -1435,3 +1435,14 @@ $ gitleaks dir . / git --staged  -> no leaks found
 
 **Not done (by design)**
 - No installs, downloads, accounts, API calls to providers, or VPS changes.
+
+## Final-review fix wave (providers-expansion)
+
+- `validationcloud-eth` and `validationcloud-sol` set to `documentation_basis = "search_derived"`; test now expects every new entry to be `search_derived`.
+- Validation Cloud Solana archive wording in `docs/PROVIDER_REGISTRY.md` changed to unknown.
+- Chainbase uses the conservative 2 req/s in the registry and onboarding row; the 3 credits/s figure stays in notes.
+- `CURRENT_STATE.md` now gives the `.env`-loading probe command and notes `make probe` does not load `.env`.
+- `dwellir-eth` sources now include https://www.dwellir.com/ (the source of its second allow-listed host).
+- `ankr-sol` set to `archive = "no"` (facts: ledger keeps about 16 hours of history).
+
+- Checks: ruff "All checks passed!"; pyright "0 errors, 0 warnings, 0 informations"; pytest tests/stage2 "137 passed in 139.20s (0:02:19)".

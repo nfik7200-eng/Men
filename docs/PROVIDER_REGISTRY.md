@@ -10,7 +10,7 @@ Nine providers were added to `bip/providers/registry.toml` as catalogue entries 
 
 Nine entries were added to `bip/providers/registry.toml` (`documentation_basis = "search_derived"`, checked 2026-11-21; sources in each entry's `sources`). Facts came from provider docs read as search excerpts or fetches; nothing was probed live and no account was created.
 
-- **RPC with an adapter (ordinary credentialed providers, key in the URL, host allow-listed):** `validationcloud-eth` and `validationcloud-sol` (50M compute units/month, 120 requests/s, no card, Solana archive stated as full), `ankr-sol` (docs conflict on whether the free plan serves Solana; verify with a key probe), `dwellir-eth` (100,000 responses/day, `eth_getLogs` not on Free), `blockpi-eth` (50M request units, monthly), `nodereal-eth` (10M CU/month, the lower of two conflicting figures).
+- **RPC with an adapter (ordinary credentialed providers, key in the URL, host allow-listed):** `validationcloud-eth` and `validationcloud-sol` (50M compute units/month, 120 requests/s, no card, Solana archive unknown (not confirmed from an official page)), `ankr-sol` (docs conflict on whether the free plan serves Solana; verify with a key probe), `dwellir-eth` (100,000 responses/day, `eth_getLogs` not on Free), `blockpi-eth` (50M request units, monthly), `nodereal-eth` (10M CU/month, the lower of two conflicting figures).
 - **Catalogue only:** `infstones-eth` (host unknown until an endpoint exists; pricing page may be stale), `chainbase` (indexed API, 200,000 credits/month, Ethereum only; Solana unverified) and `routescan` (Etherscan-compatible, EVM only; keyless 2 requests/s, free key 5 requests/s; attribution needed unless private use). Indexed APIs are enrichment or backup, not independent RPC sources.
 - **Not added:** `dwellir-sol` (no Solana offering found) and `infura-sol` (Infura documents Solana as limited to select customers; recorded in the `infura-eth` notes).
 - **Still not recommended:** Dune (no API on the free plan) and Bitquery (7-day trial only). ADR-052 records that no adapter is built for either until the owner approves a paid plan or trial.
@@ -25,7 +25,7 @@ AI research reads provider state only through the `provider_status` tool, which 
 
 - **Probing.** The capability prober (`docs/PROVIDER_CAPABILITY_METHODOLOGY.md`) can now test each provider's capabilities within a hard budget. **No live probe result exists yet.** The sandbox's egress gateway still denies the RPC hosts. That is an environment restriction, so provider availability remains unknown. The table below is unchanged.
 - **New allow-listed read methods** (standard JSON-RPC, still untested against real providers): `eth_getCode`; Solana `getVersion`, `getBlockHeight` and `getLatestBlockhash`.
-- **Documentation fields.** Each registry entry now records `documentation_basis` and `documentation_checked`. All entries are `search_derived`, checked 2026-11-03.
+- **Documentation fields.** Each registry entry now records `documentation_basis` and `documentation_checked`. Entries first written on 2026-11-03 were `search_derived`; several were later re-checked against official pages (see DECISIONS.md), and the 2026-11-21 additions are all `search_derived`.
 - **Configuration.** A provider needing credentials is probed only when its `BIP_PROVIDER_*_URL` is already set. Otherwise it is reported as "requires configuration".
 
 ## Stage 2 status (2026-11-03)

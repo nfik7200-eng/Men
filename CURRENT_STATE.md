@@ -6,7 +6,7 @@ _Last updated: 2026-11-21 (free provider expansion added; state documents were r
 **Free provider expansion, 2026-11-21 (branch `providers-expansion`, not merged, not pushed).**
 - **Registry.** Nine entries added to `bip/providers/registry.toml`: RPC with an adapter `validationcloud-eth`, `validationcloud-sol`, `ankr-sol`, `dwellir-eth`, `blockpi-eth`, `nodereal-eth`; catalogue only `infstones-eth`, `chainbase`, `routescan`. `dwellir-sol` and `infura-sol` were not added (no Solana offering found / Infura Solana limited to select customers). All facts are `search_derived`, checked 2026-11-21.
 - **Nothing is configured or probed.** No account or key exists; every new provider reports "requires configuration". No live request was made, so no new provider capability is verified.
-- **Owner steps** are in `docs/PROVIDER_ONBOARDING.md` (accounts and keys are created by the owner personally; verify afterwards with the budgeted `make probe`). ADR-052 (Proposed) records that Dune and Bitquery get no adapter until a paid plan or trial is approved.
+- **Owner steps** are in `docs/PROVIDER_ONBOARDING.md` (accounts and keys are created by the owner personally; verify afterwards with the budgeted `BIP_LIVE_RPC=1 uv run --env-file .env python -m bip.tools.probe`; `make probe` does not load `.env`). ADR-052 (Proposed) records that Dune and Bitquery get no adapter until a paid plan or trial is approved.
 - **Tests:** `tests/stage2/test_free_provider_expansion.py` checks the entries and `.env.example` placeholder hosts offline.
 
 **Repair of the rebase merge, 2026-11-21: backend and frontend restored and verified; state documents rebuilt in this commit.**

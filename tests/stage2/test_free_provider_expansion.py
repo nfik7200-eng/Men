@@ -26,7 +26,7 @@ ADAPTER_IDS = (
 )
 CATALOGUE_IDS = ("infstones-eth",)
 NEW_IDS = ADAPTER_IDS + CATALOGUE_IDS
-SEARCH_DERIVED = {"ankr-sol", "dwellir-eth", "blockpi-eth", "nodereal-eth", "infstones-eth"}
+SEARCH_DERIVED = set(NEW_IDS)
 
 
 def _spec(provider_id: str) -> ProviderSpec:

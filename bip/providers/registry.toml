@@ -586,7 +586,7 @@ notes = "Do not configure: no free tier beyond a short trial. No adapter. Free P
 
 [[provider]]
 id = "validationcloud-eth"
-documentation_basis = "official_docs"
+documentation_basis = "search_derived"
 documentation_checked = "2026-11-21"
 infrastructure = "validationcloud"
 name = "Validation Cloud Ethereum"
@@ -612,7 +612,7 @@ notes = "URL https://mainnet.ethereum.validationcloud.io/v1/<KEY> (key in path).
 
 [[provider]]
 id = "validationcloud-sol"
-documentation_basis = "official_docs"
+documentation_basis = "search_derived"
 documentation_checked = "2026-11-21"
 infrastructure = "validationcloud"
 name = "Validation Cloud Solana"
@@ -649,6 +649,7 @@ network = "mainnet-beta"
 access = "credentials"
 endpoint_env = "BIP_PROVIDER_ANKR_SOL_URL"
 allowed_hosts = ["rpc.ankr.com"]
+archive = "no"
 enabled = true
 methods = ["getHealth", "getGenesisHash", "getSlot", "getBlock", "getBalance",
            "getSignaturesForAddress", "getTransaction", "getVersion", "getBlockHeight",
@@ -682,7 +683,7 @@ client_rps = 4.0
 rate_limit = "Free: 20 responses/s and 100,000 responses/day (one response is one credit); a pricing page says 500K/day, the lower figure is used. eth_getLogs is not available on Free (Dwellir docs, search excerpts, checked 2026-11-21)."
 docs_url = "https://www.dwellir.com/docs"
 terms_url = "https://www.dwellir.com/terms-of-service"
-sources = ["https://www.dwellir.com/docs/ethereum", "https://www.dwellir.com/docs/getting-started/rate-limits.md", "https://www.dwellir.com/public-rpc-endpoints"]
+sources = ["https://www.dwellir.com/docs/ethereum", "https://www.dwellir.com/docs/getting-started/rate-limits.md", "https://www.dwellir.com/public-rpc-endpoints", "https://www.dwellir.com/"]
 archive = "yes"
 notes = "URL https://api-ethereum-mainnet.n.dwellir.com/<KEY>; key also accepted in X-Api-Key header. No keyless EVM access. Credit-card requirement unknown. Terms: one account per entity, multiple accounts to bypass limits prohibited; resale terms unread. dwellir-sol skipped: no Solana offering found."
 
@@ -772,11 +773,11 @@ access = "credentials"
 endpoint_env = "BIP_PROVIDER_CHAINBASE_KEY"
 enabled = true
 methods = []
-rate_limit = "Free: 200,000 credits/month (UTC calendar month), Web3 API 3 credits/s, SQL API flat 100 credits per query (about 2,000 queries/month), HTTP 429 over limit (Chainbase credit overview, search excerpt, checked 2026-11-21)."
+rate_limit = "Free: 200,000 credits/month (UTC calendar month), Web3 API 2 requests/s (the lower of two conflicting figures; credit overview says 3 credits/s), SQL API flat 100 credits per query (about 2,000 queries/month), HTTP 429 over limit (Chainbase credit overview, search excerpt, checked 2026-11-21)."
 docs_url = "https://docs.chainbase.com"
 terms_url = "https://chainbase.com/"
 sources = ["https://docs.chainbase.com/resources/platform/credit/overview", "https://docs.chainbase.com/resources/platform/pricing/pricing", "https://docs.chainbase.com/resources/platform/supported-networks/supported-networks", "https://docs.chainbase.com/resources/platform/features/api/web3-api", "https://docs.chainbase.com/getting-started/query-blockchain-data", "https://docs.chainbase.com/api-reference/overview", "https://platform.chainbase.com/pricing"]
-notes = "Indexed data API, not an independent RPC source; no adapter. Host api.chainbase.com, X-API-KEY header; demo key is not keyless. No card. CONFLICT: legacy page says 2 req/s for Free vs 3 credits/s; use the lower. Solana unverified (asterisk in networks table, absent from Web3 API list), so only ethereum. ToS URL not found; terms_url is the site root."
+notes = "Indexed data API, not an independent RPC source; no adapter. Host api.chainbase.com, X-API-KEY header; demo key is not keyless. No card. CONFLICT: legacy page says 2 req/s for Free vs 3 credits/s; 2 req/s is used in rate_limit. Solana unverified (asterisk in networks table, absent from Web3 API list), so only ethereum. ToS URL not found; terms_url is the site root."
 
 [[provider]]
 id = "routescan"
