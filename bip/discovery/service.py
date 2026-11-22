@@ -107,11 +107,15 @@ class DiscoveryService:
         *,
         clock: Callable[[], datetime] = utcnow,
         channels: Sequence[NotificationChannel] | None = None,
+        external_channels: Sequence[str] = (),
     ) -> None:
         self._repo = repo
         self._cfg = settings.discovery
         self._clock = clock
         self._channels: tuple[NotificationChannel, ...] = tuple(channels or (InAppChannel(),))
+        # external channels get an outbox row per alert; the alert dispatcher sends it later,
+        # so a slow or unreachable channel can never stall or roll back a discovery pass
+        self._external: tuple[str, ...] = tuple(dict.fromkeys(external_channels))
 
     def now(self) -> datetime:
         """The service's clock, so scheduled work and tests agree on the time."""
@@ -585,7 +589,7 @@ class DiscoveryService:
                         signal_id=int(sig["id"]),
                     )
                     delivery = self._channels[0].deliver(message)
-                    conn.execute(
+                    result = conn.execute(
                         insert(a).values(
                             rule_id=rule["id"],
                             signal_id=sig["id"],
@@ -596,6 +600,20 @@ class DiscoveryService:
                             delivery=delivery,
                         )
                     )
+                    pk = result.inserted_primary_key
+                    assert pk is not None  # noqa: S101
+                    for channel in self._external:
+                        conn.execute(
+                            insert(schema.alert_deliveries).values(
+                                alert_id=int(pk[0]),
+                                channel=channel,
+                                status="pending",
+                                attempts=0,
+                                next_attempt_at=now,
+                                last_error=None,
+                                delivered_at=None,
+                            )
+                        )
                     created += 1
         return created
 

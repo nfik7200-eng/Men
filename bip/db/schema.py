@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 metadata = MetaData(
     naming_convention={
@@ -1805,3 +1805,29 @@ provenance. ``training_label_id`` links the ``wallet_labels`` row written for ac
 classification (human labels only; predictions are never written as labels)."""
 
 V21_TABLES = (curation_feedback,)
+
+# ------------------------------------------------- v23: alert delivery outbox
+
+ALERT_DELIVERY_STATUSES = ("pending", "delivered", "failed")
+
+alert_deliveries = Table(
+    "alert_deliveries",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("alert_id", Integer, ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False),
+    Column("channel", String(24), nullable=False),
+    Column("status", String(12), nullable=False),
+    Column("attempts", Integer, nullable=False, default=0),
+    Column("next_attempt_at", UTCDateTime, nullable=False),
+    Column("last_error", String(200), nullable=True),
+    Column("delivered_at", UTCDateTime, nullable=True),
+    CheckConstraint(_in("status", ALERT_DELIVERY_STATUSES), name="delivery_status"),
+    UniqueConstraint("alert_id", "channel"),
+    Index(None, "status", "next_attempt_at"),
+)
+"""Outbox of alerts waiting for an external channel. Discovery writes ``pending`` rows in the
+same transaction as the alert, with no network I/O; the alert dispatcher sends them later.
+Delivery is at-least-once: a crash between a send and the status update can resend once.
+``last_error`` is redacted and never holds a secret."""
+
+V23_TABLES = (alert_deliveries,)

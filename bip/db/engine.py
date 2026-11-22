@@ -386,6 +386,12 @@ def _repair_pre_merge_local_line(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _alert_deliveries(conn: Connection) -> None:
+    """v23: the external alert delivery outbox. Additive, idempotent."""
+    for table in schema.V23_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -411,6 +417,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(20, "investigation cases, evidence, hypotheses and leads", _investigation_cases),
     Migration(21, "human-in-the-loop curation feedback", _curation_feedback),
     Migration(22, "repair databases from the pre-merge local line", _repair_pre_merge_local_line),
+    Migration(23, "alert delivery outbox", _alert_deliveries),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 
