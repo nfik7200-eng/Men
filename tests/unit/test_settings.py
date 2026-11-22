@@ -191,3 +191,39 @@ def test_file_suffix_does_not_excuse_an_unknown_stem() -> None:
     assert unknown_bip_variables({"BIP_DATAROOT_FILE": "/x"}, "BIP_AI_API_KEY") == [
         "BIP_DATAROOT_FILE"
     ]
+
+
+def test_alerts_are_off_by_default() -> None:
+    cfg = load_settings(data_root=Path("/d"), env="test")
+    assert cfg.alerts.telegram_enabled is False
+    assert cfg.alerts.telegram_chat_id is None
+
+
+def test_telegram_enabled_without_chat_id_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_ALERTS__TELEGRAM_ENABLED", "true")
+    with pytest.raises(ConfigurationError) as exc:
+        load_settings(data_root=Path("/d"), env="test")
+    assert "telegram_chat_id" in str(exc.value)
+
+
+def test_telegram_chat_id_with_a_slash_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_ALERTS__TELEGRAM_CHAT_ID", "1/2")
+    with pytest.raises(ConfigurationError):
+        load_settings(data_root=Path("/d"), env="test")
+
+
+def test_telegram_settings_load_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_ALERTS__TELEGRAM_ENABLED", "true")
+    monkeypatch.setenv("BIP_ALERTS__TELEGRAM_CHAT_ID", "-1001")
+    cfg = load_settings(data_root=Path("/d"), env="test")
+    assert (cfg.alerts.telegram_enabled, cfg.alerts.telegram_chat_id) == (True, "-1001")
+
+
+def test_send_interval_cannot_go_below_one_second() -> None:
+    with pytest.raises(ConfigurationError):
+        load_settings(data_root=Path("/d"), env="test", alerts={"min_send_interval_s": 0.5})
+
+
+def test_telegram_token_variables_are_not_refused() -> None:
+    env = {"BIP_TELEGRAM_BOT_TOKEN": "x", "BIP_TELEGRAM_BOT_TOKEN_FILE": "f"}
+    assert unknown_bip_variables(env, "BIP_AI_API_KEY") == []

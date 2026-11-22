@@ -234,7 +234,7 @@ def test_rule_validation(engine: Engine) -> None:
 def test_only_in_app_delivery_is_available(engine: Engine) -> None:
     channels = make(engine).channels()
     assert channels["available"] == ["in_app"]
-    assert set(channels["unavailable"]) == {"email", "push", "sms"}
+    assert set(channels["unavailable"]) == {"email", "push", "sms", "telegram"}
 
 
 # ------------------------------------------------------------------ reorg invalidation

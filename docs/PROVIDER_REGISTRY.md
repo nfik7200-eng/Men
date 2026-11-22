@@ -2,6 +2,19 @@
 
 Status: **Research snapshot, 2026-11-03.**
 
+## Telegram Bot API (alert channel, 2026-11-22)
+
+Not a blockchain data provider: the outbound channel for alerts (ADR-054), used only when `BIP_ALERTS__TELEGRAM_ENABLED=true`. Free; no card. Only `sendMessage` is called, with plain text.
+
+| Fact | Value used in code | source_url | verified_at |
+|---|---|---|---|
+| `sendMessage` text length | 1-4096 characters after entities parsing (`bip/discovery/notify.py` `MAX_TEXT_UNITS`) | https://core.telegram.org/bots/api#sendmessage (method page `core.telegram.org/bots/api/methods/sendmessage.md`) | 2026-11-22 |
+| Rate, single chat | avoid more than 1 message per second; bursts may be allowed, then 429 (`AlertSettings.min_send_interval_s` ≥ 1.0) | https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this | 2026-11-22 |
+| Rate, group | not more than 20 messages per minute (the defaults, 20 per run and one run per minute, stay within it) | same FAQ | 2026-11-22 |
+| 429 handling | `parameters.retry_after` in the error body is honoured as the next attempt time | https://core.telegram.org/bots/api (response `parameters`) | 2026-11-22 (field read from the API manual, not probed live) |
+
+Nothing was sent live: no bot or token exists yet. The owner creates the bot (see `docs/OPERATIONS.md`).
+
 ## Catalogue additions (2026-11-21)
 
 Nine providers were added to `bip/providers/registry.toml` as catalogue entries with no adapter and no configuration: `chainstack`, `drpc`, `moralis`, `coingecko`, `birdeye`, `getblock`, `solscan`, plus `dune` and `bitquery` (both not recommended: no free API tier). Keyless public endpoints already registered: PublicNode Ethereum (`ethereum-rpc.publicnode.com`, confirmed on publicnode.com 2026-11-21, free, archive via separate access) and Solana public (`api.mainnet.solana.com`, solana.com docs). PublicNode lists Solana, Base, Arbitrum, BNB and others at `<chain>.publicnode.com`, not yet registered because exact RPC hostnames per chain were not read. Free-tier figures were read from each provider's official pricing or docs page on 2026-11-21 (`documentation_basis = "official_docs"`, source URLs in each entry's `sources`). Birdeye's free-tier limits were not shown on its pricing page and stay unverified. Alchemy's free plan now reads 30M CU/month at 300 CU/s (about 15 requests/s) on its pricing page. No key was configured; the owner creates accounts and keys.

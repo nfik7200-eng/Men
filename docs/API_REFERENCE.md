@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-186 routes in 17 groups.
+187 routes in 17 groups.
 
 ### auth
 
@@ -178,6 +178,7 @@ Parameters: `limit` (query): integer (>=1, <=200); `chain` (query): `ethereum` |
 | PATCH | `/api/v1/alert-rules/{rule_id}` | analyst | Update Rule |
 | GET | `/api/v1/alerts` | viewer | List Alerts |
 | GET | `/api/v1/alerts/channels` | viewer | Alert Channels |
+| POST | `/api/v1/alerts/channels/telegram/test` | analyst | Test Telegram: Send one test message straight through the Telegram channel (no outbox row). The |
 | POST | `/api/v1/alerts/read-all` | analyst | Read All Alerts |
 | POST | `/api/v1/alerts/{alert_id}/read` | analyst | Read Alert |
 | POST | `/api/v1/discovery/collect/ethereum` | admin | Collect Ethereum: Read the next few finalized Ethereum blocks once. Admin only: this CONTACTS PROVIDERS. |

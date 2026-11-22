@@ -58,6 +58,17 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 "Verified SQLite online backup, then keep the newest few.",
             )
         )
+    dispatcher = ctx.dispatcher
+    if dispatcher is not None:
+        jobs.append(
+            Job(
+                "alert_delivery",
+                timedelta(minutes=ctx.settings.alerts.delivery_interval_minutes),
+                lambda: str(dispatcher.dispatch()),
+                "Send queued alerts to Telegram. CONTACTS TELEGRAM.",
+                contacts_providers=True,
+            )
+        )
     if w.watchlist_refresh_enabled:
         jobs.append(
             Job(

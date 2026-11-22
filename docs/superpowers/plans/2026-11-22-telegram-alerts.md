@@ -140,29 +140,46 @@ Write a local `RecordingTransport` with `post_json(endpoint, body, *, timeout_s,
 ```python
 TOKEN = SecretStr("123456:" + "A" * 35)
 
+
 def test_sends_plain_text_to_send_message() -> None:
     t = RecordingTransport(TransportResponse(200, b'{"ok":true,"result":{}}', 5))
     out = TelegramChannel(TOKEN, "-1001", t).send(MSG)
     assert out == DeliveryOutcome("delivered")
     ep, body = t.calls[0]
     assert ep.host == "api.telegram.org"
-    assert ep.url.get_secret_value() == f"https://api.telegram.org/bot{TOKEN.get_secret_value()}/sendMessage"
+    assert (
+        ep.url.get_secret_value()
+        == f"https://api.telegram.org/bot{TOKEN.get_secret_value()}/sendMessage"
+    )
     payload = json.loads(body)
     assert payload == {"chat_id": "-1001", "text": format_alert_text(MSG)}  # no parse_mode
     assert payload["text"].startswith("BIP alert — statistical signal (not a verified observation)")
 
-def test_text_truncated_to_4096() -> None: ...           # 10_000-char title -> len(text) == 4096
-def test_ok_false_is_not_delivered() -> None: ...        # 200 + {"ok":false,"description":"x"} -> status "permanent"
-def test_429_honours_retry_after() -> None: ...          # 429 + {"ok":false,"parameters":{"retry_after":17}} -> ("retry", retry_after_s=17.0)
-def test_5xx_and_transport_error_retry() -> None: ...    # 502 -> "retry"; TransportError("timeout", ...) -> "retry"
+
+def test_text_truncated_to_4096() -> None: ...  # 10_000-char title -> len(text) == 4096
+def test_ok_false_is_not_delivered() -> (
+    None
+): ...  # 200 + {"ok":false,"description":"x"} -> status "permanent"
+def test_429_honours_retry_after() -> (
+    None
+): ...  # 429 + {"ok":false,"parameters":{"retry_after":17}} -> ("retry", retry_after_s=17.0)
+def test_5xx_and_transport_error_retry() -> (
+    None
+): ...  # 502 -> "retry"; TransportError("timeout", ...) -> "retry"
 def test_401_403_400_permanent() -> None: ...
-def test_non_json_body_retries() -> None: ...            # 200 + b"<html>" -> "retry", error mentions invalid JSON
+def test_non_json_body_retries() -> (
+    None
+): ...  # 200 + b"<html>" -> "retry", error mentions invalid JSON
 def test_token_with_slash_is_refused() -> None:
     with pytest.raises(ConfigurationError) as e:
         TelegramChannel(SecretStr("123456:abc/../x" + "A" * 30), "1", t)
     assert "abc" not in str(e.value)
-def test_chat_id_pattern() -> None: ...                  # "1/2", "", "@ab" refused; "-1001", "@bip_alerts" accepted
-def test_errors_never_contain_the_token() -> None: ...   # a 400 body that echoes the token -> outcome.error has no token
+
+
+def test_chat_id_pattern() -> None: ...  # "1/2", "", "@ab" refused; "-1001", "@bip_alerts" accepted
+def test_errors_never_contain_the_token() -> (
+    None
+): ...  # a 400 body that echoes the token -> outcome.error has no token
 ```
 
 - [ ] **Step 2: Run to verify they fail**

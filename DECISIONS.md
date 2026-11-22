@@ -747,3 +747,26 @@ The Stage 3 verification audit found three correctness problems.
 - A new tool variable must be added to the allowlist.
 - A pasted address with a corrupted checksum is refused instead of being stored.
 - Approval of this ADR is pending with the owner.
+
+## ADR-054 Telegram alert delivery through an outbox (Proposed; Stage 12 alert channel, 2026-11-22)
+**Context.**
+- Roadmap Stage 12 leaves the alert channel to the owner. On 2026-11-22 the owner chose a Telegram bot.
+- Alert evaluation runs inside the discovery transaction. A network call there would let a slow or unreachable channel stall a pass, or roll back the alert.
+
+**Decision.**
+- **Outbox.** When an external channel is enabled, `_evaluate_alerts` writes a `pending` row in `alert_deliveries` (migration v23) in the same transaction as the alert, with no network I/O. The `AlertDispatcher`, run by the `alert_delivery` scheduler job, claims due rows, sends each one outside any transaction, and records the outcome in a short transaction of its own.
+- **Delivery semantics.** At-least-once: a crash between a send and its update can resend once. A `delivered` or `failed` row is never resent.
+- **Retries.** Exponential backoff from `retry_base_s`, or Telegram's `retry_after`, both capped at 1 h. A row fails after `max_attempts`, or immediately on a permanent error.
+- **Response validation (§2.7).** Only a 2xx with `"ok": true` counts as delivered. 429, 5xx, transport errors and non-JSON bodies are retried. Other 4xx responses, and `ok: false`, are permanent.
+- **Transport.** The existing hardened `HttpsTransport` (pinned IPs, no redirects, size and time limits). No new dependency.
+- **Off by default.** `BIP_ALERTS__TELEGRAM_ENABLED=false`. The job is registered only when Telegram is enabled and workers are on. The app refuses to start when Telegram is enabled without a token.
+- **Token handling.** The token comes only from `read_secret("BIP_TELEGRAM_BOT_TOKEN")` (or `_FILE`), added to the ADR-053 allowlist. It is checked against a strict pattern before it can be placed in the URL path and registered for redaction. Errors are redacted and cut to 200 characters before they are stored or returned. The token is never logged, stored or returned by the API.
+- **Message content.** Plain text (no `parse_mode`), cut to 4096 UTF-16 units, headed `BIP alert — statistical signal (not a verified observation)` (§2.12). It carries only the alert's severity, title and signal id.
+- **Provider facts.** The 4096-character limit and about 1 message per second per chat are recorded in `docs/PROVIDER_REGISTRY.md` with `source_url` and `verified_at` 2026-11-22.
+
+**Consequences.**
+- Discovery is unaffected by Telegram's availability. Alerts reach Telegram up to one job interval (1 min) late.
+- One duplicate message is possible after a crash.
+- The alert's title is sent to Telegram's servers, a third party.
+- Approval of this ADR is pending with the owner.
+

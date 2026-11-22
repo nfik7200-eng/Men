@@ -49,9 +49,12 @@ from bip.core.logging import get_logger
 from bip.db.engine import create_db_engine
 from bip.db.errors import DatabaseError
 from bip.db.repository import Repository
+from bip.discovery.delivery import AlertDispatcher
 from bip.discovery.expansion import ExpansionEngine
+from bip.discovery.notify import ExternalChannel
 from bip.discovery.review import ReviewService
 from bip.discovery.service import DiscoveryService
+from bip.discovery.telegram import TelegramChannel
 from bip.entities.cases import CaseService
 from bip.entities.labels import EntityLabelService
 from bip.entities.relationships import RelationshipService
@@ -79,6 +82,7 @@ from bip.research.llm import LLMProvider, build_provider
 from bip.router.router import ProviderRouter
 from bip.rpc.transport import HttpsTransport, Transport
 from bip.security.auth import AuthService
+from bip.security.secrets import read_secret
 from bip.storage.disk_guard import DiskGuard, guard_from_settings
 
 API_PREFIX = "/api/v1"
@@ -115,6 +119,26 @@ def _default_origin(repo: Repository) -> str:
     return "unknown" if held else "live_network"
 
 
+def _external_channels(
+    cfg: Settings,
+    environ: Mapping[str, str] | None,
+    injected: Mapping[str, ExternalChannel] | None,
+) -> dict[str, ExternalChannel]:
+    """External alert channels that are enabled. Telegram needs its bot token as a secret; the
+    app refuses to start when it is enabled without one, rather than drop alerts silently."""
+    if not cfg.alerts.telegram_enabled:
+        return {}
+    if injected is not None:
+        return dict(injected)
+    token = read_secret("BIP_TELEGRAM_BOT_TOKEN", environ)
+    if token is None:
+        raise ConfigurationError("telegram enabled but BIP_TELEGRAM_BOT_TOKEN is not set")
+    chat_id = cfg.alerts.telegram_chat_id
+    assert chat_id is not None  # noqa: S101 - AlertSettings requires it when enabled
+    channel = TelegramChannel(token, chat_id, HttpsTransport(use_env_proxy=cfg.rpc.use_env_proxy))
+    return {channel.name: channel}
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -126,9 +150,10 @@ def create_app(
     rpc_sleep: Callable[[float], None] | None = None,
     data_origin: str | None = None,
     llm_provider: LLMProvider | None = None,
+    alert_channels: Mapping[str, ExternalChannel] | None = None,
 ) -> FastAPI:
-    """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport`` and ``environ``;
-    in normal use the transport is the real hardened HTTPS client."""
+    """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport``, ``environ`` and
+    ``alert_channels``; in normal use the transport is the real hardened HTTPS client."""
     cfg = settings if settings is not None else load_settings()
     require_safe_exposure(cfg)
     metrics = ApiMetrics()
@@ -148,6 +173,7 @@ def create_app(
             # providers; else "unknown" (a seeded or copied database is never assumed real).
             # Fixture tools pass their own origin above; test apps mark nothing.
             repo.set_meta("data_origin", cfg.data_origin or _default_origin(repo))
+        external = _external_channels(cfg, environ, alert_channels)
         reg = registry if registry is not None else default_registry()
         state = ProviderStateStore(repo)
         router = ProviderRouter(
@@ -181,7 +207,7 @@ def create_app(
             trainer=Trainer(repo, cfg),
             research=cast(ResearchManager, None),  # set below (needs the context)
             train_lock=threading.Lock(),
-            discovery=DiscoveryService(repo, cfg),
+            discovery=DiscoveryService(repo, cfg, external_channels=tuple(external)),
             discovery_lock=threading.Lock(),
             auth=AuthService(repo, cfg.auth),
             metrics=metrics,
@@ -203,6 +229,7 @@ def create_app(
             ),
             cases=CaseService(repo),
             scheduler=None,
+            dispatcher=AlertDispatcher(repo, cfg.alerts, external) if external else None,
         )
         ctx = app.state.bip
         ctx.review = ReviewService(repo)

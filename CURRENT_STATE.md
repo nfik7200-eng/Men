@@ -1,8 +1,16 @@
 # Current State
 
-_Last updated: 2026-11-22 (hardening fixes: EIP-55 checksums verified, unknown `BIP_*` variables refused, M1–M5 marked fixed; earlier: free provider expansion and the rebase repair below)_
+_Last updated: 2026-11-22 (Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Telegram alert delivery, 2026-11-22 (ADR-054, Proposed).** Owner decision: the Stage 12 alert channel is a Telegram bot.
+- **Outbox.** Migration v23 adds `alert_deliveries`. When Telegram is enabled, discovery writes one `pending` row per new alert, in the alert's transaction and with no network call.
+- **Sending.** The `alert_delivery` job (every minute) runs `AlertDispatcher` (`bip/discovery/delivery.py`). It sends through `TelegramChannel` (`bip/discovery/telegram.py`) over the hardened `HttpsTransport`. Delivery is at-least-once, with bounded retries and backoff (honouring `retry_after`). Only `ok: true` counts as delivered.
+- **Off by default.** `BIP_ALERTS__TELEGRAM_ENABLED=false`. The token comes only from `BIP_TELEGRAM_BOT_TOKEN` (or `_FILE`) and is never stored, logged or returned. `POST /alerts/channels/telegram/test` sends one test message. `GET /alerts/channels` lists Telegram as unavailable until it is configured.
+- **Not done.** No bot exists and nothing was sent live. The owner creates the bot and sets the variables (`docs/OPERATIONS.md`). Telegram facts (4096 characters, about 1 message per second per chat) were read from core.telegram.org on 2026-11-22 (`docs/PROVIDER_REGISTRY.md`).
+- **Roadmap.** The roadmap progress table was corrected: UI milestones B (partial) to E are recorded as built.
+- Checks: backend 1240 passed; ruff check, ruff format and pyright clean; frontend ESLint and tsc clean, Alerts page Vitest 12/12 (no frontend change needed).
+
 **Hardening fixes, 2026-11-22.**
 - `bip/core/keccak.py` is a stdlib Keccak-256, tested against `hashlib.sha3_256`. `evm_address` rejects mixed-case input with a wrong EIP-55 checksum; storage stays lower-case.
 - `load_settings` refuses unknown top-level `BIP_*` variables, naming them and never their values (ADR-053, Proposed).
@@ -256,7 +264,7 @@ Untouched by BIP. No installs, downloads or deletions have been made. The defaul
 3. Free accounts: Alchemy, Infura, Chainstack, Helius, Etherscan, GitHub PAT, Google Cloud BigQuery sandbox.
 4. Where Postgres (and later Redis) run, and with what resource limits.
 5. Initial scopes: contracts, programs, tokens and wallets to watch first.
-6. Alert channel (Stage 12).
+6. ~~Alert channel (Stage 12).~~ Decided 2026-11-22: Telegram (ADR-054). Owner steps: create the bot and set the variables (`docs/OPERATIONS.md`).
 7. Web-fetcher User-Agent contact string.
 8. Remote LLM providers allowed, or local Ollama only.
 9. UI: self-hosted IBM Plex fonts or system fonts (default); confirm transaction-hash search stays out of scope (`docs/FRONTEND_ARCHITECTURE.md` §12). Note: `/search` now matches stored transaction ids; confirm that is wanted.

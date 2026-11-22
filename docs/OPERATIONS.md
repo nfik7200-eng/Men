@@ -83,6 +83,7 @@ reports `skipped:` and does not count as a failure.
 | `ethereum_backfill` | **off** | **yes** | read one bounded window of Ethereum history backward (ADR-043) |
 | `solana_backfill` | **off** | **yes** | read one bounded window of Solana history backward (ADR-043) |
 | `gap_recovery` | **off** | **yes** | re-read a few positions of unresolved coverage gaps on both chains |
+| `alert_delivery` | **off** (every 1 min when enabled) | **yes (Telegram)** | send queued alerts to Telegram (ADR-054) |
 
 `watchlist_refresh`, `chain_scan` and `solana_scan` are the jobs that spend provider quota. `solana_scan` needs `BIP_WORKERS__SOLANA_COLLECTOR_ENABLED=true` and reads at most `solana_collector.blocks_per_run` (10) finalized slots, one `getBlock` request each, within 150 requests and 90 s. Public Solana endpoints rate-limit and blocks are large: each invocation covers seconds of chain, so the collector reports its lag and records a gap whenever it has to jump ahead. It needs
 `BIP_WORKERS__WATCHLIST_REFRESH_ENABLED=true`, takes at most `watchlist_refresh_wallets_per_tick` (2)
@@ -93,6 +94,28 @@ lock). `chain_scan` needs `BIP_WORKERS__COLLECTOR_ENABLED=true` and reads at mos
 it implies.
 
 Run a job now: `POST /api/v1/system/jobs/<name>/run` (admin). Status: `GET /api/v1/system/jobs`.
+
+### Telegram alerts (ADR-054)
+
+Alerts are always stored in-app. With Telegram enabled, each new alert also gets an outbox row, and the `alert_delivery` job sends it. A discovery pass never waits on Telegram. Delivery is at-least-once: a crash between a send and its status update can repeat one message. Each message starts with `BIP alert — statistical signal (not a verified observation)`.
+
+Setup (owner):
+1. In Telegram, talk to `@BotFather`, send `/newbot` and keep the token it gives. Treat it like a password.
+2. Send any message to the new bot (or add it to a group and post there). Then open `https://api.telegram.org/bot<token>/getUpdates` in a browser and read `result[0].message.chat.id`. Group ids are negative.
+3. Set, in the environment or `.env` (or point `BIP_TELEGRAM_BOT_TOKEN_FILE` at a file holding the token):
+   ```
+   BIP_TELEGRAM_BOT_TOKEN=<token>
+   BIP_ALERTS__TELEGRAM_CHAT_ID=<chat id or @channelname>
+   BIP_ALERTS__TELEGRAM_ENABLED=true
+   BIP_WORKERS__ENABLED=true
+   ```
+4. Restart, then send one test message: `POST /api/v1/alerts/channels/telegram/test`. The answer is `{"status": "delivered", "error": null}`, or a status of `retry` / `permanent` with a redacted reason.
+
+Behaviour:
+- **Startup.** BIP refuses to start when Telegram is enabled but the token is missing, or when the token or chat id is malformed.
+- **Retries.** Retries back off from `retry_base_s` (30 s), doubling each time and capped at 1 h, or wait Telegram's `retry_after`. A row fails after `max_attempts` (5), or at once on a permanent error (401/403/400, or `ok: false`).
+- **Sending limits.** At most `per_run_limit` (20) messages per run, spaced `min_send_interval_s` (≥ 1 s) apart.
+- **Inspection.** Outbox rows are in the `alert_deliveries` table (status, attempts, last error). `GET /api/v1/system/jobs` shows the job.
 
 ### Historical backfill, recovery and pause (Stage 2)
 

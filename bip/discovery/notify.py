@@ -88,9 +88,15 @@ def format_alert_text(message: AlertMessage) -> str:
     return "".join(out)
 
 
-def unavailable_channels() -> dict[str, str]:
-    return {
+def unavailable_channels(telegram_configured: bool = False) -> dict[str, str]:
+    out = {
         "email": "not configured: needs an approved mail service",
         "push": "not configured: needs an approved push service",
         "sms": "not configured: paid service, needs owner approval",
     }
+    if not telegram_configured:
+        out["telegram"] = (
+            "not configured: set BIP_TELEGRAM_BOT_TOKEN, BIP_ALERTS__TELEGRAM_CHAT_ID and "
+            "BIP_ALERTS__TELEGRAM_ENABLED=true (docs/OPERATIONS.md)"
+        )
+    return out

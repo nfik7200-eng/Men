@@ -573,6 +573,35 @@ class MLSettings(BaseModel):
     than this."""
 
 
+TELEGRAM_CHAT_ID_PATTERN = r"^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$"
+"""A numeric chat id or an @username. Nothing else can reach the request body or URL."""
+
+
+class AlertSettings(BaseModel):
+    """External alert delivery (``BIP_ALERTS__*``). Off by default.
+
+    The bot token is a secret, never a setting: ``BIP_TELEGRAM_BOT_TOKEN`` (or ``_FILE``).
+    Telegram allows about one message per second per chat (docs/PROVIDER_REGISTRY.md), so the
+    send interval cannot go below one second.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    telegram_enabled: bool = False
+    telegram_chat_id: Annotated[str, Field(pattern=TELEGRAM_CHAT_ID_PATTERN)] | None = None
+    max_attempts: Annotated[int, Field(ge=1, le=20)] = 5
+    retry_base_s: Annotated[float, Field(ge=1, le=3600)] = 30.0
+    per_run_limit: Annotated[int, Field(ge=1, le=200)] = 20
+    min_send_interval_s: Annotated[float, Field(ge=1.0, le=60)] = 1.0
+    delivery_interval_minutes: Annotated[int, Field(ge=1, le=60)] = 1
+
+    @model_validator(mode="after")
+    def _chat_id_when_enabled(self) -> Self:
+        if self.telegram_enabled and self.telegram_chat_id is None:
+            raise ValueError("telegram_chat_id is required when telegram_enabled is true")
+        return self
+
+
 class AISettings(BaseModel):
     """AI research (``BIP_AI__*``). No provider is used unless explicitly configured.
 
@@ -651,6 +680,7 @@ class Settings(BaseSettings):
     probe: ProbeSettings = ProbeSettings()
     ml: MLSettings = MLSettings()
     ai: AISettings = AISettings()
+    alerts: AlertSettings = AlertSettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""
@@ -726,7 +756,7 @@ def _format_errors(exc: ValidationError) -> str:
 _TOOL_PREFIXES = ("BIP_PROVIDER_", "BIP_LIVE_", "BIP_E2E_")
 """Variables read by provider adapters, the opt-in live tools and the frontend e2e harness (which
 passes its environment to the API it starts), not by ``Settings``."""
-_TOOL_NAMES = frozenset({"BIP_NEW_PASSWORD", "BIP_API_URL"})
+_TOOL_NAMES = frozenset({"BIP_NEW_PASSWORD", "BIP_API_URL", "BIP_TELEGRAM_BOT_TOKEN"})
 
 
 def unknown_bip_variables(environ: Mapping[str, str], ai_key_env: str) -> list[str]:

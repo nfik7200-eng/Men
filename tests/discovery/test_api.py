@@ -7,8 +7,12 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
 
+from bip.api.deps import AppContext
+from bip.discovery.notify import AlertMessage, DeliveryOutcome, ExternalChannel
 from bip.discovery.service import DiscoveryService
 from tests.discovery.seed import E18, ETH, NOW, Seed, eth_addr, eth_tx
 from tests.stage2.test_ingestion_api import API, Env
@@ -242,3 +246,136 @@ def test_an_as_of_run_is_bounded_and_labelled(client: TestClient) -> None:
     assert client.post(f"{API}/discovery/run", json={"as_of": ancient}).status_code == 422
     naive = client.post(f"{API}/discovery/run", json={"as_of": "2026-01-01T00:00:00"})
     assert naive.status_code == 422
+
+
+# ------------------------------------------------------------------ Telegram channel
+
+TG_TOKEN = "777777:" + "C" * 35
+
+
+class _FakeTelegram:
+    name = "telegram"
+
+    def __init__(self) -> None:
+        self.sent: list[AlertMessage] = []
+
+    def send(self, message: AlertMessage) -> DeliveryOutcome:
+        self.sent.append(message)
+        return DeliveryOutcome("delivered")
+
+
+def _ctx(app: FastAPI) -> AppContext:
+    ctx: AppContext = app.state.bip
+    return ctx
+
+
+def _telegram_app(
+    tmp_path: Path, channel: ExternalChannel | None, **workers: object
+) -> tuple[FastAPI, Engine]:
+    from bip.api.app import create_app
+    from bip.config import load_settings
+    from bip.db.engine import create_db_engine
+    from tests.api.conftest import roomy_guard
+
+    settings = load_settings(
+        data_root=tmp_path / "data",
+        env="test",
+        alerts={"telegram_enabled": True, "telegram_chat_id": "-1001"},
+        workers=workers,
+    )
+    engine = create_db_engine(settings)
+    app = create_app(
+        settings,
+        engine=engine,
+        disk_guard=roomy_guard(settings.resolved_data_root),
+        environ={"BIP_TELEGRAM_BOT_TOKEN": TG_TOKEN},
+        alert_channels={"telegram": channel} if channel is not None else None,
+    )
+    return app, engine
+
+
+def test_default_channels_list_telegram_as_unavailable(client: TestClient) -> None:
+    body = client.get(f"{API}/alerts/channels").json()
+    assert body["available"] == ["in_app"]
+    assert set(body["unavailable"]) == {"email", "push", "sms", "telegram"}
+    assert "BIP_ALERTS__TELEGRAM_ENABLED" in body["unavailable"]["telegram"]
+
+
+def test_telegram_test_endpoint_is_409_when_not_configured(client: TestClient) -> None:
+    resp = client.post(f"{API}/alerts/channels/telegram/test")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "channel_not_configured"
+
+
+def test_telegram_test_endpoint_sends_through_the_channel(tmp_path: Path) -> None:
+    fake = _FakeTelegram()
+    app, engine = _telegram_app(tmp_path, fake)
+    try:
+        with TestClient(app) as c:
+            channels = c.get(f"{API}/alerts/channels").json()
+            assert channels["available"] == ["in_app", "telegram"]
+            assert "telegram" not in channels["unavailable"]
+            resp = c.post(f"{API}/alerts/channels/telegram/test")
+            assert resp.status_code == 200
+            assert resp.json() == {"status": "delivered", "error": None}
+            assert TG_TOKEN not in resp.text
+            assert len(fake.sent) == 1
+            assert _ctx(app).dispatcher is not None
+    finally:
+        engine.dispose()
+
+
+def test_telegram_enabled_builds_the_real_channel_from_the_secret(tmp_path: Path) -> None:
+    from bip.discovery.telegram import TelegramChannel
+
+    app, engine = _telegram_app(tmp_path, None)
+    try:
+        with TestClient(app):
+            dispatcher = _ctx(app).dispatcher
+            assert dispatcher is not None
+            assert isinstance(dispatcher.channels["telegram"], TelegramChannel)
+    finally:
+        engine.dispose()
+
+
+def test_telegram_enabled_without_token_refuses_to_start(tmp_path: Path) -> None:
+    from bip.api.app import create_app
+    from bip.config import load_settings
+    from bip.core.exceptions import ConfigurationError
+    from bip.db.engine import create_db_engine
+    from tests.api.conftest import roomy_guard
+
+    settings = load_settings(
+        data_root=tmp_path / "data",
+        env="test",
+        alerts={"telegram_enabled": True, "telegram_chat_id": "-1001"},
+    )
+    engine = create_db_engine(settings)
+    app = create_app(
+        settings, engine=engine, disk_guard=roomy_guard(settings.resolved_data_root), environ={}
+    )
+    try:
+        with pytest.raises(ConfigurationError) as exc, TestClient(app):
+            pass
+        assert "BIP_TELEGRAM_BOT_TOKEN" in str(exc.value)
+    finally:
+        engine.dispose()
+
+
+def test_alert_delivery_job_only_when_telegram_enabled(env: Env, tmp_path: Path) -> None:
+    from bip.ops.jobs import build_jobs
+
+    with TestClient(env.app):
+        ctx = env.app.state.bip
+        assert "alert_delivery" not in {j.name for j in build_jobs(ctx, ctx.backups)}
+    app, engine = _telegram_app(tmp_path / "tg", _FakeTelegram())
+    try:
+        with TestClient(app):
+            ctx = _ctx(app)
+            jobs = {j.name: j for j in build_jobs(ctx, ctx.backups)}
+            job = jobs["alert_delivery"]
+            assert job.contacts_providers is True
+            assert job.interval == timedelta(minutes=1)
+            assert "delivered" in job.run()
+    finally:
+        engine.dispose()

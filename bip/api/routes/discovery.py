@@ -23,6 +23,7 @@ from bip.api.schemas import (
     SignalReview,
 )
 from bip.discovery import DISCOVERY_VERSION
+from bip.discovery.notify import AlertMessage
 
 router = APIRouter(tags=["discovery"])
 Id = Annotated[int, Path(ge=1, le=2**53)]
@@ -334,6 +335,21 @@ def list_alerts(
 @router.get("/alerts/channels")
 def alert_channels(ctx: Context) -> dict[str, Any]:
     return _envelope(ctx, ctx.discovery.channels())
+
+
+@router.post("/alerts/channels/telegram/test", response_model=None)
+def test_telegram(ctx: WritableContext) -> Any:
+    """Send one test message straight through the Telegram channel (no outbox row). The
+    response carries the delivery status and a redacted error, never the bot token."""
+    channel = ctx.dispatcher.channels.get("telegram") if ctx.dispatcher is not None else None
+    if channel is None:
+        return error_response(
+            409, "channel_not_configured", "the Telegram channel is not configured"
+        )
+    outcome = channel.send(
+        AlertMessage(alert_key="test", severity="low", title="BIP test message", signal_id=0)
+    )
+    return {"status": outcome.status, "error": outcome.error}
 
 
 @router.post("/alerts/read-all")

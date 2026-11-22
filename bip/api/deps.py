@@ -10,6 +10,7 @@ from fastapi import Depends, Request
 
 from bip.config.settings import Settings
 from bip.db.repository import Repository
+from bip.discovery.delivery import AlertDispatcher
 from bip.discovery.expansion import ExpansionEngine
 from bip.discovery.review import ReviewService
 from bip.discovery.service import DiscoveryService
@@ -87,6 +88,8 @@ class AppContext:
     entity_labels: EntityLabelService
     cases: CaseService
     scheduler: Scheduler | None
+    dispatcher: AlertDispatcher | None = None
+    """External alert delivery; set only when a channel such as Telegram is enabled."""
 
 
 def get_context(request: Request) -> AppContext:

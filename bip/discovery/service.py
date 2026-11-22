@@ -144,8 +144,8 @@ class DiscoveryService:
 
     def channels(self) -> dict[str, Any]:
         return {
-            "available": [c.name for c in self._channels],
-            "unavailable": unavailable_channels(),
+            "available": [c.name for c in self._channels] + list(self._external),
+            "unavailable": unavailable_channels(telegram_configured="telegram" in self._external),
         }
 
     # ------------------------------------------------------------------ running

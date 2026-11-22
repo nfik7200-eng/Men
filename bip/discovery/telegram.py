@@ -21,6 +21,7 @@ from typing import Any, cast
 
 from pydantic import SecretStr
 
+from bip.config.settings import TELEGRAM_CHAT_ID_PATTERN
 from bip.core.exceptions import ConfigurationError
 from bip.discovery.notify import AlertMessage, DeliveryOutcome, format_alert_text
 from bip.providers.registry import ResolvedEndpoint
@@ -29,7 +30,7 @@ from bip.security.secrets import REDACTED, redact_text, register_secret
 
 TELEGRAM_HOST = "api.telegram.org"
 TOKEN_PATTERN = re.compile(r"^\d{5,16}:[A-Za-z0-9_-]{30,64}$")
-CHAT_ID_PATTERN = re.compile(r"^(-?\d{1,20}|@[A-Za-z0-9_]{5,32})$")
+CHAT_ID_PATTERN = re.compile(TELEGRAM_CHAT_ID_PATTERN)
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_ERROR_CHARS = 200
 

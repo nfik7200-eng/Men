@@ -4,6 +4,42 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-22 — Telegram alert delivery (Stage 12 alert channel)
+
+**Done.** Plan: `docs/superpowers/plans/2026-11-22-telegram-alerts.md`. Owner decision 2026-11-22: Telegram bot. ADR-054 (Proposed).
+- Task 1 (`9de96d0`): corrected the roadmap progress table. It had listed UI milestones B to E as not started; B is now Partial, with the missing pieces named, and C to E are Done. The 2026-11-22 owner decisions are recorded.
+- Task 2 (`1862100`): migration v23 adds the `alert_deliveries` outbox. `DiscoveryService(external_channels=...)` writes `pending` rows inside the alert transaction, with no network I/O.
+- Task 3 (`5408594`): `TelegramChannel`, plus `DeliveryOutcome`, `ExternalChannel` and `format_alert_text`. The response mapping only counts 2xx with `ok: true` as delivered. A 429 honours `retry_after`; 5xx, transport errors and non-JSON bodies are retried; other 4xx are permanent. The token is checked against a strict pattern before use, registered for redaction, and kept out of every error.
+- Task 4: `AlertDispatcher` (at-least-once, single-run lock, backoff capped at 1 h, per-run limit and send spacing); `AlertSettings` (`BIP_ALERTS__*`); `BIP_TELEGRAM_BOT_TOKEN` added to the ADR-053 allowlist; app wiring (refuses to start when enabled without a token); the `alert_delivery` job; `POST /alerts/channels/telegram/test`; docs (`OPERATIONS.md`, `PROVIDER_REGISTRY.md`, `.env.example`, regenerated `API_REFERENCE.md`).
+
+**Provider facts** fetched 2026-11-22: `sendMessage` text 1-4096 characters (core.telegram.org/bots/api, sendMessage); one message per second per chat and 20 per minute in groups (core.telegram.org/bots/faq).
+
+**Rulings** (decisions taken without a separate owner answer, with their cost if wrong)
+- Task 1: committed the untracked plan file with the roadmap fix, because the roadmap row links it. Cost if wrong: none.
+- Task 1: Milestone B is marked Partial, because named components and the graph list view are absent. Cost if wrong: wording.
+- Task 2: the v22-to-v23 test builds a database with an alert, drops the outbox table and the v23 row, then migrates. Cost if wrong: low.
+- Task 3: `redact` in the plan is `redact_text`; the channel also replaces its own token explicitly. Cost if wrong: none.
+- Task 3: truncation counts UTF-16 units, which is how Telegram counts characters. Cost if wrong: emoji-heavy titles are cut slightly shorter.
+- Task 3: a refused redirect retries like other transport errors; a status below 200 is permanent. Cost if wrong: one wasted retry.
+- Task 4: the dispatcher selects only rows for configured channels, so rows for an unconfigured channel are counted as `skipped` but cannot use up the per-run limit. Cost if wrong: none.
+- Task 4: the dispatcher lock is a public `lock` attribute, so the concurrency test can hold it. Cost if wrong: naming.
+- Task 4: a huge `retry_after` is capped at 1 h like the backoff. Cost if wrong: an early retry that gets another 429.
+- Task 4: `create_app(alert_channels=...)` lets tests inject a fake channel. The chat-id pattern lives in settings and is shared with the channel, to avoid a config→discovery import. Cost if wrong: none.
+- Task 4: `test_only_in_app_delivery_is_available` now expects `telegram` under `unavailable`. Cost if wrong: none.
+- Task 4: ran `ruff format` on the plan markdown, because ruff formats its Python snippets. Cost if wrong: none.
+
+**Checks** (2026-11-22)
+```
+$ uv run ruff check .            -> All checks passed!
+$ uv run ruff format --check .   -> 308 files already formatted
+$ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q               -> 1240 passed in 739.53s
+$ npm run lint && npm run typecheck -> clean
+$ npx vitest run src/pages/alerts.test.tsx -> 12 passed
+```
+
+**Not done.** No bot exists and nothing was sent live. The owner must create the bot and set the variables (`docs/OPERATIONS.md`). The frontend has no "send test message" button; the endpoint is API-only.
+
 ## 2026-11-22 — Hardening fixes
 
 **Done.** Plan: `docs/superpowers/plans/2026-11-22-hardening-fixes.md`.
