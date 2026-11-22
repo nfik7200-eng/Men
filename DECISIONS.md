@@ -770,3 +770,25 @@ The Stage 3 verification audit found three correctness problems.
 - The alert's title is sent to Telegram's servers, a third party.
 - Approval of this ADR is pending with the owner.
 
+
+## ADR-055 Lake commit protocol: content-addressed files, manifest line as commit point (Proposed; roadmap Stage 5, 2026-11-22)
+**Context.**
+- Roadmap Stage 5 asks for an atomic, content-addressed Parquet writer with manifests and compaction, accepted by a crash-safety test (kill between write and checkpoint) and manifest integrity. §2.5 requires resumable, idempotent ingestion that never loses committed progress.
+- On 2026-11-22 the owner approved pyarrow and duckdb. Installing them was refused by the authoring session's permission classifier, so the protocol is built on the standard library first, behind a codec seam.
+
+**Decision.**
+- **Layout.** `<layer>/chain=<chain>/dataset=<dataset>/<key>=<value>/part-<sha256[:32]>.<suffix>` under the existing `StorageRoot` (`docs/DATA_ARCHITECTURE.md` §4.1). Partition names and values come from a restricted character set.
+- **Schemas.** Each table has an explicit, versioned `TableSchema` with a fingerprint. Rows are validated strictly before encoding: unknown columns, missing required values and type mismatches are refused, a missing nullable value is `NULL` (§2.8), and nothing is coerced. Rows are sorted by the sort key, so equal batches give byte-identical files.
+- **Commit protocol.** Validate, then the disk guard (a conservative JSON-size estimate), then encode to `tmp/lake/` and fsync, then hash, then place under an advisory `flock` (`manifests/.lake.lock`) without ever overwriting, fsync the directory, then append the manifest line (`manifests/<layer>/<chain>.<dataset>.jsonl`, fsynced). **The manifest line is the commit point**; a data file without a valid line is uncommitted and never read.
+- **Manifest lines** carry the path, partition, sha256, size, row count, schema version and fingerprint, codec, sort-key min/max, lineage (job, input hashes), `supersedes`, and an `entry_sha256` over the rest. A torn or tampered line is reported as corrupt and ignored; an append after a torn line starts on a new line.
+- **Idempotency.** Rewriting a committed batch adds nothing. An uncommitted leftover is adopted only if its hash matches; otherwise the write is refused.
+- **Compaction** merges a partition's live files into one file committed with `supersedes` (one line, so readers switch atomically). Inputs are checked (hash, fingerprint, codec, row count) and **kept**: deleting superseded files is a separate, owner-approved retention action. Bronze rows are not de-duplicated.
+- **Codec seam.** `Codec` (`encode`/`decode`, deterministic). Production will use a pyarrow Parquet codec with zstd level 3 (Part B). Tests use a JSON-lines test codec that lives only under `tests/`.
+- **Inspection.** `python -m bip.tools.lake verify|stats` is read-only. It reports missing or altered files, corrupt lines and dangling supersedes as errors, and crash leftovers (uncommitted files, temp files) as warnings.
+
+**Consequences.**
+- A crash at any point loses at most the batch in flight, and re-running it recovers. Crash leftovers stay on disk until an operator removes them.
+- A single writer host is assumed (advisory `flock`). A shared or network filesystem would need another lock.
+- Superseded files keep using disk until a retention decision is made.
+- Not yet wired into ingestion (roadmap Stage 6). The Parquet codec, the DuckDB reader and the bytes-per-row measurement on real data wait for the pyarrow and duckdb install.
+- Approval of this ADR is pending with the owner.

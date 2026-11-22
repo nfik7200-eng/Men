@@ -28,3 +28,11 @@ class StoragePathError(BIPError):
 
 class StorageLimitError(BIPError):
     """A write would exceed the configured BIP data quota or the free-space floor."""
+
+
+class StorageIntegrityError(BIPError):
+    """Stored files or manifests disagree (hash mismatch, missing file, conflicting entries)."""
+
+
+class RowValidationError(BIPError):
+    """Rows do not match a lake table schema. Messages name rows and columns, never values."""

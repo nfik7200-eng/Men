@@ -1,8 +1,21 @@
 # Current State
 
-_Last updated: 2026-11-22 (Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
+_Last updated: 2026-11-22 (lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Lake storage layer, roadmap Stage 5 Part A, 2026-11-22 (ADR-055, Proposed).** Plan: `docs/superpowers/plans/2026-11-22-lake-storage.md`.
+- **Built (standard library only):** `bip/storage/lake/`.
+  - `schema.py`: versioned `TableSchema` with a fingerprint and strict row validation. Missing values are `NULL`, with no coercion.
+  - `partition.py`: the `<layer>/chain=/dataset=/k=v` layout.
+  - `manifest.py`: per-line checksums; torn lines are ignored and reported.
+  - `writer.py`: validate, then disk guard, then encode to temp and fsync, then content-address, then place without overwrite under `flock`, then the manifest line as the commit point.
+  - `integrity.py`: verify and bytes-per-row stats.
+  - `compaction.py`: supersedes; inputs are kept.
+  - `python -m bip.tools.lake verify|stats`: read-only.
+- **Crash safety** is tested with real process death (`os._exit` at `encoded`, `placed` and `committed`). Nothing is committed before the manifest line, and a re-run adopts the leftover. Three mutation checks were each caught by a test.
+- **Not done (Part B):** no Parquet codec, no DuckDB reader, and no bytes-per-row figure on real data. The owner approved pyarrow and duckdb (2026-11-22), but the session's permission classifier refused `uv add --group lake pyarrow duckdb`, so they are not installed and `pyproject.toml`/`uv.lock` are unchanged. Nothing writes to the lake yet (ingestion wiring is roadmap Stage 6).
+- Checks: backend `1306 passed in 719.13s` (1243 before plus 63 new); `ruff check .`, `ruff format --check .` (324 files) and `pyright` (0 errors) clean. No frontend change.
+
 **Telegram alert delivery, 2026-11-22 (ADR-054, Proposed).** Owner decision: the Stage 12 alert channel is a Telegram bot.
 - **Outbox.** Migration v23 adds `alert_deliveries`. When Telegram is enabled, discovery writes one `pending` row per new alert, in the alert's transaction and with no network call.
 - **Sending.** The `alert_delivery` job (every minute) runs `AlertDispatcher` (`bip/discovery/delivery.py`). It sends through `TelegramChannel` (`bip/discovery/telegram.py`) over the hardened `HttpsTransport`. Delivery is at-least-once, with bounded retries and backoff (honouring `retry_after`). Only `ok: true` counts as delivered.

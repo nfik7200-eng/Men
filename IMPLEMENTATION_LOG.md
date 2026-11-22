@@ -4,6 +4,25 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-22 — Lake storage layer, roadmap Stage 5 Part A (standard library)
+
+**Done.** Plan: `docs/superpowers/plans/2026-11-22-lake-storage.md`. ADR-055 (Proposed).
+- `bip/storage/lake/`: `schema.py`, `partition.py`, `manifest.py`, `writer.py`, `integrity.py`, `compaction.py`; `bip/tools/lake.py`; `StorageIntegrityError` and `RowValidationError` in `bip/core/exceptions.py`.
+- Tests: `tests/storage/` (63 tests). The schema tests were seen failing (import error) before the implementation. The manifest, writer and compaction tests passed on their first run, so three mutations were made by hand afterwards, and each one was caught:
+  - letting an uncommitted file be overwritten: `test_an_existing_file_with_different_content_is_never_overwritten` failed;
+  - ignoring `supersedes`: 2 tests failed;
+  - not closing a torn manifest line: `test_torn_trailing_line_is_ignored_and_the_next_append_starts_a_new_line` failed.
+- Crash tests run a child process that dies with `os._exit(137)` at `encoded`, `placed` or `committed`. Before the commit, nothing is committed, the leftover shows as a warning (stale temp or unreferenced file) and a re-run adopts it. After the commit, a replay adds nothing.
+
+**Blocked.** `uv add --group lake pyarrow duckdb` (owner-approved 2026-11-22) was refused by the session's permission classifier. No dependency was installed, and `pyproject.toml` and `uv.lock` are unchanged. Part B (Parquet codec with zstd, DuckDB reader, bytes per row on real data) waits for that install.
+
+**Rulings** (decisions taken without a separate owner answer, with their cost if wrong)
+- Superseded files are kept, and crash leftovers are reported, not removed: the platform does not delete without approval. Cost if wrong: disk use until a retention step exists.
+- Single-host advisory `flock`. Cost if wrong: a network filesystem would need another lock.
+- The JSON-lines codec lives under `tests/` only, so production cannot silently write non-Parquet files. Cost if wrong: none until Part B.
+
+**Evidence.** Full backend run `1306 passed in 719.13s (0:11:59)`. `ruff check .`: All checks passed. `ruff format --check .`: 324 files already formatted. `pyright`: 0 errors, 0 warnings, 0 informations. No frontend change, so the frontend checks were not run.
+
 ## 2026-11-22 — Telegram alert delivery (Stage 12 alert channel)
 
 **Done.** Plan: `docs/superpowers/plans/2026-11-22-telegram-alerts.md`. Owner decision 2026-11-22: Telegram bot. ADR-054 (Proposed).

@@ -151,6 +151,8 @@ ${BIP_DATA_ROOT}/
 - **Compression:** zstd (level 3 by default; level 9+ for cold compaction). Dictionary encoding for addresses and topics.
 - **Object store abstraction:** `fsspec`/`obstore` style. Starts on local disk. The same code later targets S3-compatible storage (MinIO on a separate disk, Cloudflare R2, Backblaze B2), subject to owner approval.
 
+**As built (roadmap Stage 5, Part A, 2026-11-22; ADR-055).** `bip/storage/lake/` implements this layout with content-addressed `part-<sha256[:32]>` files, one manifest per layer and table whose fsynced line is the commit point, strict versioned schemas (missing values are `NULL`), compaction that keeps superseded files, and read-only `python -m bip.tools.lake verify|stats`. Encoding goes through a `Codec` seam. The Parquet (pyarrow, zstd) codec and the DuckDB reader wait for the dependency install, and nothing is wired into ingestion yet.
+
 ### 4.2 Silver schemas (core, chain-agnostic where possible)
 `blocks`, `transactions`, `receipts` (EVM), `logs` (EVM), `instructions` (Solana, including inner instructions with `stack_height`), `traces` (EVM, where available), `token_transfers`, `native_transfers`, `contracts` (deployments), `tokens`, `swaps`, `liquidity_events`, `account_balance_observations`.
 
