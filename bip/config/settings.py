@@ -13,7 +13,9 @@ with :func:`bip.security.secrets.read_secret`.
 
 from __future__ import annotations
 
+import os
 import re
+from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal, Self
@@ -721,6 +723,39 @@ def _format_errors(exc: ValidationError) -> str:
     return "invalid configuration:\n" + "\n".join(lines)
 
 
+_TOOL_PREFIXES = ("BIP_PROVIDER_", "BIP_LIVE_", "BIP_E2E_")
+"""Variables read by provider adapters, the opt-in live tools and the frontend e2e harness (which
+passes its environment to the API it starts), not by ``Settings``."""
+_TOOL_NAMES = frozenset({"BIP_NEW_PASSWORD", "BIP_API_URL"})
+
+
+def unknown_bip_variables(environ: Mapping[str, str], ai_key_env: str) -> list[str]:
+    """Return the sorted ``BIP_*`` names that no setting or tool reads (likely misspellings).
+
+    A name is known when its top-level segment (before the first ``__``) is a ``Settings``
+    field, it starts with a tool prefix, it is a tool name, or it is the configured AI key
+    variable. ``<NAME>_FILE`` is known when ``<NAME>`` is. Matching is case-insensitive, like
+    pydantic-settings.
+    """
+    unknown: list[str] = []
+    for name in environ:
+        upper = name.upper()
+        if not upper.startswith("BIP_"):
+            continue
+        if upper.endswith("_FILE"):  # <NAME>_FILE secret-file variant (bip.security.secrets)
+            upper = upper.removesuffix("_FILE")
+        top = upper[4:].split("__", 1)[0].lower()
+        if (
+            top in Settings.model_fields
+            or upper.startswith(_TOOL_PREFIXES)
+            or upper in _TOOL_NAMES
+            or upper == ai_key_env.upper()
+        ):
+            continue
+        unknown.append(name)
+    return sorted(unknown)
+
+
 def load_settings(**overrides: Any) -> Settings:
     """Load settings from the environment (plus explicit overrides) or raise a readable error.
 
@@ -730,6 +765,9 @@ def load_settings(**overrides: Any) -> Settings:
         settings = Settings(**overrides)
     except ValidationError as exc:
         raise ConfigurationError(_format_errors(exc)) from None
+    unknown = unknown_bip_variables(os.environ, settings.ai.api_key_env)
+    if unknown:
+        raise ConfigurationError(f"unknown BIP_ variables (check spelling): {', '.join(unknown)}")
     register_secret(settings.postgres_dsn)
     register_secret(settings.redis_url)
     return settings

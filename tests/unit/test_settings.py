@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from bip.config import Environment, Settings, load_settings
+from bip.config.settings import unknown_bip_variables
 from bip.core.exceptions import ConfigurationError
 
 
@@ -134,3 +135,59 @@ def test_database_filename_cannot_be_a_path(monkeypatch: pytest.MonkeyPatch, fil
     monkeypatch.setenv("BIP_DATABASE__FILENAME", filename)
     with pytest.raises(ConfigurationError, match="BIP_DATABASE__FILENAME"):
         load_settings()
+
+
+def test_misspelled_top_level_variable_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_DATAROOT", "/tmp/x")
+    with pytest.raises(ConfigurationError, match="BIP_DATAROOT"):
+        load_settings()
+
+
+def test_single_underscore_typo_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_AUTH_MODE", "required")
+    with pytest.raises(ConfigurationError, match="BIP_AUTH_MODE"):
+        load_settings()
+
+
+def test_unknown_nested_key_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_AUTH__MODEX", "required")
+    with pytest.raises(ConfigurationError):
+        load_settings()
+
+
+def test_error_never_contains_the_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIP_DATAROOT", "s3cr3t-value")
+    with pytest.raises(ConfigurationError) as exc:
+        load_settings()
+    assert "s3cr3t-value" not in str(exc.value)
+
+
+def test_tool_variables_are_not_refused() -> None:
+
+    env = {
+        "BIP_PROVIDER_ALCHEMY_ETH_URL": "x",
+        "BIP_LIVE_RPC": "1",
+        "BIP_NEW_PASSWORD_FILE": "f",
+        "BIP_AI_API_KEY": "k",
+        "BIP_DATA_ROOT": "/d",
+        "BIP_AUTH__MODE": "disabled",
+        "PATH": "/bin",
+    }
+    assert unknown_bip_variables(env, "BIP_AI_API_KEY") == []
+
+
+def test_frontend_and_secret_file_variables_are_not_refused() -> None:
+    env = {
+        "BIP_API_URL": "http://127.0.0.1:8000",
+        "BIP_E2E_KEEP": "1",
+        "BIP_E2E_REAL_NETWORK": "1",
+        "BIP_AI_API_KEY_FILE": "/run/secrets/k",
+        "BIP_POSTGRES_DSN_FILE": "/run/secrets/dsn",
+    }
+    assert unknown_bip_variables(env, "BIP_AI_API_KEY") == []
+
+
+def test_file_suffix_does_not_excuse_an_unknown_stem() -> None:
+    assert unknown_bip_variables({"BIP_DATAROOT_FILE": "/x"}, "BIP_AI_API_KEY") == [
+        "BIP_DATAROOT_FILE"
+    ]

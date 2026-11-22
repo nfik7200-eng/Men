@@ -725,3 +725,25 @@ The Stage 3 verification audit found three correctness problems.
 - Independence between the new providers is not established: operators differ, but upstream sharing cannot be ruled out. Cross-provider agreement is counted only per the registry's `infrastructure` rule.
 - Ankr Solana may need a paid plan (the docs conflict); if the probe fails it stays unconfigured.
 - Approval of this ADR is pending with the owner.
+
+## ADR-053 Refuse unknown BIP_ environment variables and verify EIP-55 checksums on input (Proposed; hardening, 2026-11-22)
+**Context.**
+- `CURRENT_STATE.md` listed two known limitations. First, an unknown `BIP_*` variable was silently ignored: pydantic-settings drops unknown top-level prefixed variables even with `extra="forbid"`, so a typo such as `BIP_AUTH_MODE` (one underscore) fell back to the default. Second, EIP-55 checksums were not verified, because the stdlib has no Keccak-256.
+- No dependency may be added without approval, and the environment has no Keccak library.
+
+**Decision.**
+- **Keccak.** A pure-stdlib Keccak-256 lives in `bip/core/keccak.py`. Its permutation and absorption are tested against `hashlib.sha3_256`, which is the same sponge with padding byte `0x06` instead of `0x01`, across block boundaries.
+- **Checksums.** `evm_address` rejects mixed-case input whose EIP-55 checksum is wrong. Single-case input carries no checksum and is accepted. Stored and emitted addresses stay lower-case.
+- **Unknown variables.** `load_settings` refuses unknown top-level `BIP_*` names and lists the names only, never the values. A name is known when:
+  - its segment before `__` is a `Settings` field;
+  - it starts with `BIP_PROVIDER_`, `BIP_LIVE_` or `BIP_E2E_`;
+  - it is `BIP_NEW_PASSWORD` or `BIP_API_URL`;
+  - it equals the configured `ai.api_key_env`.
+
+  `<NAME>_FILE` is known when `<NAME>` is. Unknown nested keys (`BIP_AUTH__MODEX`) were already refused by `extra="forbid"` on the nested models.
+
+**Consequences.**
+- An operator with a misspelled variable gets a startup error naming it, instead of a silent default.
+- A new tool variable must be added to the allowlist.
+- A pasted address with a corrupted checksum is refused instead of being stored.
+- Approval of this ADR is pending with the owner.
