@@ -4,6 +4,29 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-22 — Hardening fixes
+
+**Done.** Plan: `docs/superpowers/plans/2026-11-22-hardening-fixes.md`.
+- Task 1 (`84e9c05`): stdlib Keccak-256 in `bip/core/keccak.py`. The sponge is tested against `hashlib.sha3_256` (padding `0x06`) across block boundaries, plus known Keccak vectors.
+- Task 2 (`7997753`): `evm_address` rejects mixed-case addresses with a wrong EIP-55 checksum. One fixture had an invented mixed-case address and now uses a valid checksum.
+- Task 3 (`73560ad`): `unknown_bip_variables` plus a check in `load_settings`, and ADR-053 (Proposed). The allowlist was widened beyond the plan to cover `BIP_E2E_*` and `BIP_API_URL`, which the frontend e2e harness passes to the API it starts, and `<NAME>_FILE` for any known name. `test_unknown_nested_key_is_refused` already held before the change, because nested models use `extra="forbid"`.
+- Task 4: `frontend/src/pages/Strategies.tsx` types its error state as `ApiError | null` instead of `any`. That `any` was the ESLint failure in CI. Corrected `CURRENT_STATE.md`, which still listed M1–M5 as open.
+
+**Checks.**
+```
+$ uv run ruff check .            -> All checks passed!
+$ uv run ruff format --check .   -> 302 files already formatted
+$ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
+$ uv run pytest -q               -> 1183 passed in 552.56s (0:09:12)
+$ M1/M4 recheck: tests/security/test_http.py -k "local_mode or allowed_hosts or foreign_origin" -> 4 passed; tests/discovery/test_pipeline.py -> 22 passed; discovery_lock present in discovery.py and entities.py
+$ npm run lint                   -> clean (after the Strategies fix; was 1 error)
+$ npm run typecheck              -> clean
+$ npx vitest run                 -> 2 failed | 293 passed (295); the two (App.test.tsx "navigates between all sections" 5 s timeout, runpage.test.tsx rerun location) pass alone: 2 files, 24 passed
+$ gh run list                    -> last 3 runs (up to 2419bb0) failed: Pyright (fixed in d1e77ea) and ESLint (fixed here)
+```
+
+**Not done.** CI has not yet run on these commits. The two Vitest timing flakes are not fixed. `Strategies.tsx` was already not Prettier-formatted, and Prettier is not in CI.
+
 ## 2026-11-21 — Controlled continuous retraining (Task 3)
 
 **Done.** `bip/ml/continuous.py` adds `ContinuousTraining`: per chain it counts filtered eligible examples (`Trainer.eligible_examples`), skips when fewer than `continuous_min_new_examples` are new since the count stored at the last decision (missing or garbled stored count is 0), otherwise fits a challenger without registering it and applies the promotion gate (no champion: promote; champion `feature_version` differs: promote with reason `feature version changed`; else re-score the champion on the challenger's test split and promote only if macro PR-AUC is not lower and Brier is within `promotion_brier_tolerance`, both over the labels both models score). `Trainer.train` is now `fit` (evaluate without registering, returns a `Challenger`) plus `register` (the unchanged registry path) or `reject` (run closed as `succeeded` / `challenger not promoted` with metrics, never inserted in `ml_models`). `ClassificationService.active_model` serves the newest `trained` row, so a rejected challenger cannot be served (tested through `/ml/models` and classify). Signal ranking: when new human review outcomes reach the minimum, the existing `SignalRanking.evaluate` runs once and a decision is recorded per chain. Job `ml_continuous_training` (`bip/ops/jobs.py`) is registered only when `continuous_training_enabled`, uses `continuous_interval_hours`, `contacts_providers=False`, and takes `train_lock` (wallet) and `analysis_lock` (ranking), the same locks as the manual routes. State is in `app_metadata` keys `ml:continuous:<kind>:<chain>:examples` and `:last_decision`; no migration. 21 new tests in `tests/stage5/test_continuous_training.py`.

@@ -1,8 +1,14 @@
 # Current State
 
-_Last updated: 2026-11-21 (free provider expansion added; state documents were restored after a faulty rebase merge, see the repair note below)_
+_Last updated: 2026-11-22 (hardening fixes: EIP-55 checksums verified, unknown `BIP_*` variables refused, M1–M5 marked fixed; earlier: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Hardening fixes, 2026-11-22.**
+- `bip/core/keccak.py` is a stdlib Keccak-256, tested against `hashlib.sha3_256`. `evm_address` rejects mixed-case input with a wrong EIP-55 checksum; storage stays lower-case.
+- `load_settings` refuses unknown top-level `BIP_*` variables, naming them and never their values (ADR-053, Proposed).
+- The `Strategies` page no longer types its error state as `any` (the ESLint failure in CI).
+- Checks: backend 1183 passed; ruff and pyright clean; frontend ESLint and tsc clean. Vitest: 293/295 in the full run. The 2 failures (`App.test.tsx` navigation timeout, `runpage.test.tsx` rerun) pass when run alone (24/24), so they look like timing flakes in this slow sandbox. CI's last three runs (before these commits) failed on Pyright and ESLint; both are fixed locally.
+
 **Free provider expansion, 2026-11-21 (branch `providers-expansion`, not merged, not pushed).**
 - **Registry.** Nine entries added to `bip/providers/registry.toml`: RPC with an adapter `validationcloud-eth`, `validationcloud-sol`, `ankr-sol`, `dwellir-eth`, `blockpi-eth`, `nodereal-eth`; catalogue only `infstones-eth`, `chainbase`, `routescan`. `dwellir-sol` and `infura-sol` were not added (no Solana offering found / Infura Solana limited to select customers). All facts are `search_derived`, checked 2026-11-21.
 - **Nothing is configured or probed.** No account or key exists; every new provider reports "requires configuration". No live request was made, so no new provider capability is verified.
@@ -55,12 +61,8 @@ _Last updated: 2026-11-21 (free provider expansion added; state documents were r
   - **H3:** a bounded, manual as-of discovery mode (`POST /discovery/run` with `as_of`) lets backfilled history produce candidates. Every detector query has an upper time bound, current-state detectors are skipped, and no alerts are raised.
 - **Codespaces:** `.devcontainer/` installs dependencies only. `.devcontainer/start-preview.sh` starts the SYNTHETIC preview (API on 8000 behind the Vite proxy on 5173, sign-in required). The preview tool also allows the codespace's own forwarded origin, which was verified with simulated Codespaces variables. **Not yet run in a real Codespace or on a phone.**
 - **Open (not in the approved scope):**
-  - M1: no Origin/Host check when auth is disabled;
-  - M2: frozen aggregate counts in memory;
-  - M3: reorgs reach tx-less memory facts late;
-  - M4: two heavy routes are unlocked;
-  - M5: re-proposed labels overwrite rejection records;
-  - M6: Solana has fewer detectors and memory sources.
+  - M1–M5 were fixed on 2026-11-14 (M1 ADR-048, `tests/security/test_http.py` local-mode/allowed-hosts/foreign-origin tests; M2, M3 and M5 in `IMPLEMENTATION_LOG.md` 2026-11-14; M4 via `discovery_lock` in `bip/api/routes/discovery.py` and `entities.py`). Rechecked 2026-11-22.
+  - M6: Solana has fewer detectors and memory sources (still open).
 - **Live verification:** never done; all chain behaviour is tested against local fakes only.
 - **Tests:** 953 backend tests, ruff and pyright clean; the e2e fixture passes 9/9.
 
@@ -282,8 +284,8 @@ The registry lists nine more free or free-trial providers (chainstack, drpc, get
 - The disk guard measures the data directory on every write request. That is acceptable at prototype scale, but it should be cached once the lake grows.
 - The frontend CSP is a `<meta>` tag. Vite's dev server sends no security headers; production static hosting must add them.
 - `npm audit`: one moderate advisory (minimatch ReDoS) inside ESLint's dependency tree. It affects development tooling only, not the shipped bundle. The only "fix" downgrades ESLint to v4, so it was not applied.
-- Unknown `BIP_*` environment variables are ignored, so a misspelled setting falls back to its default.
-- EIP-55 checksums are not verified (no Keccak in stdlib); EVM addresses are lower-cased.
+- Unknown top-level `BIP_*` variables are refused at startup (ADR-053). A new tool variable must be added to the allowlist in `bip/config/settings.py`.
+- EIP-55 checksums are verified on mixed-case input. Single-case input carries no checksum and is accepted. EVM addresses are stored lower-cased.
 - Redaction patterns are heuristics; only exact registered secret values are guaranteed to be removed.
 - Provider limits in `docs/PROVIDER_REGISTRY.md` are still search-derived (`verified_at: null`).
 - Context7 and the GitHub plugin failed to connect in the authoring sessions; library behaviour was confirmed by running the installed versions (pydantic 2.14.2, pydantic-settings 2.16.2).
