@@ -4,6 +4,32 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-22 — Solana discovery and memory context (M6, narrowed)
+
+**Why.** M6 (from the 2026-11-13 audit) is that Solana has fewer detectors and memory sources. The Solana collector already stores program payers and pool mint pairs in `solana_discoveries.detail_json`, but discovery and memory used them only as display detail.
+
+**Done (test-first; all 9 initial tests seen failing).**
+- **`bip/discovery/detectors.py`: `solana_new_entities` version 2.**
+  - Repeat-payer count over the baseline window, magnitude `0.3 + 0.7·(n−1)/9`.
+  - Unseen pool mints: the earliest stored pool per mint, at or before the evaluation time, through a JSON-string match re-checked on the parsed row; magnitude 0.6 or 0.25.
+  - Mint-initialised-earlier links: +0.1, and the mint signature is added to the evidence.
+  - Kind-specific caveats: the payer may not be the developer, and a launch pattern is not proof.
+  - The registry limitations are updated.
+- **`bip/intel/memory.py`.** The Solana phase asserts `deployed_by` (payer, with basis) for programs and `pool` (protocol, both mints) for pools, and creates the mint token entities. The aggregate phase adds `role:deployer` with `programs_deployed` for Solana payers, bounded to 1,000 rows.
+- **Docs.** `docs/SIGNALS.md`: the detector row is updated. The "Not implemented" paragraph is corrected: it still said Solana program and pool detection were missing.
+
+**Mutation checks** (each change was restored afterwards):
+- removing `block_time >= since` from the payer count: 1 test failed;
+- replacing the unseen-mint test with `True`: 1 test failed;
+- dropping the "mint slot before pool slot" rule: no test failed at first, because the existing case placed the mint after the evaluation time, where the query bound already hid it. `test_a_mint_initialised_after_its_pool_is_not_linked` was added, and the mutation then failed 1 test.
+- The `block_time <= now` bounds inside the two pool and mint lookups are defensive only: a candidate is never after the evaluation time and the lookups compare earlier slots, so no output test can catch them.
+
+**Rulings** (decisions taken without a separate owner answer, with their cost if wrong)
+- No Solana holder-concentration detector. Stored SPL transfers name token accounts, not owners, so AMM vault accounts would dominate net inflow and produce systematic false signals. Cost if wrong: a missing signal until owners or vault accounts are stored.
+- The program payer is recorded as the "deployer" under the existing fact key, with an explicit basis, rather than under a new key. Cost if wrong: a reader ignoring the basis could equate the payer with the developer; the basis and the caveat say otherwise.
+
+**Evidence.** Full backend run `1331 passed in 627.29s (0:10:27)` (1321 before, 10 new). `ruff check .` clean; `ruff format --check .` 329 files formatted; `pyright` 0 errors. The related suites (`tests/discovery`, `tests/collector`, `tests/api/test_memory*.py`, `tests/preview`) passed 282/282 before the full run. No frontend change.
+
 ## 2026-11-22 — Strategy outputs: remove invented facts and the copy recommendation
 
 **Why.** The strategy heuristics had one shallow unit test and one API test. Reading them before adding tests showed outputs that break CLAUDE.md §2.7, §2.11 and §2.12 and ADR-024, so tests pinning the old behaviour would have locked those claims in:

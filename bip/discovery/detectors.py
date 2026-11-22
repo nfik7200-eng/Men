@@ -16,13 +16,13 @@ import json
 import math
 import statistics
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from itertools import pairwise
 from typing import Any, NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import Connection, select
 
 from bip.config.settings import DiscoverySettings
 from bip.db import schema
@@ -918,12 +918,58 @@ _SOLANA_KINDS = {
 }
 
 
+_SOLANA_CAVEATS = {
+    "mint": (
+        "An instruction was seen; this does not show the mint is legitimate, funded, tradable "
+        "or unique."
+    ),
+    "program": (
+        "An instruction was seen; this does not show the program is legitimate or unique. The "
+        "payer funded the deploy instruction and may not be the developer or the upgrade "
+        "authority."
+    ),
+    "pool": (
+        "An instruction was seen; this does not show the pool is legitimate, funded or tradable. "
+        "A mint first pooled or initialised shortly before is a pattern in stored data, not "
+        "proof of a launch, and only slots the collector read are compared."
+    ),
+}
+
+
+def _pool_mints(detail: Mapping[str, Any]) -> list[str]:
+    return [str(detail[k]) for k in ("mint_a", "mint_b") if isinstance(detail.get(k), str)]
+
+
+def _first_pool_slot(conn: Connection, mint: str, now: datetime) -> int | None:
+    """Slot of the earliest stored pool (at or before ``now``) that pairs ``mint``.
+
+    Pool mints live in ``detail_json``; the JSON-string match is re-checked on the parsed row."""
+    sd = schema.solana_discoveries
+    for slot, detail_json in conn.execute(
+        select(sd.c.slot, sd.c.detail_json)
+        .where(
+            sd.c.kind == "pool",
+            sd.c.block_time.is_not(None),
+            sd.c.block_time <= now,
+            sd.c.detail_json.contains(json.dumps(mint), autoescape=True),
+        )
+        .order_by(sd.c.slot)
+        .limit(20)
+    ):
+        if mint in _pool_mints(json.loads(str(detail_json))):
+            return int(slot)
+    return None
+
+
 def solana_new_entities(ctx: Context) -> DetectorOutput:
-    """Mints, programs and pools announced by instructions in finalized slots."""
+    """Mints, programs and pools announced by instructions in finalized slots, with context:
+    how many programs the same payer deployed, which pool mints were never pooled before, and
+    which pool mints were initialised earlier in stored data."""
     if ctx.chain != "solana":
         return DetectorOutput([], 0, False)
     sd = schema.solana_discoveries
     recent_start = ctx.now - timedelta(hours=ctx.cfg.lookback_hours)
+    since = ctx.now - timedelta(days=ctx.cfg.baseline_days)
     cap = ctx.cfg.max_rows_scanned
     with ctx.repo.transaction() as conn:
         rows = conn.execute(
@@ -936,16 +982,98 @@ def solana_new_entities(ctx: Context) -> DetectorOutput:
             .order_by(sd.c.block_time.desc())
             .limit(cap + 1)
         ).all()
-    truncated = len(rows) > cap
-    rows = rows[:cap]
+        truncated = len(rows) > cap
+        rows = rows[:cap]
+        details = {int(r.id): json.loads(str(r.detail_json)) for r in rows}
+
+        # Programs per payer over the baseline window, as Ethereum counts deployments per deployer.
+        payers = sorted(
+            {str(d["payer"]) for d in details.values() if isinstance(d.get("payer"), str)}
+        )
+        per_payer: dict[str, int] = defaultdict(int)
+        if payers:
+            for detail_json in conn.execute(
+                select(sd.c.detail_json).where(
+                    sd.c.kind == "program",
+                    sd.c.block_time.is_not(None),
+                    sd.c.block_time >= since,
+                    sd.c.block_time <= ctx.now,
+                )
+            ).scalars():
+                payer = json.loads(str(detail_json)).get("payer")
+                if payer in payers:
+                    per_payer[str(payer)] += 1
+
+        pool_mints = sorted(
+            {m for r in rows if r.kind == "pool" for m in _pool_mints(details[int(r.id)])}
+        )
+        first_pooled = {m: _first_pool_slot(conn, m, ctx.now) for m in pool_mints}
+        initialised: dict[str, Any] = {}
+        for i in range(0, len(pool_mints), 400):
+            for m in conn.execute(
+                select(sd.c.ref, sd.c.slot, sd.c.block_time, sd.c.signature).where(
+                    sd.c.kind == "mint",
+                    sd.c.ref.in_(pool_mints[i : i + 400]),
+                    sd.c.block_time.is_not(None),
+                    sd.c.block_time <= ctx.now,
+                )
+            ):
+                initialised[str(m.ref)] = m
+
     out: list[RawCandidate] = []
     for r in rows:
         subject_kind, family, title, cap_conf = _SOLANA_KINDS[str(r.kind)]
-        detail = json.loads(str(r.detail_json))
+        detail = details[int(r.id)]
+        extra: dict[str, Any] = {}
+        magnitude, reliability, z = 0.3, 0.2, 1.0
+        notes = {
+            "magnitude": "fixed 0.3: there is no baseline of creation rates yet",
+            "baseline_reliability": "fixed 0.2: no baseline of normal creation volume",
+        }
+        if r.kind == "program" and isinstance(detail.get("payer"), str):
+            n = max(per_payer[str(detail["payer"])], 1)
+            extra = {"deployer_payer": detail["payer"], "programs_by_payer_in_window": n}
+            if n > 1:
+                title += f" by a repeat payer ({n} in window)"
+            magnitude = clamp(0.3 + 0.7 * clamp((n - 1) / 9))
+            reliability, z = clamp(n / 10), float(n)
+            notes = {
+                "magnitude": "0.3 for one program, rising to 1.0 at ten by the same payer",
+                "baseline_reliability": f"{n} program(s) by this payer in the stored window",
+            }
+        elif r.kind == "pool":
+            mints = _pool_mints(detail)
+            unseen = [m for m in mints if first_pooled.get(m) in (None, int(r.slot))]
+            links = [
+                {
+                    "mint": m,
+                    "slot": int(initialised[m].slot),
+                    "signature": str(initialised[m].signature),
+                    "hours_before_pool": round(
+                        (r.block_time - initialised[m].block_time).total_seconds() / 3600, 2
+                    ),
+                }
+                for m in mints
+                if m in initialised and int(initialised[m].slot) < int(r.slot)
+            ]
+            extra = {"unseen_mints": unseen, "mints_initialised_in_stored_data": links}
+            if unseen:
+                title += " with a mint not seen in earlier stored pools"
+            if links:
+                title += " (mint initialised earlier in stored data)"
+            magnitude = clamp((0.6 if unseen else 0.25) + (0.1 if links else 0.0))
+            reliability, z = 0.3, 1.0 if unseen else 0.0
+            notes = {
+                "magnitude": (
+                    "0.6 when a mint was never in an earlier stored pool, otherwise 0.25; "
+                    "+0.1 when a pool mint was initialised earlier in stored data"
+                ),
+                "baseline_reliability": "fixed 0.3, as for Ethereum pool creations",
+            }
         out.append(
             RawCandidate(
                 detector_id="solana_new_entities",
-                detector_version="1",
+                detector_version="2",
                 family=family,
                 chain=ctx.chain,
                 subject_kind=subject_kind,
@@ -953,12 +1081,16 @@ def solana_new_entities(ctx: Context) -> DetectorOutput:
                 title=title,
                 key=f"solana:{r.kind}:{r.ref}",
                 observed_at=r.block_time,
-                tx_ids=[str(r.signature)],
+                tx_ids=[str(r.signature)]
+                + [
+                    str(link["signature"])
+                    for link in extra.get("mints_initialised_in_stored_data", [])
+                ],
                 evidence_finalized=True,
-                magnitude=0.3,
-                baseline_reliability=0.2,
+                magnitude=magnitude,
+                baseline_reliability=reliability,
                 confidence_cap=cap_conf,
-                z=1.0,
+                z=z,
                 explanation={
                     "statement": (
                         f"A finalized slot contains an instruction creating this {r.kind}."
@@ -969,17 +1101,12 @@ def solana_new_entities(ctx: Context) -> DetectorOutput:
                         "slot": r.slot,
                         "blockhash": r.blockhash,
                         **detail,
+                        **extra,
                     },
                     "method": "Compiled-instruction layouts verified against official sources",
-                    "caveat": (
-                        "An instruction was seen; this does not show the mint, program or pool "
-                        "is legitimate, funded, tradable or unique."
-                    ),
+                    "caveat": _SOLANA_CAVEATS[str(r.kind)],
                 },
-                notes={
-                    "magnitude": "fixed 0.3: there is no baseline of creation rates yet",
-                    "baseline_reliability": "fixed 0.2: no baseline of normal creation volume",
-                },
+                notes=notes,
             )
         )
     return DetectorOutput(out, len(rows), truncated)
@@ -1284,7 +1411,7 @@ DETECTORS: tuple[Detector, ...] = (
     Detector(
         DetectorInfo(
             id="solana_new_entities",
-            version="1",
+            version="2",
             family="solana_discovery",
             title="New Solana mint, program or pool",
             method="Compiled-instruction layouts of finalized slots, verified against sources",
@@ -1295,7 +1422,8 @@ DETECTORS: tuple[Detector, ...] = (
             limitations=(
                 "Needs the Solana collector to have run, and it covers only the slots it read. "
                 "Other pool programs are not recognised. A creation instruction says nothing "
-                "about legitimacy, liquidity or trading."
+                "about legitimacy, liquidity or trading. The program payer may not be the "
+                "developer; 'not seen in earlier pools' means earlier stored pools only."
             ),
             refresh="Per collector run, then per discovery pass",
             cost=STORED_ONLY_COST,

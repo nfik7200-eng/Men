@@ -52,6 +52,7 @@ OBSERVED_DETECTORS = frozenset(
     {"new_contract_deployment", "new_liquidity_pool", "new_token_activity", "solana_new_entities"}
 )
 SOLANA_KIND = {"mint": "token", "program": "program", "pool": "pool"}
+SOLANA_DEPLOYER_BASIS = "payer of the upgradeable-loader deploy instruction"
 KIND_RANK = {"wallet": 0, "token": 1, "pool": 1, "program": 1, "contract": 2}
 
 
@@ -443,6 +444,42 @@ class MemoryService:
             )
             if kind == "token":
                 touched[str(r["ref"])] = "token"
+            payer = detail.get("payer")
+            if r["kind"] == "program" and isinstance(payer, str):
+                # Same fact key as an Ethereum deployment; the basis says what was observed.
+                self._entity(conn, chain, payer, "wallet", r["block_time"], s)
+                self._assert(
+                    conn,
+                    ent,
+                    "deployed_by",
+                    {"deployer": payer, "basis": SOLANA_DEPLOYER_BASIS},
+                    payer,
+                    "observed",
+                    "solana_discoveries",
+                    s,
+                    tx=r["signature"],
+                    chain=chain,
+                    observed_at=r["block_time"],
+                )
+                touched[payer] = "wallet"
+            mints = [detail.get("mint_a"), detail.get("mint_b")]
+            if r["kind"] == "pool" and all(isinstance(m, str) for m in mints):
+                self._assert(
+                    conn,
+                    ent,
+                    "pool",
+                    {"protocol": detail.get("dex"), "token0": mints[0], "token1": mints[1]},
+                    f"{mints[0]}|{mints[1]}",
+                    "observed",
+                    "solana_discoveries",
+                    s,
+                    tx=r["signature"],
+                    chain=chain,
+                    observed_at=r["block_time"],
+                )
+                for mint in mints:
+                    self._entity(conn, chain, str(mint), "token", r["block_time"], s)
+                    touched[str(mint)] = "token"
 
     def _signals(self, conn: Connection, chain: str, s: RefreshSummary) -> None:
         """New signals become facts on their subject; recently updated ones refresh their status."""
@@ -697,6 +734,35 @@ class MemoryService:
                 "transactions",
                 s,
             )
+        if chain == "solana":
+            programs = self._programs_paid_by(conn, ref)
+            if programs:
+                self._assert(
+                    conn,
+                    ent,
+                    "role:deployer",
+                    {"programs_deployed": programs, "basis": SOLANA_DEPLOYER_BASIS},
+                    f"programs|{programs}",
+                    "observed",
+                    "solana_discoveries",
+                    s,
+                )
+
+    @staticmethod
+    def _programs_paid_by(conn: Connection, ref: str) -> int:
+        """Stored program deployments whose deploy instruction ``ref`` paid for.
+
+        The payer lives in ``detail_json``; the JSON-string match is re-checked on each parsed
+        row and bounded to 1,000 rows."""
+        sd = schema.solana_discoveries
+        rows = conn.execute(
+            select(sd.c.detail_json)
+            .where(
+                sd.c.kind == "program", sd.c.detail_json.contains(json.dumps(ref), autoescape=True)
+            )
+            .limit(1000)
+        ).scalars()
+        return sum(1 for d in rows if json.loads(str(d)).get("payer") == ref)
 
     # ------------------------------------------------------------------ primitives
 

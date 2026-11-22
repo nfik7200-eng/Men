@@ -3,6 +3,17 @@
 _Last updated: 2026-11-22 (lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Solana discovery and memory context (M6, narrowed), 2026-11-22.** Everything uses data the Solana collector already stores; no new collection.
+- **`solana_new_entities` v2.**
+  - Programs carry their deploy payer and the number of programs that payer paid for in the 30-day baseline window, as Ethereum counts deployers; a repeat payer scores higher.
+  - Pools list the mints never seen in an earlier stored pool (0.6 against 0.25, as for Ethereum pools) and the mints initialised earlier in stored data (+0.1, with the mint's signature as extra evidence).
+- **Memory.**
+  - Solana programs get a `deployed_by` fact (basis: payer of the deploy instruction).
+  - Pools get a `pool` fact linking both mints as tokens.
+  - Payers get `role:deployer` with `programs_deployed`.
+- **Tests.** `tests/discovery/test_solana_detectors.py` (8) and `tests/api/test_memory_solana.py` (2), seen failing first. Mutation checks: removing the baseline lower bound, the "earlier slot" rule for mint links, or the unseen-mint check each made a test fail. The first slot rule survived one mutation, and a missing test case was added for it.
+- **Not built:** Solana holder concentration (owners of SPL token accounts are not resolved, so pool vaults would look like top holders) and Solana reserve changes (no reserve data is stored).
+
 **Strategy outputs made honest, 2026-11-22.** The strategy heuristics returned claims nobody had checked. They are now fixed, with tests (`tests/stage5/test_strategy_honesty.py`, 10 tests seen failing first; `frontend/src/pages/strategies.test.tsx`, 3 tests):
 - **Dev tracker.**
   - `upgrade_authority_held` was always `true` (the page showed "Upgrade Authority Held" for every deployer) and `github_linked` was always `false`. Both are now `null` and listed in `not_checked`.
@@ -96,7 +107,7 @@ _Last updated: 2026-11-22 (lake storage layer Part A; earlier: Telegram alert de
 - **Codespaces:** `.devcontainer/` installs dependencies only. `.devcontainer/start-preview.sh` starts the SYNTHETIC preview (API on 8000 behind the Vite proxy on 5173, sign-in required). The preview tool also allows the codespace's own forwarded origin, which was verified with simulated Codespaces variables. **Not yet run in a real Codespace or on a phone.**
 - **Open (not in the approved scope):**
   - M1–M5 were fixed on 2026-11-14 (M1 ADR-048, `tests/security/test_http.py` local-mode/allowed-hosts/foreign-origin tests; M2, M3 and M5 in `IMPLEMENTATION_LOG.md` 2026-11-14; M4 via `discovery_lock` in `bip/api/routes/discovery.py` and `entities.py`). Rechecked 2026-11-22.
-  - M6: Solana has fewer detectors and memory sources (still open).
+  - M6: Solana has fewer detectors and memory sources. Narrowed 2026-11-22: `solana_new_entities` v2 adds the program payer, repeat-payer counts and pool-mint context, and memory records Solana `deployed_by`, `pool` and `role:deployer` facts. Still missing: Solana reserve changes and holder concentration (data not stored; see `docs/SIGNALS.md`).
 - **Live verification:** never done; all chain behaviour is tested against local fakes only.
 - **Tests:** 953 backend tests, ruff and pyright clean; the e2e fixture passes 9/9.
 

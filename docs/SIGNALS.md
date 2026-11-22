@@ -24,17 +24,19 @@ relationships and analyses that rested on it are invalidated in the same databas
 | `new_token_activity` | tokens | ethereum | counts of finalized ERC-20 `Transfer` logs per token | 0.35 |
 | `pool_reserve_change` | liquidity | ethereum | change between stored v2-style `Sync` reserves, median/MAD when history allows | 0.5 |
 | `holder_concentration` | holders | ethereum | top-3 share of positive net inflow in stored transfers (observed flow, not balances) | 0.4 |
-| `solana_new_entities` | tokens, contracts, pools | solana | verified compiled-instruction layouts in finalized slots (SPL `InitializeMint`/`InitializeMint2`, upgradeable-loader `DeployWithMaxDataLen`, Raydium AMM v4 `Initialize2`, Orca `initialize_pool`) | 0.45 |
+| `solana_new_entities` (v2) | tokens, contracts, pools | solana | verified compiled-instruction layouts in finalized slots (SPL `InitializeMint`/`InitializeMint2`, upgradeable-loader `DeployWithMaxDataLen`, Raydium AMM v4 `Initialize2`, Orca `initialize_pool`). Programs: the deploy payer and how many programs it paid for in the baseline window (a repeat payer scores higher). Pools: mints never in an earlier stored pool, and mints initialised earlier in stored data (both raise the score) | 0.45 |
 | `new_liquidity_pool` | pools | ethereum | v2/v3-style `PairCreated`/`PoolCreated` factory logs from finalized blocks | 0.4 |
 | `common_funding_source` | related_wallets | ethereum, solana | one sender funding several recipients with no earlier stored activity (observed transfers; "first funding" is a hypothesis over censored data) | 0.5 |
 
 Each detector declares its coverage, limitations, refresh frequency and cost in
 `GET /api/v1/discovery/detectors`. All cost: local database reads only, no RPC, no provider credits.
 
-Not implemented: whole-chain scanning (needs a data source and cost decision), Solana program
-deployment, liquidity and pool detection, holder-concentration change, exchange attribution. These
-need data BIP does not store or a provider and budget decision; see *Blocked or not built* in
-`CURRENT_STATE.md`.
+Not implemented: whole-chain scanning (needs a data source and cost decision), Solana reserve or
+liquidity changes (no reserve data is stored), Solana holder concentration, holder-concentration
+change, and exchange attribution. Solana holder concentration is deliberately not built: stored SPL
+transfers are between token accounts with owners unresolved, so a pool's vault accounts would look
+like the top holders. These need data BIP does not store or a provider and budget decision; see
+*Blocked or not built* in `CURRENT_STATE.md`.
 
 ## Score
 
