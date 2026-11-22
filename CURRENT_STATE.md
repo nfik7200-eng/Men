@@ -3,6 +3,17 @@
 _Last updated: 2026-11-22 (lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Strategy outputs made honest, 2026-11-22.** The strategy heuristics returned claims nobody had checked. They are now fixed, with tests (`tests/stage5/test_strategy_honesty.py`, 10 tests seen failing first; `frontend/src/pages/strategies.test.tsx`, 3 tests):
+- **Dev tracker.**
+  - `upgrade_authority_held` was always `true` (the page showed "Upgrade Authority Held" for every deployer) and `github_linked` was always `false`. Both are now `null` and listed in `not_checked`.
+  - `funder` was the sender of the wallet's first transaction, usually the wallet itself. It is now the sender of the earliest inbound native transfer, labelled a hypothesis, or `null`.
+- **Copy trader.** It returned `recommendation: "moderate_copy"` from a transaction count alone (against ADR-024). This is replaced by `lead` (`no_activity`, `low_activity` or `research_lead`), with a limitation stating that no win rate or profit is measured.
+- **Deployments.** Any transaction without a recipient counted as a contract deployment, which made every Solana transaction a "deployment" and every Solana wallet a 0.9 "dev". Only recorded `created_contract` rows now count. EVM creations with no recorded contract are reported as `unconfirmed_creations`.
+- **Classifier crash.** The `unknown` classification lacked `metrics`, which the page reads unconditionally (a crash for any wallet with too little stored history).
+- **Meme momentum.** `early_entries` (the first five transfers in dataset order) is renamed `first_transfers` and sorted by time.
+- **Labels.** Every strategy output now carries `evidence_class: "hypothesis"` and `limitations`. The page shows both on each panel.
+- The response fields `recommendation` and `early_entries` were removed, and the frontend types and page were updated to match.
+
 **As-of leak tests, 2026-11-22.** `tests/discovery/test_as_of_bounds.py` covers the five remaining correctness upper bounds of as-of discovery: large transfers, new pools, the reserve series, Solana discoveries and common funding. Each test failed when its `<= ctx.now` bound was deleted. The reserve pool-selection bound is a selection bound only (its rows are re-read under the series bound), so no output test can catch it; this is documented in the test. Test code only; no behaviour change.
 
 **Lake storage layer, roadmap Stage 5 Part A, 2026-11-22 (ADR-055, Proposed).** Plan: `docs/superpowers/plans/2026-11-22-lake-storage.md`.
@@ -229,7 +240,7 @@ Statuses:
 | ML feature drift monitor | Implemented and tested on simulated data. Needs real model and feature history to mean anything | `tests/stage5/test_drift.py` |
 | Real-data intelligence output | **None yet**: every analysed record so far is an offline fixture (labelled "Demo data") | — |
 | AI research, historical crawler, live followers, Parquet lake | Planned | — |
-| Strategies (classifier, copy-trader, meme-momentum, dev-tracker) and `/strategies` page | Implemented on fixtures; heuristic; shallow tests (one unit test, one API test); no real-data output | `tests/stage5/test_advanced_strategies.py`, `tests/stage5/test_strategy_api.py` |
+| Strategies (classifier, copy-trader, meme-momentum, dev-tracker) and `/strategies` page | Implemented on fixtures; heuristic, every output labelled a hypothesis with limitations; unchecked facts reported as not checked (2026-11-22); no real-data output and no calibration | `tests/stage5/test_strategy_honesty.py`, `tests/stage5/test_advanced_strategies.py`, `tests/stage5/test_strategy_api.py`, `frontend/src/pages/strategies.test.tsx` |
 | Temporal graph explorer | Implemented and tested offline | `tests/intel/test_graph_explorer.py`, `tests/stage3/test_graph_explorer_api.py`, `frontend/src/pages/explorer.test.tsx` |
 | Analyst curation of classification labels (`curation_feedback`, `/curation`) | Implemented and tested offline; separate from the Stage 4 signal review lifecycle | `tests/api/test_curation_api.py`, `frontend/src/pages/curation.test.tsx` |
 | Investigations workbench (cases, evidence, hypotheses, leads, templates; migration 20; curation feedback is 21; repair migration 22) | Implemented and tested; restored by the 2026-11-21 repair | `tests/investigations/`, `tests/api/` |

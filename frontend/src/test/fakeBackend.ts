@@ -418,6 +418,8 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
           strategies: { meme_trader: 0.85, copy_target: 0.4, investor: 0.2, dev: 0.1 },
           metrics: { transactions_observed: 5, transfers_observed: 10, unique_assets: 3 },
           provenance: "Mock strategy classification fixture",
+          evidence_class: "hypothesis",
+          limitations: ["Scores are fixed rule weights over counts, not calibrated probabilities."],
         });
       }
       if (path.includes("/copy-trader/")) {
@@ -425,16 +427,20 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
           target_address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
           score: 0.75,
           signals: [{ type: "activity_frequency", value: 5, description: "Observed 5 transactions in dataset" }],
-          recommendation: "moderate_copy",
+          lead: "research_lead",
           provenance: "Mock copy trader fixture",
+          evidence_class: "hypothesis",
+          limitations: ["Activity only: no win rate, profit or trade timing is measured (no price source)."],
         });
       }
       if (path.includes("/meme-momentum/")) {
         return json(200, {
           momentum_score: 0.8,
-          early_entries: [{ asset: "MEME", time: now, direction: "in" }],
+          first_transfers: [{ asset: "MEME", time: now, direction: "in" }],
           tokens_involved: ["MEME", "SOL"],
           provenance: "Mock meme momentum fixture",
+          evidence_class: "hypothesis",
+          limitations: ["The score counts distinct assets only."],
         });
       }
       if (path.includes("/dev-tracker/")) {
@@ -442,10 +448,15 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
           deployer_address: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
           deployments_count: 1,
           deployments: ["Prog111111111111111111111111111111111111111"],
+          unconfirmed_creations: 0,
           funder: "11111111111111111111111111111111",
-          github_linked: true,
-          upgrade_authority_held: false,
+          funder_basis: "hypothesis: the sender of the earliest inbound native transfer in the retrieved dataset",
+          github_linked: null,
+          upgrade_authority_held: null,
+          not_checked: ["github_linked", "upgrade_authority_held"],
           provenance: "Mock developer tracker fixture",
+          evidence_class: "hypothesis",
+          limitations: ["GitHub links and upgrade authority are not checked."],
         });
       }
     }

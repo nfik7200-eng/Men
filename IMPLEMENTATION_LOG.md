@@ -4,6 +4,33 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-22 — Strategy outputs: remove invented facts and the copy recommendation
+
+**Why.** The strategy heuristics had one shallow unit test and one API test. Reading them before adding tests showed outputs that break CLAUDE.md §2.7, §2.11 and §2.12 and ADR-024, so tests pinning the old behaviour would have locked those claims in:
+- `upgrade_authority_held: True` and `github_linked: False` were constants;
+- `funder` was `transactions[0].from_address`, normally the wallet itself;
+- `recommendation: "moderate_copy"` came from a transaction count alone;
+- every transaction without a recipient counted as a contract deployment, which is every Solana transaction;
+- the `unknown` classification lacked the `metrics` the page reads (a page crash).
+
+**Done (test-first).**
+- `tests/stage5/test_strategy_honesty.py`: 10 tests, all seen failing before the change.
+- `bip/strategies/evidence.py`: a shared deployment rule, under which only a recorded `created_contract` from the wallet counts. An EVM transaction with no recipient and no recorded contract counts as `unconfirmed_creations`, and Solana never does.
+- All four outputs carry `evidence_class: "hypothesis"` and `limitations`.
+- `lead` replaces `recommendation`.
+- `first_transfers` (sorted by time) replaces `early_entries`.
+- The unchecked facts are `null` and listed in `not_checked`.
+- The funder is the earliest inbound native sender, as a hypothesis, or `null`.
+- The two older tests were updated to the renamed fields.
+- Frontend: the types, the fake backend fixture and `Strategies.tsx` were updated. Each panel shows its evidence label and limitations. "Copy Trade Score" is now "Activity Score", and the panels are renamed for what they compute. A new `strategies.test.tsx` has 3 tests.
+
+**Rulings** (decisions taken without a separate owner answer, with their cost if wrong)
+- Removed the `recommendation` and `early_entries` response fields instead of keeping misleading names. Cost if wrong: an external API consumer would break. None is known; the bundled page is updated.
+- Kept the existing score formulas, now labelled hypotheses, rather than inventing new ones. Cost if wrong: the scores remain uncalibrated, which the limitations state.
+
+**Evidence.** Full backend run `1321 passed in 724.33s (0:12:04)`. `ruff check .` and `ruff format --check .` (327 files) clean; `pyright` 0 errors. Frontend: `tsc --noEmit` and `eslint .` clean; `strategies.test.tsx` 3/3.
+- A full `vitest run` gave 297/298, then 296/298 on a second run. The failures were in `src/pages/research/runpage.test.tsx` ("lists persisted runs on the research index", and in the second run also "reruns as a new linked run..."). That file passed 7/7 alone twice. It was already recorded as a full-run timing flake on 2026-11-22, and this change does not touch it, so it is not fixed here; its flakiness remains open.
+
 ## 2026-11-22 — Leak tests for the as-of discovery upper bounds
 
 **Why.** The 2026-11-14 entry recorded that only the `_tx_rows` upper bound had a leak test. The other bounds (large transfers, holder concentration, pools, both reserve queries, Solana discoveries, common funding) were untested, so a regression could let rows stored after the evaluation time into a historical run.

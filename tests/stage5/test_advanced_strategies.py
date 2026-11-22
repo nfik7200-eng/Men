@@ -53,7 +53,7 @@ def test_advanced_strategies_comprehensive() -> None:
     # 3. Meme Momentum
     meme_signals = detect_meme_momentum(ds)
     assert "momentum_score" in meme_signals
-    assert "early_entries" in meme_signals
+    assert "first_transfers" in meme_signals
 
     # 4. Dev Tracker
     dev_signals = track_developer_activity(ds, deployer_address=w)

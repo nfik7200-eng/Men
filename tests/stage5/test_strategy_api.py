@@ -29,7 +29,7 @@ def test_strategy_api_endpoints(tmp_path: Path) -> None:
             assert res.status_code == 200
             data = res.json()
             assert "score" in data
-            assert "recommendation" in data
+            assert data["lead"] in {"no_activity", "low_activity", "research_lead"}
 
             # 3. Meme momentum endpoint
             res = c.get(f"{API}/strategies/meme-momentum/ethereum/{eth}")

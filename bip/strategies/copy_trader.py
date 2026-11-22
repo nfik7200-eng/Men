@@ -1,7 +1,8 @@
-"""Copy trader signal evaluation module.
+"""Copy-trader research leads (heuristic).
 
-Evaluates copy trading potential for target wallets based on historical transaction success,
-frequency, timing, and position replication metrics.
+Rates how active a wallet is in the retrieved dataset. It does not measure trade success: no
+prices are used, so there is no win rate, profit or timing analysis, and the output never says
+to copy a wallet (ADR-024: research leads, not recommendations).
 """
 
 from __future__ import annotations
@@ -9,25 +10,28 @@ from __future__ import annotations
 from typing import Any
 
 from bip.intel.dataset import WalletDataset
+from bip.strategies.evidence import DATASET_LIMITATION, HYPOTHESIS
+
+LIMITATIONS = [
+    DATASET_LIMITATION,
+    "Activity only: no win rate, profit or trade timing is measured (no price source).",
+    "A research lead to investigate, not advice to copy this wallet.",
+]
+LEAD_THRESHOLD = 0.5
 
 
 def evaluate_copy_trade_signals(ds: WalletDataset, target_address: str) -> dict[str, Any]:
-    txs = ds.transactions
-    transfers = ds.transfers
+    tx_count = len(ds.transactions)
+    base = {
+        "target_address": target_address,
+        "provenance": "Evaluated from retrieved dataset transactions",
+        "evidence_class": HYPOTHESIS,
+        "limitations": LIMITATIONS,
+    }
+    if not ds.transactions and not ds.transfers:
+        return {**base, "score": 0.0, "signals": [], "lead": "no_activity"}
 
-    if not txs and not transfers:
-        return {
-            "target_address": target_address,
-            "score": 0.0,
-            "signals": [],
-            "recommendation": "do_not_copy",
-            "reason": "No activity found",
-        }
-
-    # Evaluate consistency and volume
-    tx_count = len(txs)
     score = min(1.0, tx_count / 20.0)
-
     signals = [
         {
             "type": "activity_frequency",
@@ -35,13 +39,5 @@ def evaluate_copy_trade_signals(ds: WalletDataset, target_address: str) -> dict[
             "description": f"Observed {tx_count} transactions in dataset",
         }
     ]
-
-    recommendation = "moderate_copy" if score > 0.5 else "watch"
-
-    return {
-        "target_address": target_address,
-        "score": round(score, 2),
-        "signals": signals,
-        "recommendation": recommendation,
-        "provenance": "Evaluated from retrieved dataset transactions",
-    }
+    lead = "research_lead" if score > LEAD_THRESHOLD else "low_activity"
+    return {**base, "score": round(score, 2), "signals": signals, "lead": lead}

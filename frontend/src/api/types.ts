@@ -1394,8 +1394,10 @@ export type MemorySearch = {
   data_origin: DataOrigin;
 };
 
-// Strategies
-export type WalletClassification = {
+// Strategies: heuristics over the retrieved dataset, always hypotheses (CLAUDE.md §2.12)
+type StrategyEvidence = { provenance: string; evidence_class: "hypothesis"; limitations: string[] };
+
+export type WalletClassification = StrategyEvidence & {
   address: string;
   primary_strategy: string;
   confidence: number;
@@ -1405,32 +1407,33 @@ export type WalletClassification = {
     transfers_observed: number;
     unique_assets: number;
   };
-  provenance: string;
+  reason?: string;
 };
 
-export type CopyTraderSignal = {
+export type CopyTraderSignal = StrategyEvidence & {
   target_address: string;
   score: number;
   signals: { type: string; value: number; description: string }[];
-  recommendation: string;
-  provenance: string;
+  lead: "no_activity" | "low_activity" | "research_lead";
 };
 
-export type MemeMomentum = {
+export type MemeMomentum = StrategyEvidence & {
   momentum_score: number;
-  early_entries: { asset: string | null; time: string; direction: string }[];
+  first_transfers: { asset: string | null; time: string | null; direction: string }[];
   tokens_involved: string[];
-  provenance: string;
 };
 
-export type DevTracker = {
+export type DevTracker = StrategyEvidence & {
   deployer_address: string;
   deployments_count: number;
   deployments: string[];
+  unconfirmed_creations: number;
   funder: string | null;
-  github_linked: boolean;
-  upgrade_authority_held: boolean;
-  provenance: string;
+  funder_basis: string | null;
+  /** Not checked by BIP: always null, and named in not_checked. */
+  github_linked: boolean | null;
+  upgrade_authority_held: boolean | null;
+  not_checked: string[];
 };
 
 // Investigation workbench (cases)

@@ -4,6 +4,24 @@ import type { WalletClassification, CopyTraderSignal, MemeMomentum, DevTracker }
 import { EmptyState, ErrorState, Loading, PageHeader, Panel, Pill, Stat } from "../components/ui";
 import { fmtInt, humanize } from "../lib/format";
 
+/** Evidence label and limitations shown on every strategy panel (CLAUDE.md §2.12). */
+function Basis({ evidenceClass, limitations }: { evidenceClass: string; limitations: string[] }) {
+  return (
+    <div style={{ marginTop: "1rem" }}>
+      <Pill tone="info">{evidenceClass}</Pill>
+      <ul className="list muted" style={{ marginTop: "0.5rem", fontSize: "0.85rem" }}>
+        {limitations.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function checked(value: boolean | null, yes: string, no: string): string {
+  return value === null ? "Not checked" : value ? yes : no;
+}
+
 export default function Strategies() {
   const [chain, setChain] = useState<"ethereum" | "solana">("solana");
   const [address, setAddress] = useState<string>("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -42,7 +60,7 @@ export default function Strategies() {
     <>
       <PageHeader
         title="Strategies & Trackers"
-        lede="Analyze wallet profiles, copy trading signals, meme momentum, and developer activity across chains."
+        lede="Heuristic hypotheses about a wallet's profile, activity, assets and contract creations, computed from the data BIP has stored for it. Research leads, not advice."
       />
 
       <Panel title="Target Selection">
@@ -88,9 +106,9 @@ export default function Strategies() {
               hint={`Confidence: ${Math.round(classification.confidence * 100)}%`}
             />
             <Stat
-              label="Copy Trade Score"
+              label="Activity Score"
               value={copyTrader ? `${Math.round(copyTrader.score * 100)}%` : "—"}
-              hint={copyTrader?.recommendation ? `Recommendation: ${humanize(copyTrader.recommendation)}` : undefined}
+              hint={copyTrader ? `Lead: ${humanize(copyTrader.lead)}` : undefined}
             />
             <Stat
               label="Meme Momentum"
@@ -100,7 +118,7 @@ export default function Strategies() {
             <Stat
               label="Deployments"
               value={dev ? fmtInt(dev.deployments_count) : "—"}
-              hint={dev?.funder ? `Funder: ${dev.funder.slice(0, 6)}…${dev.funder.slice(-4)}` : "No funder recorded"}
+              hint={dev?.funder ? `First funder seen: ${dev.funder.slice(0, 6)}…${dev.funder.slice(-4)}` : "No funder observed"}
             />
           </div>
 
@@ -126,16 +144,16 @@ export default function Strategies() {
               <div style={{ marginTop: "1rem", fontSize: "0.9rem" }}>
                 <strong>Observed Metrics:</strong> {classification.metrics.transactions_observed} transactions, {classification.metrics.transfers_observed} transfers, {classification.metrics.unique_assets} unique assets.
               </div>
+              {classification.reason ? <p className="muted">{classification.reason}</p> : null}
+              <Basis evidenceClass={classification.evidence_class} limitations={classification.limitations} />
             </Panel>
 
-            <Panel title="Copy Trader Signals">
+            <Panel title="Copy-Trader Research Lead">
               {copyTrader ? (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-                    <span>Recommendation:</span>
-                    <Pill tone={copyTrader.recommendation === "moderate_copy" ? "ok" : "info"}>
-                      {humanize(copyTrader.recommendation)}
-                    </Pill>
+                    <span>Lead:</span>
+                    <Pill tone={copyTrader.lead === "research_lead" ? "info" : "idle"}>{humanize(copyTrader.lead)}</Pill>
                   </div>
                   <ul className="list">
                     {copyTrader.signals.map((sig, i) => (
@@ -145,6 +163,7 @@ export default function Strategies() {
                     ))}
                   </ul>
                   <p className="muted" style={{ marginTop: "1rem" }}>{copyTrader.provenance}</p>
+                  <Basis evidenceClass={copyTrader.evidence_class} limitations={copyTrader.limitations} />
                 </>
               ) : (
                 <EmptyState title="No signals evaluated" />
@@ -153,48 +172,51 @@ export default function Strategies() {
           </div>
 
           <div className="grid grid-2" style={{ marginTop: "1.5rem" }}>
-            <Panel title="Meme Momentum Opportunities">
+            <Panel title="Asset Activity">
               {meme ? (
                 <>
                   <div style={{ marginBottom: "1rem" }}>
                     <strong>Tokens Involved:</strong>{" "}
                     {meme.tokens_involved.length > 0 ? meme.tokens_involved.join(", ") : "None detected"}
                   </div>
-                  {meme.early_entries.length > 0 ? (
-                    <ul className="list">
-                      {meme.early_entries.map((entry, i) => (
-                        <li key={i}>
-                          <span className="mono">{entry.asset ?? "Unknown Asset"}</span> · {entry.direction} at {entry.time}
-                        </li>
-                      ))}
-                    </ul>
+                  {meme.first_transfers.length > 0 ? (
+                    <>
+                      <strong>First stored transfers:</strong>
+                      <ul className="list">
+                        {meme.first_transfers.map((entry, i) => (
+                          <li key={i}>
+                            <span className="mono">{entry.asset ?? "Unknown Asset"}</span> · {entry.direction} at {entry.time ?? "time unknown"}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
                   ) : (
-                    <EmptyState title="No early entries found" />
+                    <EmptyState title="No stored transfers" />
                   )}
                   <p className="muted" style={{ marginTop: "1rem" }}>{meme.provenance}</p>
+                  <Basis evidenceClass={meme.evidence_class} limitations={meme.limitations} />
                 </>
               ) : (
                 <EmptyState title="No momentum data" />
               )}
             </Panel>
 
-            <Panel title="Developer Activity & Trackers">
+            <Panel title="Contract Creations">
               {dev ? (
                 <>
                   <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-                    <Pill tone={dev.github_linked ? "ok" : "idle"}>
-                      {dev.github_linked ? "GitHub Linked" : "No GitHub Link"}
-                    </Pill>
-                    <Pill tone={dev.upgrade_authority_held ? "warn" : "ok"}>
-                      {dev.upgrade_authority_held ? "Upgrade Authority Held" : "Immutable"}
-                    </Pill>
+                    <Pill tone="idle">GitHub link: {checked(dev.github_linked, "linked", "none found")}</Pill>
+                    <Pill tone="idle">Upgrade authority: {checked(dev.upgrade_authority_held, "held", "not held")}</Pill>
                   </div>
                   <dl className="kv">
                     <dt>Deployments Count</dt>
                     <dd className="num">{fmtInt(dev.deployments_count)}</dd>
-                    <dt>Deployer Funder</dt>
-                    <dd className="mono">{dev.funder ?? "None"}</dd>
+                    <dt>Unconfirmed creations</dt>
+                    <dd className="num">{fmtInt(dev.unconfirmed_creations)}</dd>
+                    <dt>First funder seen</dt>
+                    <dd className="mono">{dev.funder ?? "None observed"}</dd>
                   </dl>
+                  {dev.funder_basis ? <p className="muted">{dev.funder_basis}</p> : null}
                   {dev.deployments.length > 0 ? (
                     <div style={{ marginTop: "1rem" }}>
                       <strong>Contracts Deployed:</strong>
@@ -206,6 +228,7 @@ export default function Strategies() {
                     </div>
                   ) : null}
                   <p className="muted" style={{ marginTop: "1rem" }}>{dev.provenance}</p>
+                  <Basis evidenceClass={dev.evidence_class} limitations={dev.limitations} />
                 </>
               ) : (
                 <EmptyState title="No developer data" />
@@ -217,7 +240,7 @@ export default function Strategies() {
 
       {!loading && !error && !classification ? (
         <EmptyState title="Enter a wallet address and run strategy analysis">
-          Strategies include copy trading evaluation, meme momentum detection, and developer tracking.
+          Results are heuristic hypotheses over stored data: profile scores, activity, assets moved and contract creations.
         </EmptyState>
       ) : null}
     </>
