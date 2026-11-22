@@ -16,7 +16,7 @@ from bip.contracts.blockchain import (
 from bip.contracts.blocks import EvmBlock, SolanaBlock
 from bip.contracts.contracts import ContractDeployment, DeploymentMethod
 from bip.contracts.events import EvmLog, SolanaInstruction
-from bip.contracts.identifiers import EvmTxRef, SolanaTxRef, b58decode
+from bip.contracts.identifiers import EvmTxRef, SolanaTxRef, b58decode, evm_address
 from bip.contracts.transactions import EvmTransaction, SolanaTransaction, TxStatus
 from bip.contracts.transfers import TokenStandard, TokenTransfer, TransferClassification
 from tests.conftest import (
@@ -71,7 +71,7 @@ def test_bad_solana_signatures(bad: str) -> None:
 
 
 def test_address_ref_validates_per_family() -> None:
-    mixed = "0x" + "aB" * 20
+    mixed = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"  # valid EIP-55 checksum
     assert AddressRef(chain="ethereum", address=mixed).address == mixed.lower()
     assert AddressRef(chain="base", address=EVM_ADDR_A).address == EVM_ADDR_A
     assert AddressRef(chain="solana", address=SOL_KEY_B).address == SOL_KEY_B
@@ -388,3 +388,34 @@ def test_solana_deployment_deployer_may_be_unknown() -> None:
         provenance=sol_provenance(),
     )
     assert d.deployer is None
+
+
+EIP55_VALID = [
+    "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+    "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+    "0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB",
+    "0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb",
+]
+
+
+@pytest.mark.parametrize("addr", EIP55_VALID)
+def test_valid_checksums_are_accepted_and_lowercased(addr: str) -> None:
+    assert evm_address(addr) == addr.lower()
+
+
+@pytest.mark.parametrize(
+    "addr",
+    [
+        "0x52908400098527886E0F7030069857D2E4169EE7",
+        "0x8617E340B3D01FA5F11F306F4090FD50E238070D",
+        "0xde709f2102306220921060314715629080e2fb77",
+        "0x27b1fdb04752bbc536007a920d24acb045561c26",
+    ],
+)
+def test_single_case_addresses_skip_the_checksum(addr: str) -> None:
+    assert evm_address(addr) == addr.lower()
+
+
+def test_wrong_checksum_is_rejected() -> None:
+    with pytest.raises(ValueError, match="EIP-55"):
+        evm_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD")  # last letter case flipped

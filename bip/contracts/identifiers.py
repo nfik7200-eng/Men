@@ -1,8 +1,9 @@
 """Chain-specific identifiers.
 
-EVM hashes and addresses are ``0x``-prefixed hex and are normalized to lower case. EIP-55
-checksums are **not** verified (stdlib has no Keccak-256); mixed-case input is accepted and
-lower-cased. Solana public keys, blockhashes and signatures are base58 and are validated by
+EVM hashes and addresses are ``0x``-prefixed hex and are normalized to lower case. Mixed-case
+addresses must carry a valid EIP-55 checksum (verified with the stdlib Keccak-256 in
+``bip.core.keccak``); single-case addresses carry no checksum and are accepted. Output is always
+lower case. Solana public keys, blockhashes and signatures are base58 and are validated by
 decoding to the exact byte length (32 for keys and blockhashes, 64 for signatures).
 """
 
@@ -14,6 +15,7 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, Field
 
 from bip.contracts.base import ContractModel
+from bip.core.keccak import keccak256
 
 _HEX32 = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _HEX20 = re.compile(r"^0x[0-9a-fA-F]{40}$")
@@ -47,6 +49,13 @@ def _evm_hash(value: str) -> str:
 def evm_address(value: str) -> str:
     if not _HEX20.fullmatch(value):
         raise ValueError("expected 0x-prefixed 20-byte hex address (42 characters)")
+    body = value[2:]
+    if body.islower() or body.isupper() or body.isdigit():
+        return value.lower()
+    digest = keccak256(body.lower().encode("ascii")).hex()
+    for ch, nibble in zip(body, digest, strict=False):
+        if ch.isalpha() and ch.isupper() != (int(nibble, 16) >= 8):
+            raise ValueError("EIP-55 checksum mismatch")
     return value.lower()
 
 
