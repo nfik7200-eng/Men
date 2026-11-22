@@ -4,6 +4,17 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-22 — Leak tests for the as-of discovery upper bounds
+
+**Why.** The 2026-11-14 entry recorded that only the `_tx_rows` upper bound had a leak test. The other bounds (large transfers, holder concentration, pools, both reserve queries, Solana discoveries, common funding) were untested, so a regression could let rows stored after the evaluation time into a historical run.
+
+**Done.** `tests/discovery/test_as_of_bounds.py` (5 tests) calls each as-of-capable detector with `now=AS_OF` over rows just before and just after it. A mutation check deleted each `<= ctx.now` line in `bip/discovery/detectors.py` in turn and restored the file afterwards:
+- `large_transfers` (line 197), `new_liquidity_pool` (517), `pool_reserve_change` series (706), `solana_new_entities` (934) and `common_funding_source` (1006): each made its test fail;
+- `pool_reserve_change` pool selection (694): all tests still passed, as expected. It only chooses which pools to read, and their rows are re-read under the series bound. Its only effect is through the 500-pool cap. This is documented in the test module.
+- `holder_concentration` was not tested: it is not as-of capable, so as-of runs skip it.
+
+**Evidence.** `tests/discovery`: `149 passed in 84.61s`. ruff and pyright clean on the new file. No production code changed.
+
 ## 2026-11-22 — Lake storage layer, roadmap Stage 5 Part A (standard library)
 
 **Done.** Plan: `docs/superpowers/plans/2026-11-22-lake-storage.md`. ADR-055 (Proposed).

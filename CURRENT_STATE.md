@@ -3,6 +3,8 @@
 _Last updated: 2026-11-22 (lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**As-of leak tests, 2026-11-22.** `tests/discovery/test_as_of_bounds.py` covers the five remaining correctness upper bounds of as-of discovery: large transfers, new pools, the reserve series, Solana discoveries and common funding. Each test failed when its `<= ctx.now` bound was deleted. The reserve pool-selection bound is a selection bound only (its rows are re-read under the series bound), so no output test can catch it; this is documented in the test. Test code only; no behaviour change.
+
 **Lake storage layer, roadmap Stage 5 Part A, 2026-11-22 (ADR-055, Proposed).** Plan: `docs/superpowers/plans/2026-11-22-lake-storage.md`.
 - **Built (standard library only):** `bip/storage/lake/`.
   - `schema.py`: versioned `TableSchema` with a fingerprint and strict row validation. Missing values are `NULL`, with no coercion.
