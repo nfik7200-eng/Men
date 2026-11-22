@@ -95,6 +95,9 @@ def test_rate_limiter_zero_means_off() -> None:
         ("POST", "/providers/publicnode-eth/health-check", "admin"),
         ("POST", "/intelligence/verification/ethereum/0xabc", "admin"),
         ("POST", "/ml/training-runs", "admin"),
+        ("POST", "/alerts/channels/telegram/test", "admin"),  # sends to Telegram
+        ("GET", "/alerts/channels", "viewer"),
+        ("POST", "/alerts/3/read", "analyst"),
         ("GET", "/users", "admin"),
         ("POST", "/users", "admin"),
         ("GET", "/audit", "admin"),

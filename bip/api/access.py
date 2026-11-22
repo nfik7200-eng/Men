@@ -23,6 +23,9 @@ SELF_SERVICE = frozenset({"/auth/logout", "/auth/password", "/auth/me"})
 
 ADMIN_ANY = re.compile(r"^/(users|audit)(/|$)")
 
+ADMIN_WRITE = re.compile(r"^/alerts/channels/")
+"""Mutating routes under an analyst prefix that contact an external service (Telegram test)."""
+
 ANALYST_WRITE = tuple(
     re.compile(p)
     for p in (
@@ -62,6 +65,8 @@ def required_role(method: str, path: str) -> str | None:
         return "admin"
     if method.upper() in SAFE_METHODS:
         return "viewer"
+    if ADMIN_WRITE.match(path):
+        return "admin"
     if any(p.match(path) for p in ANALYST_WRITE):
         return "analyst"
     return "admin"

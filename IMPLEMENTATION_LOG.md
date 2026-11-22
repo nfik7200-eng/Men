@@ -33,12 +33,18 @@ _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two 
 $ uv run ruff check .            -> All checks passed!
 $ uv run ruff format --check .   -> 308 files already formatted
 $ uv run pyright                 -> 0 errors, 0 warnings, 0 informations
-$ uv run pytest -q               -> 1240 passed in 739.53s
+$ uv run pytest -q               -> 1240 passed in 739.53s (1243 after the review fix, 711.35s)
 $ npm run lint && npm run typecheck -> clean
 $ npx vitest run src/pages/alerts.test.tsx -> 12 passed
 ```
 
-**Not done.** No bot exists and nothing was sent live. The owner must create the bot and set the variables (`docs/OPERATIONS.md`). The frontend has no "send test message" button; the endpoint is API-only.
+**Final review:** self-review of the whole branch (no reviewer subagent was requested), checked against the plan's Review Focus list.
+- Fixed (Important): `POST /alerts/channels/telegram/test` fell under the analyst pattern `^/alerts/`, although it contacts Telegram, and `bip/api/access.py` makes every external contact admin-only. An analyst could also have spammed the chat. It is now admin-only through `ADMIN_WRITE`. Test: `test_access_policy[POST-/alerts/channels/telegram/test-admin]`, RED then GREEN.
+- Deferred (minor): Telegram enabled with `BIP_WORKERS__ENABLED=false` queues rows that are never sent, and nothing warns at startup (documented in `OPERATIONS.md` only).
+- Deferred (minor): the dispatcher lock is per process. Several API worker processes could each send the same due row once (still at-least-once).
+- Deferred (minor): the Alerts page has no "send test message" button; the endpoint is API-only.
+
+**Not done.** No bot exists and nothing was sent live. The owner must create the bot and set the variables (`docs/OPERATIONS.md`).
 
 ## 2026-11-22 — Hardening fixes
 

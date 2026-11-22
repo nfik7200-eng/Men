@@ -339,7 +339,8 @@ def alert_channels(ctx: Context) -> dict[str, Any]:
 
 @router.post("/alerts/channels/telegram/test", response_model=None)
 def test_telegram(ctx: WritableContext) -> Any:
-    """Send one test message straight through the Telegram channel (no outbox row). The
+    """Send one test message straight through the Telegram channel (no outbox row). Admin only:
+    this CONTACTS TELEGRAM. The
     response carries the delivery status and a redacted error, never the bot token."""
     channel = ctx.dispatcher.channels.get("telegram") if ctx.dispatcher is not None else None
     if channel is None:

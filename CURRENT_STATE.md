@@ -9,7 +9,7 @@ _Last updated: 2026-11-22 (Telegram alert delivery, off by default; earlier the 
 - **Off by default.** `BIP_ALERTS__TELEGRAM_ENABLED=false`. The token comes only from `BIP_TELEGRAM_BOT_TOKEN` (or `_FILE`) and is never stored, logged or returned. `POST /alerts/channels/telegram/test` sends one test message. `GET /alerts/channels` lists Telegram as unavailable until it is configured.
 - **Not done.** No bot exists and nothing was sent live. The owner creates the bot and sets the variables (`docs/OPERATIONS.md`). Telegram facts (4096 characters, about 1 message per second per chat) were read from core.telegram.org on 2026-11-22 (`docs/PROVIDER_REGISTRY.md`).
 - **Roadmap.** The roadmap progress table was corrected: UI milestones B (partial) to E are recorded as built.
-- Checks: backend 1240 passed; ruff check, ruff format and pyright clean; frontend ESLint and tsc clean, Alerts page Vitest 12/12 (no frontend change needed).
+- Checks: backend 1243 passed (after the review fix); ruff check, ruff format and pyright clean; frontend ESLint and tsc clean, Alerts page Vitest 12/12 (no frontend change needed).
 
 **Hardening fixes, 2026-11-22.**
 - `bip/core/keccak.py` is a stdlib Keccak-256, tested against `hashlib.sha3_256`. `evm_address` rejects mixed-case input with a wrong EIP-55 checksum; storage stays lower-case.
