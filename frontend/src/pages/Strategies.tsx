@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { WalletClassification, CopyTraderSignal, MemeMomentum, DevTracker } from "../api/types";
 import { EmptyState, ErrorState, Loading, PageHeader, Panel, Pill, Stat } from "../components/ui";
 import { fmtInt, humanize } from "../lib/format";
@@ -8,7 +8,7 @@ export default function Strategies() {
   const [chain, setChain] = useState<"ethereum" | "solana">("solana");
   const [address, setAddress] = useState<string>("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<ApiError | null>(null);
 
   const [classification, setClassification] = useState<WalletClassification | null>(null);
   const [copyTrader, setCopyTrader] = useState<CopyTraderSignal | null>(null);
@@ -32,7 +32,7 @@ export default function Strategies() {
       setMeme(mem);
       setDev(dv);
     } catch (err) {
-      setError(err);
+      setError(err instanceof ApiError ? err : new ApiError(0, "unknown", "Could not load the strategies."));
     } finally {
       setLoading(false);
     }
