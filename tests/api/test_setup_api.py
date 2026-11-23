@@ -44,7 +44,7 @@ def test_setup_lists_every_credential_and_editable_setting(client: TestClient) -
     assert alchemy["applies"] == "immediately"
     assert alchemy["docs_url"].startswith("https://")
     assert alchemy["checkable"] is True  # an RPC adapter exists, so a health check can run
-    assert secret(body, "BIP_PROVIDER_MORALIS_KEY")["checkable"] is False  # no integration yet
+    assert secret(body, "BIP_PROVIDER_THEGRAPH_KEY")["checkable"] is False  # no integration yet
     etherscan = secret(body, "BIP_PROVIDER_ETHERSCAN_KEY")
     assert (etherscan["checkable"], etherscan["check_path"]) == (True, "/sources/etherscan/test")
     assert alchemy["check_path"] == "/providers/alchemy-eth/health-check"
