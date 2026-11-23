@@ -1555,6 +1555,8 @@ export type SetupSecret = {
   docs_url: string | null;
   terms_url: string | null;
   checkable: boolean;
+  check_path: string | null;
+  requires_subscription: boolean;
   set: boolean;
   source: "environment" | "setup" | null;
   updated_at: string | null;
@@ -1616,3 +1618,26 @@ export type WebRefresh = { feeds: { url: string; outcome: string; new_items: num
 export type LakeTable = { table: string; files: number; rows: number; bytes: number; bytes_per_row: number | null; verified: boolean; problems: number; leftovers: number };
 export type LakeStatus = { available: boolean; missing: string[]; export_enabled: boolean; cursors: Record<string, number>; data_origin: string; tables: LakeTable[] };
 export type LakeExport = { datasets: { dataset: string; rows: number; files: number; files_created: number; more: boolean }[] };
+
+// Keyed REST integrations (CoinGecko, Etherscan, Dune)
+type ProviderReported = { evidence_class: "verified_observation"; basis: "provider_reported" };
+export type SourceStatus = {
+  provider_id: string; name: string; key_set: boolean; configured: boolean; requires_subscription: boolean;
+  attribution: string | null; docs_url: string; terms_url: string; rate_limit: string | null;
+  requests_today: number; daily_cap: number; last_outcome: string | null; last_check_at: string | null;
+};
+export type SourceTest = { ok: boolean; code: string; message: string };
+export type PriceRow = ProviderReported & {
+  chain: string; asset: string; currency: string; price: string; provider_id: string;
+  provider_updated_at: string | null; fetched_at: string; request_id: string;
+};
+export type Prices = { items: PriceRow[]; attribution: string | null };
+export type ContractInfo = ProviderReported & {
+  address: string; verified: boolean; name: string | null; compiler: string | null; license: string | null; proxy: boolean;
+  implementation: string | null; creator: string | null; creation_tx: string | null; creation_block: number | null; attribution: string | null;
+};
+export type ExplorerTx = { tx_id: string | null; block_number: number | null; timestamp: number | null; from: string | null; to: string | null; value_wei: string | null; failed: boolean; type: string | null };
+export type ExplorerTxs = ProviderReported & { items: ExplorerTx[]; kind: string; address: string; attribution: string | null };
+export type SourceRecord = ProviderReported & {
+  provider_id: string; kind: string; subject: string; payload: unknown; content_sha256: string; request_id: string; fetched_at: string; attribution: string | null;
+};

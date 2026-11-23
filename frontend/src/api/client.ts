@@ -1,5 +1,11 @@
 import { csrfToken, sessionEnded } from "../auth/session";
 import type { DiscoveryRunResult,
+  ContractInfo,
+  ExplorerTxs,
+  Prices,
+  SourceRecord,
+  SourceStatus,
+  SourceTest,
   LakeExport,
   LakeStatus,
   WebFeeds,
@@ -284,6 +290,16 @@ export const api = {
   continuousTraining: () => request<ContinuousStatus>("/ml/continuous"),
   lakeStatus: () => request<LakeStatus>("/system/lake"),
   lakeExport: () => request<LakeExport>("/system/lake/export", { method: "POST" }),
+  sources: () => request<{ items: SourceStatus[] }>("/sources"),
+  testSource: (path: string) => request<Partial<SourceTest & HealthCheck>>(path, { method: "POST" }),
+  prices: () => request<Prices>("/sources/prices"),
+  refreshPrices: () => request<{ stored: number; missing: number; currency: string }>("/sources/prices/refresh", { method: "POST" }),
+  etherscanContract: (address: string) => request<ContractInfo>(`/sources/etherscan/contract/${enc(address)}`, { method: "POST" }),
+  etherscanTransactions: (address: string, kind: "normal" | "internal") =>
+    request<ExplorerTxs>(`/sources/etherscan/transactions/${enc(address)}?kind=${kind}`, { method: "POST" }),
+  sourceRecords: (provider: string, kind: string) =>
+    request<{ items: SourceRecord[] }>(`/sources/records?provider=${enc(provider)}&kind=${enc(kind)}`),
+  refreshDune: () => request<{ queries: { query_id: number; ok: boolean; rows: number; error: string | null }[] }>("/sources/dune/refresh", { method: "POST" }),
   webFeeds: () => request<WebFeeds>("/web/feeds"),
   webItems: (feed?: string, limit = 50, offset = 0) =>
     request<WebItems>(`/web/items?limit=${limit}&offset=${offset}${feed ? `&feed=${enc(feed)}` : ""}`),

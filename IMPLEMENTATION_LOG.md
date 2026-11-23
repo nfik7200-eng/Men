@@ -4,6 +4,33 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-23 — Keyed REST integrations: CoinGecko, Etherscan V2, Dune (ADR-059, migration v25)
+
+**Owner instruction.** "Anything that requires a subscription, build backend and frontend and I will set it up."
+
+**Facts used** (official docs, checked 2026-11-23):
+- CoinGecko demo: `api.coingecko.com/api/v3` with `x-cg-demo-api-key`; pro: `pro-api.coingecko.com` with `x-cg-pro-api-key`.
+- Etherscan V2: `api.etherscan.io/v2/api` with `chainid` and `apikey`.
+- Dune: `api.dune.com/api/v1/query/{id}/results` with `X-Dune-Api-Key`.
+- These are recorded in `registry.toml` (`allowed_hosts`, `integration`, `attribution`, `requires_subscription`, sources).
+
+**Done.**
+- `HttpsTransport.request` (GET or POST, every guard).
+- `SourcesSettings` and worker switches.
+- `bip/sources/` (client, adapters, service), migration v25, `bip/api/routes/sources.py`, jobs and Setup catalogue entries.
+- Setup `check_path` and `requires_subscription`.
+- Frontend: Data sources page, Setup check and badge, fake routes and tests.
+- The migration tests moved to version 25.
+
+**Tests.** 15 backend tests (written first; first run after the implementation) and 3 frontend tests. Mutation checks:
+- host allow-list off, no daily cap, empty Etherscan answer treated as an error, any provider callable: each caught;
+- invalid price accepted: survived (the Decimal parse already rejects strings). A NaN case, which Python's JSON parser and Decimal both accept, now makes the `isfinite` check matter.
+
+**Evidence.**
+- Backend: `tests/sources tests/api tests/unit tests/stage2 tests/web` plus the outbox test, `623 passed`. `ruff check .` clean; `ruff format --check .` 363 files; `pyright` 0 errors.
+- Frontend: the affected Vitest files passed (24/24, then sources 3/3); `tsc` and ESLint clean.
+- **The full backend and frontend suites were not run for this commit** (the session's usage limit was reached). Run `make check-all` before relying on it.
+
 ## 2026-11-23 — Lake export from the operational database into Silver Parquet
 
 **Why.** The lake (Stage 5) was complete but empty: ingestion writes SQLite. A bounded export makes the stored data available as columnar files for DuckDB analysis and gives real bytes-per-row figures once real data is stored.

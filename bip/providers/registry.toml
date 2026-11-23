@@ -282,7 +282,7 @@ notes = "Per-endpoint URL issued in the QuickNode dashboard."
 [[provider]]
 id = "etherscan"
 documentation_basis = "official_docs"
-documentation_checked = "2026-11-13"
+documentation_checked = "2026-11-23"
 name = "Etherscan API V2"
 operator = "Etherscan"
 kind = "indexer_api"
@@ -295,8 +295,11 @@ methods = []
 rate_limit = "Free: 3 calls/s, up to 100,000 calls/day, Ethereum mainnet included (Etherscan rate limits, checked 2026-11-13)."
 docs_url = "https://docs.etherscan.io/"
 terms_url = "https://etherscan.io/apiterms"
-sources = ["https://docs.etherscan.io/resources/rate-limits"]
-notes = "Free tier is for personal and research use only; bulk download, mirroring or archiving is prohibited and displayed output needs \"Powered by Etherscan.io APIs\" attribution. Planned for deployer and verified-source metadata only; no adapter."
+sources = ["https://docs.etherscan.io/resources/rate-limits", "https://docs.etherscan.io/v2-migration", "https://docs.etherscan.io/api-reference/endpoint/getsourcecode", "https://docs.etherscan.io/api-reference/endpoint/txlistinternal"]
+notes = "Free tier is for personal and research use only; bulk download, mirroring or archiving is prohibited and displayed output needs \"Powered by Etherscan.io APIs\" attribution. Integration: contract source/creator metadata and per-address transaction lists (api.etherscan.io/v2/api, chainid + apikey query; docs checked 2026-11-23)."
+allowed_hosts = ["api.etherscan.io"]
+integration = "etherscan"
+attribution = "Powered by Etherscan.io APIs"
 
 [[provider]]
 id = "blockscout"
@@ -470,7 +473,7 @@ notes = "Indexed data API, not an independent RPC source. Catalogue entry only; 
 [[provider]]
 id = "coingecko"
 documentation_basis = "official_docs"
-documentation_checked = "2026-11-21"
+documentation_checked = "2026-11-23"
 name = "CoinGecko API"
 operator = "CoinGecko"
 kind = "indexer_api"
@@ -483,8 +486,11 @@ methods = []
 rate_limit = "Demo (free): 10,000 calls/month, 100 calls/min, attribution required; a keyless public API also exists (CoinGecko pricing page, checked 2026-11-21)."
 docs_url = "https://docs.coingecko.com/"
 terms_url = "https://www.coingecko.com/en/api_terms"
-sources = ["https://www.coingecko.com/en/api/pricing"]
-notes = "Market prices and metadata only; context, never evidence of on-chain facts. Catalogue entry only; no adapter. Keyless limits not verified."
+sources = ["https://www.coingecko.com/en/api/pricing", "https://docs.coingecko.com/demo/reference/authentication", "https://docs.coingecko.com/reference/authentication"]
+notes = "Market prices and metadata only; context, never evidence of on-chain facts. Integration: /simple/price and /simple/token_price (demo: api.coingecko.com, header x-cg-demo-api-key; pro: pro-api.coingecko.com, x-cg-pro-api-key; docs checked 2026-11-23). Keyless limits not verified."
+allowed_hosts = ["api.coingecko.com", "pro-api.coingecko.com"]
+integration = "coingecko"
+attribution = "Price data by CoinGecko"
 
 [[provider]]
 id = "birdeye"
@@ -544,7 +550,7 @@ notes = "A free (Level 1) key exists with a lower rate limit and core endpoints,
 [[provider]]
 id = "dune"
 documentation_basis = "official_docs"
-documentation_checked = "2026-11-21"
+documentation_checked = "2026-11-23"
 name = "Dune"
 operator = "Dune Analytics"
 kind = "dataset"
@@ -557,8 +563,11 @@ methods = []
 rate_limit = "Free plan is view-only: no API access, exports or credits. API needs a 7-day trial (2,500 credits) or a paid plan from $65/month (Dune pricing and billing docs, checked 2026-11-21)."
 docs_url = "https://docs.dune.com/"
 terms_url = "https://dune.com/terms"
-sources = ["https://dune.com/pricing", "https://docs.dune.com/api-reference/overview/billing"]
-notes = "Do not configure: no free API tier, so it cannot meet the $0 target. Listed so the decision is visible. No adapter."
+sources = ["https://dune.com/pricing", "https://docs.dune.com/api-reference/overview/billing", "https://docs.dune.com/api-reference/executions/endpoint/get-query-result"]
+notes = "No free API tier: a trial or paid plan is the owner's choice (owner instruction 2026-11-23: build it, the owner subscribes). Integration: latest results of saved queries, GET /v1/query/{id}/results with X-Dune-Api-Key (docs checked 2026-11-23)."
+allowed_hosts = ["api.dune.com"]
+integration = "dune"
+requires_subscription = true
 
 [[provider]]
 id = "bitquery"

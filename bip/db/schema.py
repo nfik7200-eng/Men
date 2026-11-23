@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 
 metadata = MetaData(
     naming_convention={
@@ -1871,3 +1871,42 @@ an item is stored once. ``content_sha256`` and ``request_id`` identify the fetch
 item is an observation of a publication, not a verified fact about its content."""
 
 V24_TABLES = (web_feed_state, web_feed_items)
+
+
+# ------------------------------------------------- v25: keyed REST integrations
+
+source_records = Table(
+    "source_records",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("provider_id", String(64), nullable=False),
+    Column("kind", String(40), nullable=False),
+    Column("subject", String(200), nullable=False),
+    Column("payload_json", Text, nullable=False),
+    Column("content_sha256", String(64), nullable=False),
+    Column("request_id", String(40), nullable=False),
+    Column("fetched_at", UTCDateTime, nullable=False),
+    UniqueConstraint("provider_id", "kind", "subject"),
+)
+"""The latest answer of a keyed integration per subject (an Etherscan contract, a Dune query).
+An observed provider response, not independently verified; ``request_id`` and the response hash
+identify the fetch. Bounded by the integration's own row and size caps."""
+
+token_prices = Table(
+    "token_prices",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("chain", String(32), nullable=False),
+    Column("asset", String(100), nullable=False),
+    Column("currency", String(8), nullable=False),
+    Column("provider_id", String(64), nullable=False),
+    Column("price", String(64), nullable=False),
+    Column("provider_updated_at", UTCDateTime, nullable=True),
+    Column("fetched_at", UTCDateTime, nullable=False),
+    Column("request_id", String(40), nullable=False),
+    UniqueConstraint("chain", "asset", "currency", "provider_id"),
+)
+"""Latest provider-reported price per asset. ``price`` is a decimal string as the provider gave
+it; a missing price is no row, never zero. Market context, never evidence of on-chain facts."""
+
+V25_TABLES = (source_records, token_prices)

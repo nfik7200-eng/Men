@@ -35,6 +35,7 @@ _ALERTS = "Alerts"
 _AI = "AI research"
 _DATA = "Data"
 _WEB = "Web feeds"
+_SOURCES = "Data sources"
 
 EDITABLE: tuple[EditableSetting, ...] = (
     EditableSetting(
@@ -157,6 +158,53 @@ EDITABLE: tuple[EditableSetting, ...] = (
         "bool",
         "Re-reads recorded coverage gaps.",
         contacts_providers=True,
+    ),
+    EditableSetting(
+        "workers.prices_enabled",
+        _JOBS,
+        "Refresh prices (CoinGecko)",
+        "bool",
+        "Native ETH/SOL and the tokens listed under Data sources, on a schedule.",
+        contacts_providers=True,
+    ),
+    EditableSetting(
+        "workers.dune_enabled",
+        _JOBS,
+        "Refresh Dune query results",
+        "bool",
+        "Fetches the latest results of your saved Dune queries (needs a Dune plan).",
+        contacts_providers=True,
+    ),
+    EditableSetting(
+        "sources.coingecko_plan",
+        _SOURCES,
+        "CoinGecko plan",
+        "choice",
+        "keyless works without a key at low limits; demo sends your free Demo key; pro uses the "
+        "paid Pro host and key.",
+        choices=("keyless", "demo", "pro"),
+    ),
+    EditableSetting(
+        "sources.price_tokens",
+        _SOURCES,
+        "Tokens to price",
+        "list",
+        "One per line as <coingecko platform>:<contract address>, for example "
+        "ethereum:0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.",
+    ),
+    EditableSetting(
+        "sources.dune_query_ids",
+        _SOURCES,
+        "Dune query ids",
+        "list",
+        "Saved query ids (numbers) whose latest results BIP fetches.",
+    ),
+    EditableSetting(
+        "sources.daily_request_cap",
+        _SOURCES,
+        "Daily request cap per integration",
+        "int",
+        "BIP stops calling an integration for the rest of the UTC day at this count.",
     ),
     EditableSetting(
         "workers.lake_export_enabled",

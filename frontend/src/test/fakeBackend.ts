@@ -321,6 +321,7 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
   const attached: Json[] = [];
   const labels: Json[] = [];
   const setupState = newSetupState();
+  const sourcesState: { prices: Json[] } = { prices: [] };
   const webState: { feeds: Json[]; items: Json[] } = {
     feeds: [{ url: "https://blog.example.org/feed.xml", last_fetch_at: null, last_outcome: null, last_error: null, items_stored: 0 }],
     items: [],
@@ -414,6 +415,24 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
       const r = caseResponse(path, method, body, caseState);
       return r ? json(r.status, r.body) : err(404, "not_found", "Not Found");
     }
+    if (path === "/sources" && method === "GET")
+      return json(200, { items: [
+        { provider_id: "coingecko", name: "CoinGecko API", key_set: false, configured: true, requires_subscription: false, attribution: "Price data by CoinGecko",
+          docs_url: "https://docs.coingecko.com/", terms_url: "https://www.coingecko.com/en/api_terms", rate_limit: null, requests_today: 0, daily_cap: 500, last_outcome: null, last_check_at: null },
+        { provider_id: "dune", name: "Dune", key_set: false, configured: false, requires_subscription: true, attribution: null,
+          docs_url: "https://docs.dune.com/", terms_url: "https://dune.com/terms", rate_limit: null, requests_today: 0, daily_cap: 500, last_outcome: null, last_check_at: null },
+      ] });
+    if (path === "/sources/coingecko/test" && method === "POST") return json(200, { ok: true, code: "ok", message: "Connected (120 ms)." });
+    if (path === "/sources/prices" && method === "GET")
+      return json(200, { attribution: "Price data by CoinGecko", items: sourcesState.prices });
+    if (path === "/sources/prices/refresh" && method === "POST") {
+      sourcesState.prices = [{ chain: "ethereum", asset: "native", currency: "usd", price: "3123.45", provider_id: "coingecko", provider_updated_at: now,
+        fetched_at: now, request_id: "r1", evidence_class: "verified_observation", basis: "provider_reported" }];
+      return json(200, { stored: 1, missing: 0, currency: "usd" });
+    }
+    if (path.startsWith("/sources/etherscan/contract/") && method === "POST")
+      return json(409, { error: { code: "not_configured", message: "Etherscan API V2 needs a key: add it on the Setup page" } });
+    if (path.startsWith("/sources/records")) return json(200, { items: [] });
     if (path === "/web/feeds" && method === "GET") return json(200, { items: webState.feeds, contact_set: false });
     if (path.startsWith("/web/items")) return json(200, { items: webState.items, total: webState.items.length, limit: 100, offset: 0 });
     if (path === "/web/feeds/refresh" && method === "POST") {
@@ -669,9 +688,11 @@ export function newSetupState(): SetupState {
 
 const SETUP_SECRETS = [
   { name: "BIP_PROVIDER_ALCHEMY_ETH_URL", group: "Providers", label: "Alchemy (Ethereum)", help: "The full endpoint URL.", applies: "immediately",
-    provider_id: "alchemy-eth", chains: ["ethereum"], access: "free_tier", docs_url: "https://www.alchemy.com/docs", terms_url: "https://www.alchemy.com/terms", checkable: true },
+    provider_id: "alchemy-eth", chains: ["ethereum"], access: "free_tier", docs_url: "https://www.alchemy.com/docs", terms_url: "https://www.alchemy.com/terms", checkable: true,
+    check_path: "/providers/alchemy-eth/health-check", requires_subscription: false },
   { name: "BIP_TELEGRAM_BOT_TOKEN", group: "Alerts", label: "Telegram bot token", help: "From @BotFather.", applies: "after_restart",
-    provider_id: null, chains: [], access: null, docs_url: "https://core.telegram.org/bots", terms_url: null, checkable: false },
+    provider_id: null, chains: [], access: null, docs_url: "https://core.telegram.org/bots", terms_url: null, checkable: false,
+    check_path: null, requires_subscription: false },
 ];
 const SETUP_SETTINGS = [
   { key: "workers.enabled", group: "Background jobs", label: "Run the background scheduler", help: "Master switch.", kind: "bool", choices: [], contacts_providers: false, value: false },

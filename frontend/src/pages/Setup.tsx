@@ -65,12 +65,15 @@ function SecretRow({ s, onChanged, canEdit }: { s: SetupSecret; onChanged: () =>
     }
   };
   const check = async () => {
-    if (!s.provider_id) return;
+    if (!s.check_path) return;
     setBusy(true);
     setMessage(null);
     try {
-      const r = await api.healthCheck(s.provider_id);
-      setMessage(r.ok ? { tone: "ok", text: `Connected (${r.latency_ms ?? "?"} ms).` } : { tone: "bad", text: r.detail ?? `Check failed: ${r.outcome}.` });
+      const r = await api.testSource(s.check_path);
+      const text = r.ok
+        ? r.message ?? `Connected (${r.latency_ms ?? "?"} ms).`
+        : r.message ?? r.detail ?? `Check failed: ${r.outcome}.`;
+      setMessage({ tone: r.ok ? "ok" : "bad", text });
     } catch (err) {
       setMessage({ tone: "bad", text: errorText(err, "The check could not run.") });
     } finally {
@@ -85,6 +88,7 @@ function SecretRow({ s, onChanged, canEdit }: { s: SetupSecret; onChanged: () =>
           <strong>{s.label}</strong>
         </label>
         <Pill tone={s.set ? "ok" : "idle"}>{s.set ? `Set (${sourceLabel(s.source)})` : "Not set"}</Pill>
+        {s.requires_subscription ? <Pill tone="warn">Needs a paid plan</Pill> : null}
         {s.chains.length ? <span className="muted">{s.chains.join(", ")}</span> : null}
         {s.access ? <span className="muted">{s.access.replace(/_/g, " ")}</span> : null}
       </div>

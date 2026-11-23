@@ -42,6 +42,7 @@ from bip.api.routes import (
     research,
     settings_route,
     setup,
+    sources,
     strategies,
     system,
     wallets,
@@ -90,6 +91,9 @@ from bip.rpc.transport import HttpsTransport, Transport
 from bip.security.auth import AuthService
 from bip.security.bootstrap import FirstAdminCode
 from bip.security.secrets import read_secret
+from bip.sources.client import SourceClient
+from bip.sources.client import Transport as SourceTransport
+from bip.sources.service import SourcesService
 from bip.storage.disk_guard import DiskGuard, guard_from_settings
 from bip.web.service import FeedService
 from bip.web.transport import HardenedFetchTransport
@@ -170,6 +174,7 @@ def create_app(
     restart: RestartController | None = None,
     setup_report: EffectiveSettings | None = None,
     web_transport: FetchTransport | None = None,
+    source_transport: SourceTransport | None = None,
 ) -> FastAPI:
     """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport``, ``environ`` and
     ``alert_channels``; in normal use the transport is the real hardened HTTPS client."""
@@ -268,6 +273,19 @@ def create_app(
                 max_bytes=cfg.web.max_feed_bytes,
             ),
         )
+        ctx.sources = SourcesService(
+            repo,
+            cfg.sources,
+            SourceClient(
+                reg,
+                state,
+                source_transport
+                if source_transport is not None
+                else HttpsTransport(use_env_proxy=cfg.rpc.use_env_proxy),
+                layered,
+                cfg.sources,
+            ),
+        )
         if cfg.auth.mode == "required" and not ctx.auth.has_users():
             ctx.first_admin = FirstAdminCode(store.directory)
             log.warning(
@@ -330,6 +348,7 @@ def create_app(
         strategies,
         curation,
         setup,
+        sources,
         web,
     ):
         app.include_router(module.router, prefix=API_PREFIX)

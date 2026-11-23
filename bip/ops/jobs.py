@@ -119,6 +119,26 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 "Bounded relationship expansion from seeds BIP chose. Local database only.",
             )
         )
+    if w.prices_enabled:
+        jobs.append(
+            Job(
+                "price_refresh",
+                timedelta(minutes=w.prices_interval_minutes),
+                lambda: _prices(ctx),
+                "Refresh native and configured token prices from CoinGecko. CONTACTS COINGECKO.",
+                contacts_providers=True,
+            )
+        )
+    if w.dune_enabled and ctx.settings.sources.dune_query_ids:
+        jobs.append(
+            Job(
+                "dune_refresh",
+                timedelta(minutes=w.dune_interval_minutes),
+                lambda: _dune(ctx),
+                "Fetch the latest results of the configured Dune queries. CONTACTS DUNE (paid).",
+                contacts_providers=True,
+            )
+        )
     if w.lake_export_enabled:
         jobs.append(
             Job(
@@ -181,6 +201,27 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 )
             )
     return jobs
+
+
+def _prices(ctx: AppContext) -> str:
+    from bip.sources.client import SourceError
+
+    if ctx.sources is None:
+        return "skipped: sources are not set up"
+    try:
+        out = ctx.sources.refresh_prices(tuple(ctx.settings.enabled_chains))
+    except SourceError as exc:
+        return f"failed: {exc.code}"
+    return f"{out['stored']} price(s) stored, {out['missing']} missing"
+
+
+def _dune(ctx: AppContext) -> str:
+    if ctx.sources is None:
+        return "skipped: sources are not set up"
+    out = ctx.sources.refresh_dune()["queries"]
+    return (
+        ", ".join(f"{q['query_id']}: {'ok' if q['ok'] else 'failed'}" for q in out) or "no queries"
+    )
 
 
 def _lake_export(ctx: AppContext) -> str:

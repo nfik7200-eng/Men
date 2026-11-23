@@ -51,7 +51,10 @@ class SecretSpec:
     docs_url: str | None = None
     terms_url: str | None = None
     checkable: bool = False
-    """A provider health check can run once it is set (the provider has an adapter)."""
+    """A connection check can run once it is set (RPC adapter or REST integration)."""
+    check_path: str | None = None
+    """API path that runs the check (POST)."""
+    requires_subscription: bool = False
 
 
 def _actor(request: Request) -> str:
@@ -80,7 +83,13 @@ def secret_catalog(ctx: AppContext) -> dict[str, SecretSpec]:
             access=spec.access,
             docs_url=spec.docs_url,
             terms_url=spec.terms_url,
-            checkable=spec.protocol != "none",
+            checkable=spec.protocol != "none" or spec.integration is not None,
+            check_path=(
+                f"/sources/{spec.id}/test"
+                if spec.integration is not None
+                else (f"/providers/{spec.id}/health-check" if spec.protocol != "none" else None)
+            ),
+            requires_subscription=spec.requires_subscription,
         )
     out[TELEGRAM_TOKEN] = SecretSpec(
         name=TELEGRAM_TOKEN,
@@ -156,6 +165,8 @@ def _overview(ctx: AppContext) -> dict[str, Any]:
                 "docs_url": spec.docs_url,
                 "terms_url": spec.terms_url,
                 "checkable": spec.checkable,
+                "check_path": spec.check_path,
+                "requires_subscription": spec.requires_subscription,
                 "set": source is not None,
                 "source": source,
                 "updated_at": meta["updated_at"] if meta else None,

@@ -859,3 +859,20 @@ The Stage 3 verification audit found three correctness problems.
 - **Not wired.** The Nitter adapter, because of terms-of-service concerns (CLAUDE.md §2.4); also the exchange and BigQuery adapters.
 
 **Consequences.** BIP contacts only sites the owner listed, only when the job is on or an admin asks. GitHub release feeds (`releases.atom`) give a first GitHub collector without a token. Approval of this ADR is pending with the owner.
+
+## ADR-059 Keyed REST integrations behind one guarded client; paid providers built, owner subscribes (Proposed; owner instruction 2026-11-23)
+**Context.** The owner instructed: anything that needs a subscription, build the backend and frontend; the owner sets it up. This overrides ADR-052, which deferred the Dune and Bitquery adapters until a plan was approved. BIP still never signs up for or buys anything (CLAUDE.md §2.1).
+
+**Decision.**
+- **Client.** `bip/sources/client.py` (`SourceClient`) checks, before any request, that the provider has a registry `integration`, that the host is on its `allowed_hosts`, and that the per-integration daily cap (`BIP_SOURCES__DAILY_REQUEST_CAP`) is not reached. It then calls through the hardened transport (`HttpsTransport.request`) and counts every call in provider usage and health.
+- **Keys.** Keys come live from `LayeredEnviron`, are registered for redaction, and never appear in errors or stored rows.
+- **Registry.** `protocol` stays `none`, so the router never routes chain reads to REST APIs. New fields: `integration`, `attribution` (shown where data is displayed) and `requires_subscription`.
+- **First integrations**, with facts from official docs checked 2026-11-23:
+  - CoinGecko: keyless, demo or pro prices into `token_prices`. A missing or non-finite price is no row.
+  - Etherscan V2: contract metadata and normal or internal transaction lists, with the attribution "Powered by Etherscan.io APIs".
+  - Dune: latest results of saved queries. Paid; marked "Needs a paid plan".
+- **Storage.** Results go to `source_records` and `token_prices` (migration v25), labelled provider-reported.
+- **Access.** Every call that contacts a provider is an admin POST; viewers read stored results.
+- **UI and jobs.** A Data sources page, Setup entries (keys, plan, tokens, query ids, cap, job switches) and the `price_refresh` and `dune_refresh` jobs (off by default).
+
+**Consequences.** More integrations (Bitquery, Moralis, Birdeye, Solscan, DefiLlama, GitHub, The Graph, Blockscout, Chainbase, Routescan, BigQuery, and Chainstack, dRPC, GetBlock and InfStones as RPC providers) follow the same pattern and are not built yet. Approval of this ADR is pending with the owner.

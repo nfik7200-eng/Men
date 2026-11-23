@@ -3,6 +3,15 @@
 _Last updated: 2026-11-23 (setup from the web app; earlier: lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Keyed REST integrations, 2026-11-23 (ADR-059, Proposed; migration v25).** Owner instruction: build every subscription-based integration; the owner subscribes and enters keys.
+- **Built.** A guarded `SourceClient` (registry integration and host allow-list, daily cap, hardened transport, usage counting, redaction) with three integrations:
+  - CoinGecko prices (keyless, demo or pro);
+  - Etherscan V2 contract metadata and normal or internal transactions;
+  - Dune saved-query results (paid).
+- **Interfaces.** `/sources*` routes (admin for anything that contacts a provider), the `price_refresh` and `dune_refresh` jobs, Setup entries, Setup "Check connection" for integrations, and a Data sources page.
+- **Tests.** `tests/sources/test_sources.py` (15). Five mutation checks: four were caught at once. The fifth (accepting an invalid price) survived until a NaN case was added. Plus `frontend/src/pages/sources.test.tsx` (3).
+- **Not built yet.** Bitquery, Moralis, Birdeye, Solscan, DefiLlama, GitHub, The Graph, Blockscout, Chainbase, Routescan and BigQuery; and Chainstack, dRPC, GetBlock and InfStones as RPC providers. No live call was made to any integration.
+
 **Lake export, 2026-11-23 (ADR-055 addendum).**
 - **What.** `bip/storage/lake/export.py` copies stored transactions and transfers into Silver Parquet partitions (`silver/chain=/dataset=/date=`) in bounded batches past an id cursor. The cursor moves only after commit, so a replay is idempotent.
 - **How it runs.** The `lake_export` job (off by default; Setup switch, local only), `POST /system/lake/export` (admin), and `GET /system/lake` (tables, rows, bytes per row, integrity). The System page has a "Parquet lake" panel.

@@ -283,6 +283,12 @@ class WorkersSettings(BaseModel):
     expansion_enabled: bool = False
     """Bounded relationship expansion (``discovery_expansion`` job; local only). Off by default."""
     expansion_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 120
+    prices_enabled: bool = False
+    """Refresh CoinGecko prices (``price_refresh`` job). Contacts CoinGecko."""
+    prices_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 60
+    dune_enabled: bool = False
+    """Fetch the latest results of the configured Dune queries (``dune_refresh`` job)."""
+    dune_interval_minutes: Annotated[int, Field(ge=15, le=7 * 24 * 60)] = 360
     lake_export_enabled: bool = False
     """Copy newly stored transactions and transfers into the Silver lake (``lake_export`` job;
     local only)."""
@@ -658,6 +664,50 @@ class WebSettings(BaseModel):
         return value
 
 
+class SourcesSettings(BaseModel):
+    """Keyed REST integrations (``BIP_SOURCES__*``): CoinGecko, Etherscan V2, Dune.
+
+    Keys are secrets (``BIP_PROVIDER_*``, or the Setup page), never settings. The owner creates
+    the accounts; BIP never signs up for or buys anything.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    coingecko_plan: Literal["keyless", "demo", "pro"] = "demo"
+    """``demo`` sends the key (if set) as x-cg-demo-api-key; without a key requests are keyless."""
+    price_currency: Annotated[str, Field(pattern=r"^[a-z]{3,4}$")] = "usd"
+    price_tokens: Annotated[tuple[str, ...], NoDecode] = ()
+    """Tokens to price, as ``<coingecko platform>:<contract address>``. Comma-separated."""
+    etherscan_chain_id: Annotated[int, Field(ge=1, le=10**9)] = 1
+    dune_query_ids: Annotated[tuple[int, ...], NoDecode] = ()
+    """Saved Dune query ids whose latest results are fetched. Comma-separated."""
+    dune_max_rows: Annotated[int, Field(ge=1, le=10_000)] = 1000
+    daily_request_cap: Annotated[int, Field(ge=1, le=1_000_000)] = 500
+    """Requests BIP may send to each integration per UTC day (its own count)."""
+    timeout_s: Annotated[float, Field(gt=0, le=60)] = 20.0
+    max_response_bytes: Annotated[int, Field(ge=10_000, le=20_000_000)] = 5_000_000
+
+    @field_validator("price_tokens", "dune_query_ids", mode="before")
+    @classmethod
+    def _split(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("price_tokens")
+    @classmethod
+    def _tokens(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) > 200:
+            raise ValueError("at most 200 tokens")
+        for item in value:
+            platform, _, address = item.partition(":")
+            if not re.fullmatch(r"[a-z0-9][a-z0-9\-]{1,40}", platform) or not re.fullmatch(
+                r"[A-Za-z0-9]{20,64}", address
+            ):
+                raise ValueError("each token must be <platform>:<contract address>")
+        return value
+
+
 class AISettings(BaseModel):
     """AI research (``BIP_AI__*``). No provider is used unless explicitly configured.
 
@@ -738,6 +788,7 @@ class Settings(BaseSettings):
     ai: AISettings = AISettings()
     alerts: AlertSettings = AlertSettings()
     web: WebSettings = WebSettings()
+    sources: SourcesSettings = SourcesSettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""

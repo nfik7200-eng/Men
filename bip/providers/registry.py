@@ -135,6 +135,13 @@ class ProviderSpec(BaseModel):
     terms_url: str
     sources: tuple[str, ...] = ()
     notes: Annotated[str, Field(max_length=600)] | None = None
+    integration: Literal["coingecko", "etherscan", "dune"] | None = None
+    """A keyed REST integration in ``bip.sources`` (not an RPC adapter: ``protocol`` stays
+    ``none``, so the router never routes chain reads to it). Requires ``allowed_hosts``."""
+    attribution: Annotated[str, Field(max_length=120)] | None = None
+    """Attribution the provider's terms require wherever its data is shown."""
+    requires_subscription: bool = False
+    """No free API tier: the owner must start a trial or paid plan before a key works."""
 
     @property
     def has_adapter(self) -> bool:

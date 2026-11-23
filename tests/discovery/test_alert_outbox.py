@@ -91,7 +91,7 @@ def test_v22_database_upgrades_to_v23_with_alerts_intact(engine: Engine) -> None
         conn.execute(
             delete(schema.schema_migrations).where(schema.schema_migrations.c.version >= 23)
         )
-    assert migrate(engine) == schema.SCHEMA_VERSION == 24
+    assert migrate(engine) == schema.SCHEMA_VERSION == 25
     with engine.connect() as conn:
         tables = set(
             conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars()
@@ -99,4 +99,4 @@ def test_v22_database_upgrades_to_v23_with_alerts_intact(engine: Engine) -> None
         assert "alert_deliveries" in tables
         assert conn.execute(text("SELECT COUNT(*) FROM alerts")).scalar_one() == 1
         assert conn.exec_driver_sql("PRAGMA foreign_key_check").all() == []
-    assert migrate(engine) == 24  # idempotent
+    assert migrate(engine) == 25  # idempotent

@@ -398,6 +398,12 @@ def _web_feeds(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _sources(conn: Connection) -> None:
+    """v25: keyed REST integration records and provider prices. Additive, idempotent."""
+    for table in schema.V25_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -425,6 +431,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(22, "repair databases from the pre-merge local line", _repair_pre_merge_local_line),
     Migration(23, "alert delivery outbox", _alert_deliveries),
     Migration(24, "web feeds", _web_feeds),
+    Migration(25, "keyed REST integrations and prices", _sources),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

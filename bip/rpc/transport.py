@@ -162,6 +162,21 @@ class HttpsTransport:
         self, url: str, headers: Mapping[str, str], *, timeout_s: float, max_bytes: int
     ) -> TransportResponse:
         """A bounded HTTPS GET with the same guards (web feeds and robots.txt). https only."""
+        return self.request("GET", url, headers, None, timeout_s=timeout_s, max_bytes=max_bytes)
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        headers: Mapping[str, str],
+        body: bytes | None = None,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+    ) -> TransportResponse:
+        """A bounded HTTPS GET or POST with every guard (keyed REST integrations). https only."""
+        if method not in ("GET", "POST"):
+            raise ValueError("only GET and POST are supported")
         parts = urlsplit(url)
         host = parts.hostname or ""
         if parts.scheme != "https" or not host:
@@ -170,7 +185,7 @@ class HttpsTransport:
             validate_url(url)
         except UnsafeURLError as exc:
             raise TransportError("unsafe_destination", host, str(exc)) from None
-        return self._exchange("GET", host, parts, None, dict(headers), timeout_s, max_bytes)
+        return self._exchange(method, host, parts, body, dict(headers), timeout_s, max_bytes)
 
     def _exchange(
         self,

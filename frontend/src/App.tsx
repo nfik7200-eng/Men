@@ -21,6 +21,7 @@ import RunPage from "./pages/research/RunPage";
 import Settings from "./pages/Settings";
 import Setup from "./pages/Setup";
 import WebFeeds from "./pages/WebFeeds";
+import Sources from "./pages/Sources";
 import Curation from "./pages/Curation";
 import SignalDetailPage from "./pages/signals/SignalDetail";
 import Signals from "./pages/Signals";
@@ -107,6 +108,7 @@ function Shell() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/web" element={<WebFeeds />} />
+          <Route path="/sources" element={<Sources />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

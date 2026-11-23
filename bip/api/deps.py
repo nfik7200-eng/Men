@@ -41,6 +41,7 @@ from bip.research.engine import ResearchManager
 from bip.router.router import ProviderRouter
 from bip.security.auth import AuthService
 from bip.security.bootstrap import FirstAdminCode
+from bip.sources.service import SourcesService
 from bip.storage.disk_guard import DiskGuard
 from bip.web.service import FeedService
 
@@ -101,6 +102,8 @@ class AppContext:
     """External alert delivery; set only when a channel such as Telegram is enabled."""
     restart: RestartController | None = None
     setup_report: EffectiveSettings | None = None
+    sources: SourcesService | None = None
+    """Keyed REST integrations (always set by ``create_app``)."""
     web: FeedService | None = None
     """Owner-configured web feeds (always set by ``create_app``)."""
     first_admin: FirstAdminCode | None = None

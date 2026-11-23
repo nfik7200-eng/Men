@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-200 routes in 19 groups.
+208 routes in 20 groups.
 
 ### auth
 
@@ -1145,6 +1145,49 @@ Parameters: `key` (path, required): string (len>=2, len<=128)
 Parameters: `key` (path, required): string (len>=2, len<=128)
 
 Body (`*` required): `value` *: boolean or integer or list of string or null or string
+
+</details>
+
+### sources
+
+| Method | Path | Role | Summary |
+|---|---|---|---|
+| GET | `/api/v1/sources` | viewer | Status |
+| POST | `/api/v1/sources/dune/refresh` | admin | Dune Refresh |
+| POST | `/api/v1/sources/etherscan/contract/{address}` | admin | Etherscan Contract |
+| POST | `/api/v1/sources/etherscan/transactions/{address}` | admin | Etherscan Transactions |
+| GET | `/api/v1/sources/prices` | viewer | Prices |
+| POST | `/api/v1/sources/prices/refresh` | admin | Refresh Prices |
+| GET | `/api/v1/sources/records` | viewer | Records |
+| POST | `/api/v1/sources/{provider_id}/test` | admin | Test |
+
+<details><summary><code>POST /api/v1/sources/etherscan/contract/{address}</code></summary>
+
+Parameters: `address` (path, required): string (len>=3, len<=100)
+
+</details>
+
+<details><summary><code>POST /api/v1/sources/etherscan/transactions/{address}</code></summary>
+
+Parameters: `address` (path, required): string (len>=3, len<=100); `kind` (query): `normal` | `internal`; `limit` (query): integer (>=1, <=1000)
+
+</details>
+
+<details><summary><code>GET /api/v1/sources/prices</code></summary>
+
+Parameters: `chain` (query): null or string (len<=32)
+
+</details>
+
+<details><summary><code>GET /api/v1/sources/records</code></summary>
+
+Parameters: `provider` (query): null or string (len<=40); `kind` (query): null or string (len<=40); `subject` (query): null or string (len<=200); `limit` (query): integer (>=1, <=200)
+
+</details>
+
+<details><summary><code>POST /api/v1/sources/{provider_id}/test</code></summary>
+
+Parameters: `provider_id` (path, required): string
 
 </details>
 
