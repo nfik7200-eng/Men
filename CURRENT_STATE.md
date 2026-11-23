@@ -3,6 +3,12 @@
 _Last updated: 2026-11-23 (setup from the web app; earlier: lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Web feeds, 2026-11-23 (ADR-058, Proposed; roadmap Stage 14, part; migration v24).**
+- **What.** The owner lists https RSS or Atom feeds and a User-Agent contact on the Setup page. The `web_feeds` job (off by default; contacts external sites) or the admin "Fetch now" fetches them through the acquisition `Fetcher` (robots.txt, per-domain rate, conditional GET kept in `web_feed_state`) over the new `HttpsTransport.get` (https only, pinned public addresses, no redirects, size and time caps).
+- **Storage and UI.** New items are stored once in `web_feed_items`, with request id and document hash, as `verified_observation` of the publication (content not verified). The Web feeds page (`/web`) shows them.
+- **Tests.** `tests/web/test_feeds.py` (13). Six mutation checks: four were caught at once. Two survived because `validate_url` already refuses `http`; a `wss://` case (which `validate_url` allows) now makes both explicit checks matter. Plus `frontend/src/pages/webfeeds.test.tsx`.
+- **Not wired.** The Nitter (X/Twitter) adapter (terms of service), the exchange klines and the BigQuery sandbox adapters. No live feed was fetched.
+
 **Lake storage layer Part B, 2026-11-23 (ADR-055).** pyarrow 26.0.1 and duckdb 2.0.1 are installed as the default `lake` dependency group (owner-approved 2026-11-22; `uv sync --no-group lake` omits them, and nothing imports them at startup).
 - **Code.**
   - `bip/storage/lake/parquet.py` (zstd, deterministic, schema fingerprint in the file).
@@ -289,7 +295,7 @@ Statuses:
 | Temporal graph explorer | Implemented and tested offline | `tests/intel/test_graph_explorer.py`, `tests/stage3/test_graph_explorer_api.py`, `frontend/src/pages/explorer.test.tsx` |
 | Analyst curation of classification labels (`curation_feedback`, `/curation`) | Implemented and tested offline; separate from the Stage 4 signal review lifecycle | `tests/api/test_curation_api.py`, `frontend/src/pages/curation.test.tsx` |
 | Investigations workbench (cases, evidence, hypotheses, leads, templates; migration 20; curation feedback is 21; repair migration 22) | Implemented and tested; restored by the 2026-11-21 repair | `tests/investigations/`, `tests/api/` |
-| Free multi-source acquisition fetcher (`bip/acquisition/`) | Implemented and tested offline; **not wired into any application code** | `tests/acquisition/test_acquisition.py` |
+| Free multi-source acquisition fetcher (`bip/acquisition/`) | Fetcher and RSS/Atom parsing wired into web feeds (2026-11-23, ADR-058) over the hardened transport; the Nitter, exchange and BigQuery adapters are still unwired | `tests/acquisition/test_acquisition.py`, `tests/web/test_feeds.py` |
 
 ## BLOCKED register (goal items not built, and why)
 

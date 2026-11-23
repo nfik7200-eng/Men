@@ -837,3 +837,22 @@ The Stage 3 verification audit found three correctness problems.
 - **UI.** The sign-in page shows a "Create administrator" form when the server reports `setup_required`. The CLI path is unchanged.
 
 **Consequences.** Claiming the first account requires read access to the server's data directory, the same trust as running the CLI. Approval of this ADR is pending with the owner.
+
+## ADR-058 Owner-configured web feeds through the hardened transport (Proposed; roadmap Stage 14, part, 2026-11-23)
+**Context.**
+- Roadmap Stage 14 (web intelligence) asks for a polite web fetcher (robots.txt, per-domain limits, change detection) and governance and announcement feeds.
+- `bip/acquisition/` already had a robots-aware fetcher and an RSS parser, but nothing used them. Its default transport (`urllib`) follows redirects and has no private-address guard, which would be a server-side request forgery risk once URLs come from a browser.
+- Its Nitter adapter reads X/Twitter through a third-party scraper.
+
+**Decision.**
+- **Feeds.** The owner lists https RSS or Atom feed URLs (`BIP_WEB__FEEDS`, or the Setup page). Each URL is validated (https, no private or reserved literal host); at most 50.
+- **Fetching.** The `web_feeds` job (off by default; marked as contacting external sites) and an admin `POST /web/feeds/refresh` fetch each feed once through `Fetcher`:
+  - robots.txt honoured (failing closed), a per-domain rate (≤ 1 request per second, default 0.5);
+  - conditional GET, with ETag and Last-Modified kept in `web_feed_state` (migration v24);
+  - `HttpsTransport.get`: https only, pinned public addresses, no redirects (304 allowed), size and time caps.
+- **User-Agent.** It carries the owner's optional contact (owner decision #7 is now a Setup setting).
+- **Storage.** Items go to `web_feed_items`, keyed by a hash of guid, else link, else title, so each is stored once, with the fetch `request_id` and the document's SHA-256. Failures (`robots_blocked`, `invalid_feed`, `error`) are recorded per feed and never stored as data.
+- **Evidence class.** An item is a `verified_observation` that a feed published it. Its content is not verified.
+- **Not wired.** The Nitter adapter, because of terms-of-service concerns (CLAUDE.md §2.4); also the exchange and BigQuery adapters.
+
+**Consequences.** BIP contacts only sites the owner listed, only when the job is on or an admin asks. GitHub release feeds (`releases.atom`) give a first GitHub collector without a token. Approval of this ADR is pending with the owner.

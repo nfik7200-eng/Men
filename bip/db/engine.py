@@ -392,6 +392,12 @@ def _alert_deliveries(conn: Connection) -> None:
         table.create(conn, checkfirst=True)
 
 
+def _web_feeds(conn: Connection) -> None:
+    """v24: web feed state and items. Additive, idempotent."""
+    for table in schema.V24_TABLES:
+        table.create(conn, checkfirst=True)
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(1, "initial operational schema", _initial_schema),
     Migration(
@@ -418,6 +424,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(21, "human-in-the-loop curation feedback", _curation_feedback),
     Migration(22, "repair databases from the pre-merge local line", _repair_pre_merge_local_line),
     Migration(23, "alert delivery outbox", _alert_deliveries),
+    Migration(24, "web feeds", _web_feeds),
 )
 assert MIGRATIONS[-1].version == schema.SCHEMA_VERSION  # noqa: S101 - import-time invariant
 

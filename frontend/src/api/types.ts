@@ -1601,3 +1601,13 @@ export type ContinuousStatus = {
   evidence_class: "statistical_signal";
   items: { kind: string; chain: string; last_decision: ContinuousDecision | null; examples_at_last_decision: number | null; error: string | null }[];
 };
+
+// Web feeds (roadmap Stage 14, part)
+export type WebFeedState = { url: string; last_fetch_at: string | null; last_outcome: string | null; last_error: string | null; items_stored: number };
+export type WebFeeds = { items: WebFeedState[]; contact_set: boolean };
+export type WebFeedItem = {
+  id: number; feed_url: string; guid: string | null; title: string | null; link: string | null; published: string | null;
+  author: string | null; request_id: string; content_sha256: string; fetched_at: string; evidence_class: "verified_observation";
+};
+export type WebItems = { items: WebFeedItem[]; total: number; limit: number; offset: number };
+export type WebRefresh = { feeds: { url: string; outcome: string; new_items: number; error: string | null }[] };

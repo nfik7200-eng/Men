@@ -119,6 +119,17 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 "Bounded relationship expansion from seeds BIP chose. Local database only.",
             )
         )
+    if w.web_feeds_enabled and ctx.settings.web.feeds:
+        jobs.append(
+            Job(
+                "web_feeds",
+                timedelta(minutes=w.web_feeds_interval_minutes),
+                lambda: _web_feeds(ctx),
+                "Fetch the configured RSS/Atom feeds (robots.txt honoured, per-domain rate). "
+                "CONTACTS EXTERNAL SITES.",
+                contacts_providers=True,
+            )
+        )
     if ctx.settings.ml.continuous_training_enabled:
         jobs.append(
             Job(
@@ -160,6 +171,19 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 )
             )
     return jobs
+
+
+def _web_feeds(ctx: AppContext) -> str:
+    from bip.web.service import FeedBusyError
+
+    if ctx.web is None:
+        return "skipped: web feeds are not configured"
+    try:
+        result = ctx.web.refresh()
+    except FeedBusyError:
+        return "skipped: a feed refresh is in progress"
+    parts = [f"{f['outcome']} (+{f['new_items']})" for f in result["feeds"]]
+    return f"{len(parts)} feed(s): " + ", ".join(parts)
 
 
 def _memory(ctx: AppContext) -> str:

@@ -1,5 +1,8 @@
 import { csrfToken, sessionEnded } from "../auth/session";
 import type { DiscoveryRunResult,
+  WebFeeds,
+  WebItems,
+  WebRefresh,
   ContinuousStatus,
   SetupOverview,
   SetupValue,
@@ -277,6 +280,10 @@ export const api = {
   settings: () => request<PublicSettings>("/settings"),
   // ---- setup (admin): secrets are write-only
   continuousTraining: () => request<ContinuousStatus>("/ml/continuous"),
+  webFeeds: () => request<WebFeeds>("/web/feeds"),
+  webItems: (feed?: string, limit = 50, offset = 0) =>
+    request<WebItems>(`/web/items?limit=${limit}&offset=${offset}${feed ? `&feed=${enc(feed)}` : ""}`),
+  refreshWebFeeds: () => request<WebRefresh>("/web/feeds/refresh", { method: "POST" }),
   setup: () => request<SetupOverview>("/setup"),
   setSetupSecret: (name: string, value: string) =>
     request<{ name: string; set: boolean; applies: string }>(`/setup/secrets/${enc(name)}`, { method: "POST", ...json({ value }) }),

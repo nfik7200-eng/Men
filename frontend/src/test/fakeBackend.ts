@@ -321,6 +321,10 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
   const attached: Json[] = [];
   const labels: Json[] = [];
   const setupState = newSetupState();
+  const webState: { feeds: Json[]; items: Json[] } = {
+    feeds: [{ url: "https://blog.example.org/feed.xml", last_fetch_at: null, last_outcome: null, last_error: null, items_stored: 0 }],
+    items: [],
+  };
   const json = (status: number, body?: unknown) =>
     Promise.resolve(new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
   const err = (status: number, code: string, message: string) => json(status, { error: { code, message } });
@@ -409,6 +413,14 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     if (path.startsWith("/cases") || path === "/investigations/run") {
       const r = caseResponse(path, method, body, caseState);
       return r ? json(r.status, r.body) : err(404, "not_found", "Not Found");
+    }
+    if (path === "/web/feeds" && method === "GET") return json(200, { items: webState.feeds, contact_set: false });
+    if (path.startsWith("/web/items")) return json(200, { items: webState.items, total: webState.items.length, limit: 100, offset: 0 });
+    if (path === "/web/feeds/refresh" && method === "POST") {
+      webState.feeds = webState.feeds.map((f) => ({ ...f, last_outcome: "ok", last_fetch_at: now, items_stored: 1 }));
+      webState.items = [{ id: 1, feed_url: "https://blog.example.org/feed.xml", guid: "a1", title: "Upgrade scheduled", link: "https://blog.example.org/a1",
+        published: "Mon, 23 Nov 2026 10:00:00 GMT", author: null, request_id: "r1", content_sha256: "0".repeat(64), fetched_at: now, evidence_class: "verified_observation" }];
+      return json(200, { feeds: [{ url: "https://blog.example.org/feed.xml", outcome: "ok", new_items: 1, error: null }] });
     }
     if (path === "/setup" || path.startsWith("/setup/")) {
       const r = setupResponse(path, method, body, setupState);

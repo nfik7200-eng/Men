@@ -34,6 +34,7 @@ _JOBS = "Background jobs"
 _ALERTS = "Alerts"
 _AI = "AI research"
 _DATA = "Data"
+_WEB = "Web feeds"
 
 EDITABLE: tuple[EditableSetting, ...] = (
     EditableSetting(
@@ -156,6 +157,29 @@ EDITABLE: tuple[EditableSetting, ...] = (
         "bool",
         "Re-reads recorded coverage gaps.",
         contacts_providers=True,
+    ),
+    EditableSetting(
+        "workers.web_feeds_enabled",
+        _JOBS,
+        "Fetch web feeds",
+        "bool",
+        "Fetches the feeds listed under Web feeds on a schedule (robots.txt honoured).",
+        contacts_providers=True,
+    ),
+    EditableSetting(
+        "web.feeds",
+        _WEB,
+        "Feeds to follow",
+        "list",
+        "https RSS or Atom feed URLs, one per line: project blogs, governance forums, GitHub "
+        "releases (https://github.com/<owner>/<repo>/releases.atom).",
+    ),
+    EditableSetting(
+        "web.contact",
+        _WEB,
+        "Contact in the User-Agent",
+        "text",
+        "An e-mail or URL so site operators can reach you about BIP's requests.",
     ),
     EditableSetting(
         "ml.continuous_training_enabled",

@@ -42,6 +42,7 @@ from bip.router.router import ProviderRouter
 from bip.security.auth import AuthService
 from bip.security.bootstrap import FirstAdminCode
 from bip.storage.disk_guard import DiskGuard
+from bip.web.service import FeedService
 
 WRITE_RESERVE_BYTES = 64 * 1024
 """Headroom each write request must have under the disk guard."""
@@ -100,6 +101,8 @@ class AppContext:
     """External alert delivery; set only when a channel such as Telegram is enabled."""
     restart: RestartController | None = None
     setup_report: EffectiveSettings | None = None
+    web: FeedService | None = None
+    """Owner-configured web feeds (always set by ``create_app``)."""
     first_admin: FirstAdminCode | None = None
     """Set while sign-in is required and no user exists (``POST /auth/bootstrap``)."""
     setup_cleared: set[str] = field(default_factory=set[str])

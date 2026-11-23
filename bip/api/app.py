@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import Engine
 
 from bip import __version__
+from bip.acquisition.fetcher import Transport as FetchTransport
 from bip.api.deps import AppContext
 from bip.api.errors import install_error_handlers
 from bip.api.lifecycle import RestartController
@@ -45,6 +46,7 @@ from bip.api.routes import (
     system,
     wallets,
     watchlists,
+    web,
 )
 from bip.config.settings import Environment, Settings, load_settings
 from bip.config.store import EffectiveSettings, LayeredEnviron, store_for
@@ -89,6 +91,8 @@ from bip.security.auth import AuthService
 from bip.security.bootstrap import FirstAdminCode
 from bip.security.secrets import read_secret
 from bip.storage.disk_guard import DiskGuard, guard_from_settings
+from bip.web.service import FeedService
+from bip.web.transport import HardenedFetchTransport
 
 API_PREFIX = "/api/v1"
 log = get_logger("bip.api")
@@ -165,6 +169,7 @@ def create_app(
     alert_channels: Mapping[str, ExternalChannel] | None = None,
     restart: RestartController | None = None,
     setup_report: EffectiveSettings | None = None,
+    web_transport: FetchTransport | None = None,
 ) -> FastAPI:
     """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport``, ``environ`` and
     ``alert_channels``; in normal use the transport is the real hardened HTTPS client."""
@@ -253,6 +258,16 @@ def create_app(
             setup_report=setup_report,
         )
         ctx = app.state.bip
+        ctx.web = FeedService(
+            repo,
+            cfg.web,
+            web_transport
+            if web_transport is not None
+            else HardenedFetchTransport(
+                HttpsTransport(use_env_proxy=cfg.rpc.use_env_proxy),
+                max_bytes=cfg.web.max_feed_bytes,
+            ),
+        )
         if cfg.auth.mode == "required" and not ctx.auth.has_users():
             ctx.first_admin = FirstAdminCode(store.directory)
             log.warning(
@@ -315,6 +330,7 @@ def create_app(
         strategies,
         curation,
         setup,
+        web,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

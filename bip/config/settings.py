@@ -283,6 +283,9 @@ class WorkersSettings(BaseModel):
     expansion_enabled: bool = False
     """Bounded relationship expansion (``discovery_expansion`` job; local only). Off by default."""
     expansion_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 120
+    web_feeds_enabled: bool = False
+    """Fetch the configured web feeds (``web_feeds`` job). Contacts external sites."""
+    web_feeds_interval_minutes: Annotated[int, Field(ge=15, le=24 * 60)] = 60
     max_backoff_hours: Annotated[int, Field(ge=1, le=72)] = 24
     closed_signal_retention_days: Annotated[int, Field(ge=1, le=3650)] = 90
     job_history_days: Annotated[int, Field(ge=1, le=3650)] = 90
@@ -602,6 +605,55 @@ class AlertSettings(BaseModel):
         return self
 
 
+_CONTACT_PATTERN = r"^[A-Za-z0-9 @.+:/_()\-]{3,120}$"
+
+
+class WebSettings(BaseModel):
+    """Owner-configured web feeds (``BIP_WEB__*``; roadmap Stage 14, part).
+
+    RSS or Atom feeds are fetched only by the ``web_feeds`` job or the admin refresh, through the
+    hardened HTTPS transport, honouring robots.txt and a per-domain rate. Items are stored as
+    observations of what a feed published, never as verified facts about their content.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    feeds: Annotated[tuple[str, ...], NoDecode] = ()
+    """https feed URLs. Comma-separated in the environment."""
+    contact: Annotated[str, Field(pattern=_CONTACT_PATTERN)] | None = None
+    """Contact (e-mail or URL) added to the User-Agent so site operators can reach the owner."""
+    max_items_per_feed: Annotated[int, Field(ge=1, le=500)] = 100
+    max_feed_bytes: Annotated[int, Field(ge=10_000, le=5_000_000)] = 2_000_000
+    per_domain_rps: Annotated[float, Field(gt=0, le=1.0)] = 0.5
+    timeout_s: Annotated[float, Field(gt=0, le=30)] = 15.0
+
+    @field_validator("feeds", mode="before")
+    @classmethod
+    def _split(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return tuple(part.strip() for part in value.split(",") if part.strip())
+        return value
+
+    @field_validator("feeds")
+    @classmethod
+    def _public_https(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        from bip.core.exceptions import UnsafeURLError
+        from bip.security.url_validation import validate_url
+
+        if len(value) > 50:
+            raise ValueError("at most 50 feeds")
+        if len(set(value)) != len(value):
+            raise ValueError("feeds contains duplicates")
+        for url in value:
+            if len(url) > 500 or not url.startswith("https://"):
+                raise ValueError("each feed must be an https URL of at most 500 characters")
+            try:
+                validate_url(url)
+            except UnsafeURLError as exc:
+                raise ValueError(f"feed rejected: {exc}") from None
+        return value
+
+
 class AISettings(BaseModel):
     """AI research (``BIP_AI__*``). No provider is used unless explicitly configured.
 
@@ -681,6 +733,7 @@ class Settings(BaseSettings):
     ml: MLSettings = MLSettings()
     ai: AISettings = AISettings()
     alerts: AlertSettings = AlertSettings()
+    web: WebSettings = WebSettings()
 
     postgres_dsn: SecretStr | None = None
     """Optional. Not needed for unit tests; no database code exists yet."""

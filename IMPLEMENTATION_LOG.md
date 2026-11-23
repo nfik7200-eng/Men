@@ -4,6 +4,28 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-23 — Web feeds (ADR-058, roadmap Stage 14 part, migration v24)
+
+**Why.** The acquisition fetcher was built but unused. Stage 14 asks for polite web collection and announcement feeds, and the owner wants to configure sources from the UI.
+
+**Two things found before wiring.**
+- `UrllibTransport` follows redirects and has no private-address guard. It is not used for feeds; `HttpsTransport.get` was added instead, with `post_json` and `get` sharing one guarded `_exchange`.
+- The Nitter adapter scrapes X/Twitter through a third party. It is left unwired (CLAUDE.md §2.4).
+
+**Done.**
+- `HttpsTransport.get`. `Fetcher` gains `user_agent` and `validators=` (a conditional GET from stored validators; a 304 with validators is `not_modified`). `parse_feed` handles RSS and Atom.
+- `WebSettings` (`BIP_WEB__*`: feeds validated as public https, a contact pattern, caps) and `workers.web_feeds_enabled` / `web_feeds_interval_minutes`.
+- Migration v24: `web_feed_state` and `web_feed_items`.
+- `bip/web/service.py` (`FeedService`) and `bip/web/transport.py` (`HardenedFetchTransport`).
+- Routes `GET /web/feeds`, `GET /web/items`, `POST /web/feeds/refresh` (admin by the default rule), and the `web_feeds` job.
+- Setup entries `web.feeds`, `web.contact` and `workers.web_feeds_enabled`.
+- Frontend: `WebFeeds.tsx` (`/web`, nav "Web feeds"), client, types, fake routes and test.
+- Two migration tests moved from version 23 to 24. The v22 rollback test now deletes every migration row from 23 up.
+
+**Tests.** `tests/web/test_feeds.py` (13). It was written before the implementation, but its first run came after it. Mutation checks: robots ignored, no dedupe, validators dropped and no item cap were each caught. Allowing `http` feeds and the transport allowing `http` both survived, because `validate_url` already refuses `http`. `wss://` cases were added (`validate_url` allows `wss`), and both mutations then failed 1 test each.
+
+**Evidence.** Full backend run `1399 passed in 820.92s (0:13:40)` (1386 before, 13 new). `ruff check .` clean; `ruff format --check .` 351 files formatted; `pyright` 0 errors. Frontend: `vitest run` 32 files / 308 tests passed; `tsc --noEmit` and `eslint .` clean. No live feed was fetched.
+
 ## 2026-11-23 — Lake storage layer Part B: Parquet codec, DuckDB reader, measurement
 
 **Install.** The owner ran `uv add --group lake pyarrow duckdb` on 2026-11-22; it failed on DNS (`files.pythonhosted.org`). Once the host resolved, the same command was run in the session and installed duckdb 2.0.1 and pyarrow 26.0.1. `pyproject.toml` bounds them (`<3`, `<27`) and makes `lake` a default group (so CI's `uv sync --locked` installs it). `uv.lock` was regenerated with `uv lock`, not edited.

@@ -114,6 +114,7 @@ class Fetcher:
     default_rate: float = 1.0  # requests/second per domain
     domain_rates: dict[str, float] = field(default_factory=lambda: {})
     timeout: float = 15.0
+    user_agent: str = USER_AGENT
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
     _buckets: dict[str, TokenBucket] = field(default_factory=lambda: {}, init=False)
@@ -134,7 +135,7 @@ class Fetcher:
             rp = RobotFileParser()
             try:
                 resp = self.transport.get(
-                    f"{origin}/robots.txt", {"User-Agent": USER_AGENT}, self.timeout
+                    f"{origin}/robots.txt", {"User-Agent": self.user_agent}, self.timeout
                 )
             except Exception:  # noqa: BLE001
                 self._robots[origin] = None  # unreachable robots: fail closed below
@@ -147,11 +148,18 @@ class Fetcher:
                     rp.parse(["User-agent: *", "Allow: /"])  # no robots file published
                 self._robots[origin] = rp
         rp_cached = self._robots[origin]
-        return rp_cached is not None and rp_cached.can_fetch(USER_AGENT, url)
+        return rp_cached is not None and rp_cached.can_fetch(self.user_agent, url)
 
     def fetch(
-        self, url: str, *, provider_id: str = "web", cost_estimate_usd: float = 0.0
+        self,
+        url: str,
+        *,
+        provider_id: str = "web",
+        cost_estimate_usd: float = 0.0,
+        validators: tuple[str | None, str | None] | None = None,
     ) -> FetchResult:
+        """GET ``url`` politely. ``validators`` (ETag, Last-Modified) from an earlier run make the
+        request conditional even when this process has no cached copy."""
         rid = uuid.uuid4().hex
         now = datetime.now(UTC).isoformat()
 
@@ -165,13 +173,15 @@ class Fetcher:
 
         if not self._allowed(url):
             return FetchResult("robots_blocked", prov(None, None, None, None), None, "robots.txt")
-        headers = {"User-Agent": USER_AGENT}
+        headers = {"User-Agent": self.user_agent}
         cached = self._cache.get(url)
-        if cached:
-            if cached.etag:
-                headers["If-None-Match"] = cached.etag
-            if cached.last_modified:
-                headers["If-Modified-Since"] = cached.last_modified
+        etag_v, lm_v = (
+            (cached.etag, cached.last_modified) if cached else (validators or (None, None))
+        )
+        if etag_v:
+            headers["If-None-Match"] = etag_v
+        if lm_v:
+            headers["If-Modified-Since"] = lm_v
         self._bucket(urlsplit(url).netloc).acquire()
         try:
             resp = self.transport.get(url, headers, self.timeout)
@@ -181,6 +191,8 @@ class Fetcher:
             return FetchResult(
                 "not_modified", prov(304, cached.body, cached.etag, cached.last_modified), None
             )
+        if resp.status == 304 and (etag_v or lm_v):
+            return FetchResult("not_modified", prov(304, None, etag_v, lm_v), None)
         if resp.status != 200:
             return FetchResult(
                 "error", prov(resp.status, None, None, None), None, f"http_{resp.status}"

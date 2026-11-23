@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-195 routes in 18 groups.
+198 routes in 19 groups.
 
 ### auth
 
@@ -1301,5 +1301,19 @@ Body (`*` required): `chain` *: string (len>=1, len<=32); `address` *: string (l
 <details><summary><code>DELETE /api/v1/watchlists/{watchlist_id}/entries/{entry_id}</code></summary>
 
 Parameters: `watchlist_id` (path, required): integer (>=1, <=9007199254740992); `entry_id` (path, required): integer (>=1, <=9007199254740992)
+
+</details>
+
+### web
+
+| Method | Path | Role | Summary |
+|---|---|---|---|
+| GET | `/api/v1/web/feeds` | viewer | Feeds |
+| POST | `/api/v1/web/feeds/refresh` | admin | Refresh: Admin only: fetches every configured feed now (CONTACTS the feed sites). |
+| GET | `/api/v1/web/items` | viewer | Items |
+
+<details><summary><code>GET /api/v1/web/items</code></summary>
+
+Parameters: `feed` (query): null or string (len<=500); `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000)
 
 </details>

@@ -32,7 +32,7 @@ from sqlalchemy import (
 
 from bip.db.types import UTCDateTime
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 metadata = MetaData(
     naming_convention={
@@ -1831,3 +1831,43 @@ Delivery is at-least-once: a crash between a send and the status update can rese
 ``last_error`` is redacted and never holds a secret."""
 
 V23_TABLES = (alert_deliveries,)
+
+
+# ------------------------------------------------- v24: web feeds (roadmap Stage 14, part)
+
+web_feed_state = Table(
+    "web_feed_state",
+    metadata,
+    Column("url", String(500), primary_key=True),
+    Column("etag", String(200), nullable=True),
+    Column("last_modified", String(100), nullable=True),
+    Column("last_fetch_at", UTCDateTime, nullable=True),
+    Column("last_outcome", String(24), nullable=True),
+    Column("last_error", String(200), nullable=True),
+    Column("last_request_id", String(40), nullable=True),
+    Column("items_stored", Integer, nullable=False, default=0),
+)
+"""Per-feed fetch state: conditional-GET validators and the last outcome. Small; kept."""
+
+web_feed_items = Table(
+    "web_feed_items",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("feed_url", String(500), nullable=False),
+    Column("item_key", String(64), nullable=False),
+    Column("guid", String(500), nullable=True),
+    Column("title", String(500), nullable=True),
+    Column("link", String(1000), nullable=True),
+    Column("published", String(64), nullable=True),
+    Column("author", String(200), nullable=True),
+    Column("request_id", String(40), nullable=False),
+    Column("content_sha256", String(64), nullable=False),
+    Column("fetched_at", UTCDateTime, nullable=False),
+    UniqueConstraint("feed_url", "item_key"),
+    Index(None, "fetched_at"),
+)
+"""Items as a feed published them. ``item_key`` is a hash of the guid (else link, else title) so
+an item is stored once. ``content_sha256`` and ``request_id`` identify the fetched document. An
+item is an observation of a publication, not a verified fact about its content."""
+
+V24_TABLES = (web_feed_state, web_feed_items)

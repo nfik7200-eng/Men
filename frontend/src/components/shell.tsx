@@ -37,6 +37,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/research", label: "Research", heading: "AI Research" },
       { to: "/opportunities", label: "Opportunities", heading: "Opportunities" },
       { to: "/attribution", label: "Attribution", heading: "Attribution" },
+      { to: "/web", label: "Web feeds", heading: "Web feeds" },
       { to: "/strategies", label: "Strategies", heading: "Strategies & Trackers" },
       { to: "/curation", label: "Curation", heading: "Model Curation" },
     ],

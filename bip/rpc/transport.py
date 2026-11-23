@@ -1,4 +1,4 @@
-"""Hardened HTTPS POST transport for JSON-RPC (standard library only).
+"""Hardened HTTPS transport: JSON-RPC POST and bounded GET (standard library only).
 
 Second SSRF layer (see :mod:`bip.security.url_validation`):
 - **direct mode**: the host is resolved, *every* address is validated with ``check_ip``, and the
@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from bip.core.exceptions import BIPError, UnsafeURLError
 from bip.providers.registry import ResolvedEndpoint
@@ -144,27 +144,55 @@ class HttpsTransport:
     ) -> TransportResponse:
         url = endpoint.url.get_secret_value()
         parts = urlsplit(url)
-        host = parts.hostname or endpoint.host
+        return self._exchange(
+            "POST",
+            parts.hostname or endpoint.host,
+            parts,
+            body,
+            {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "BIP/0.2 (read-only research client)",
+            },
+            timeout_s,
+            max_bytes,
+        )
+
+    def get(
+        self, url: str, headers: Mapping[str, str], *, timeout_s: float, max_bytes: int
+    ) -> TransportResponse:
+        """A bounded HTTPS GET with the same guards (web feeds and robots.txt). https only."""
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        if parts.scheme != "https" or not host:
+            raise TransportError("unsafe_destination", host or "?", "only https URLs are allowed")
+        try:
+            validate_url(url)
+        except UnsafeURLError as exc:
+            raise TransportError("unsafe_destination", host, str(exc)) from None
+        return self._exchange("GET", host, parts, None, dict(headers), timeout_s, max_bytes)
+
+    def _exchange(
+        self,
+        method: str,
+        host: str,
+        parts: SplitResult,
+        body: bytes | None,
+        headers: dict[str, str],
+        timeout_s: float,
+        max_bytes: int,
+    ) -> TransportResponse:
         port = parts.port or 443
         target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
         started = time.monotonic()
         conn = self._connection(host, port, timeout_s)
         try:
-            conn.request(
-                "POST",
-                target,
-                body=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "User-Agent": "BIP/0.2 (read-only research client)",
-                },
-            )
+            conn.request(method, target, body=body, headers=headers)
             resp = conn.getresponse()
-            headers = {k.lower(): v for k, v in resp.getheaders()}
-            if 300 <= resp.status < 400:
+            got = {k.lower(): v for k, v in resp.getheaders()}
+            if 300 <= resp.status < 400 and not (method == "GET" and resp.status == 304):
                 raise TransportError("redirect", host, f"HTTP {resp.status} redirect refused")
-            declared = headers.get("content-length")
+            declared = got.get("content-length")
             if declared is not None and declared.isdigit() and int(declared) > max_bytes:
                 raise TransportError("too_large", host, "response exceeds the size limit")
             chunks: list[bytes] = []
@@ -184,7 +212,7 @@ class HttpsTransport:
                 status=resp.status,
                 body=b"".join(chunks),
                 elapsed_ms=int((time.monotonic() - started) * 1000),
-                headers=headers,
+                headers=got,
             )
         except TransportError:
             raise
