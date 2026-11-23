@@ -20,7 +20,7 @@ from bip.db.repository import Repository
 from bip.sources import coingecko, dune, etherscan
 from bip.sources.client import SourceClient, SourceError, SourceResponse
 
-INTEGRATIONS = ("coingecko", "etherscan", "dune")
+INTEGRATIONS = ("coingecko", "etherscan", "dune", "moralis", "birdeye", "solscan", "bitquery")
 EVIDENCE = {"evidence_class": "verified_observation", "basis": "provider_reported"}
 _MAX_PAYLOAD = 2_000_000
 
@@ -70,6 +70,22 @@ class SourcesService:
                 resp = coingecko.ping(self.client)
             elif provider_id == "etherscan":
                 resp = etherscan.ping(self.client)
+            elif provider_id == "moralis":
+                from bip.sources import moralis
+
+                resp = moralis.ping(self.client)
+            elif provider_id == "birdeye":
+                from bip.sources import birdeye
+
+                resp = birdeye.ping(self.client)
+            elif provider_id == "solscan":
+                from bip.sources import solscan
+
+                resp = solscan.ping(self.client)
+            elif provider_id == "bitquery":
+                from bip.sources import bitquery
+
+                resp = bitquery.ping(self.client)
             else:
                 ids = self.cfg.dune_query_ids
                 if not ids:

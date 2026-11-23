@@ -469,6 +469,9 @@ docs_url = "https://docs.moralis.com/"
 terms_url = "https://moralis.com/terms-of-service/"
 sources = ["https://developers.moralis.com/pricing"]
 notes = "Indexed data API, not an independent RPC source. Catalogue entry only; no adapter. Solana coverage per endpoint not verified."
+allowed_hosts = ["deep-index.moralis.io"]
+integration = "moralis"
+attribution = "Powered by Moralis"
 
 [[provider]]
 id = "coingecko"
@@ -509,6 +512,9 @@ docs_url = "https://docs.birdeye.so/"
 terms_url = "https://birdeye.so/terms-of-service"
 sources = ["https://birdeye.so/data-api/pricing"]
 notes = "A free Standard package exists, but its compute-unit and rate limits were not shown on the pricing page, so they are unverified. Paid tiers start at $39/month and are not used. Catalogue entry only; no adapter."
+allowed_hosts = ["public-api.birdeye.so"]
+integration = "birdeye"
+attribution = "Data by Birdeye"
 
 [[provider]]
 id = "getblock"
@@ -546,6 +552,9 @@ docs_url = "https://docs.solscan.io/"
 terms_url = "https://solscan.io/apis"
 sources = ["https://docs.solscan.io/build-with-ai/solscan-mcp", "https://docs.solscan.io/solscan-api/solscan-pro-api-endpoints"]
 notes = "A free (Level 1) key exists with a lower rate limit and core endpoints, but its numbers are not published in the pages read, so they are unverified. Pro levels start at $199/month and are not used. Catalogue entry only; no adapter."
+allowed_hosts = ["public-api.solscan.io"]
+integration = "solscan"
+attribution = "Data by Solscan"
 
 [[provider]]
 id = "dune"
@@ -592,6 +601,10 @@ notes = "Do not configure: no free tier beyond a short trial. No adapter. Free P
 # Entries marked documentation_basis = "search_derived" rely on search-result excerpts of the
 # official pages, not a direct page read; treat their limits as leads until probed.
 # Skipped: dwellir-sol (no Solana offering found), infura-sol (Solana gated for select customers).
+allowed_hosts = ["streaming.bitquery.io", "graphql.bitquery.io"]
+integration = "bitquery"
+attribution = "Powered by Bitquery"
+requires_subscription = true
 
 [[provider]]
 id = "validationcloud-eth"
