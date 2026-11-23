@@ -3,6 +3,12 @@
 _Last updated: 2026-11-23 (setup from the web app; earlier: lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Lake export, 2026-11-23 (ADR-055 addendum).**
+- **What.** `bip/storage/lake/export.py` copies stored transactions and transfers into Silver Parquet partitions (`silver/chain=/dataset=/date=`) in bounded batches past an id cursor. The cursor moves only after commit, so a replay is idempotent.
+- **How it runs.** The `lake_export` job (off by default; Setup switch, local only), `POST /system/lake/export` (admin), and `GET /system/lake` (tables, rows, bytes per row, integrity). The System page has a "Parquet lake" panel.
+- **Tests.** `tests/storage/test_lake_export.py` (6; seen failing first); two mutation checks (cursor never saved, no batch bound) were caught; plus a Vitest case on the System page.
+- **Limits.** Rows are exported as stored (later finality or orphan changes are not re-exported). Ingestion still writes SQLite first; there is no Bronze raw-payload lake.
+
 **Web feeds, 2026-11-23 (ADR-058, Proposed; roadmap Stage 14, part; migration v24).**
 - **What.** The owner lists https RSS or Atom feeds and a User-Agent contact on the Setup page. The `web_feeds` job (off by default; contacts external sites) or the admin "Fetch now" fetches them through the acquisition `Fetcher` (robots.txt, per-domain rate, conditional GET kept in `web_feed_state`) over the new `HttpsTransport.get` (https only, pinned public addresses, no redirects, size and time caps).
 - **Storage and UI.** New items are stored once in `web_feed_items`, with request id and document hash, as `verified_observation` of the publication (content not verified). The Web feeds page (`/web`) shows them.

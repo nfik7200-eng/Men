@@ -796,6 +796,9 @@ The Stage 3 verification audit found three correctness problems.
   - `LakeReader` reads only committed, non-superseded files, after a size check (or a re-hash with `deep=True`), and hands them to DuckDB as registered pyarrow datasets.
   - The DuckDB connection has `enable_external_access = false` and a locked configuration, so SQL cannot read, write or attach files. Memory (512 MB) and threads (2) are capped.
   - `python -m bip.tools.lake measure` encodes the newest stored rows to report bytes per row, labelled with the database's `data_origin`.
+- **Export (2026-11-23).** `LakeExporter` copies stored transactions and transfers past an id cursor (`lake:export:<dataset>:last_id`) into `silver/chain=<c>/dataset=<d>/date=<day|undated>`, in bounded batches. The cursor moves only after the batch's files commit, so a replay adopts identical files. It runs from the `lake_export` job (off by default; Setup switch) or `POST /system/lake/export` (admin), and `GET /system/lake` shows the tables.
+  - Rows are exported as stored; later in-place changes (finality, orphan marks) are not re-exported, so readers filter on the exported `finality`.
+  - Replaying with a different batch size can overlap, and Silver consumers de-duplicate on natural keys.
 - Approval of this ADR is pending with the owner.
 
 ## ADR-056 Setup from the web app: a write-only server-side store for keys and allowlisted settings (Proposed; owner goal 2026-11-23)

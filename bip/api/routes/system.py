@@ -143,3 +143,64 @@ def budgets(ctx: Context) -> dict[str, Any]:
         },
         "quota_tracking": "per run, plus BIP's own per-provider daily request counts",
     }
+
+
+_LAKE_DATASETS = ("transactions", "transfers")
+
+
+@router.get("/lake")
+def lake_status(ctx: Context) -> dict[str, Any]:
+    """Silver lake tables exported from the database: committed files, rows, bytes per row and a
+    size-only integrity check, plus the export cursors. Local files only."""
+    from bip.storage.lake.export import cursor_key
+    from bip.storage.lake.integrity import table_stats, verify_table
+    from bip.storage.lake.runtime import lake_runtime
+    from bip.storage.paths import Layer, StorageRoot
+
+    rt = lake_runtime()
+    root = StorageRoot(ctx.settings.resolved_data_root)
+    tables: list[dict[str, Any]] = []
+    for chain in ctx.settings.enabled_chains:
+        for dataset in _LAKE_DATASETS:
+            st = table_stats(root, Layer.SILVER, f"{chain}.{dataset}")
+            report = verify_table(root, Layer.SILVER, chain, dataset, deep=False)
+            tables.append(
+                {
+                    "table": st.table,
+                    "files": st.files,
+                    "rows": st.rows,
+                    "bytes": st.bytes,
+                    "bytes_per_row": st.bytes_per_row,
+                    "verified": report.ok,
+                    "problems": len(report.missing)
+                    + len(report.mismatched)
+                    + len(report.corrupt_lines)
+                    + len(report.dangling_supersedes),
+                    "leftovers": len(report.unreferenced) + len(report.stale_temp),
+                }
+            )
+    return {
+        "available": rt.available,
+        "missing": list(rt.missing),
+        "export_enabled": ctx.settings.workers.lake_export_enabled,
+        "cursors": {d: int(ctx.repo.get_meta(cursor_key(d)) or 0) for d in _LAKE_DATASETS},
+        "data_origin": ctx.repo.get_meta("data_origin") or "unknown",
+        "tables": tables,
+    }
+
+
+@router.post("/lake/export", response_model=None)
+def lake_export(ctx: WritableContext) -> Any:
+    """Admin: export one bounded batch of stored rows into the Silver lake (local only)."""
+    from bip.storage.lake.runtime import lake_runtime
+
+    if not lake_runtime().available:
+        return error_response(503, "lake_unavailable", "pyarrow and duckdb are not installed")
+    from bip.storage.lake.export import LakeExportBusyError, LakeExporter
+    from bip.storage.paths import StorageRoot
+
+    exporter = LakeExporter(ctx.repo, StorageRoot(ctx.settings.resolved_data_root), ctx.disk_guard)
+    try:
+        return exporter.run()
+    except LakeExportBusyError as exc:
+        return error_response(409, "export_running", str(exc))

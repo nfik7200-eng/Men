@@ -1611,3 +1611,8 @@ export type WebFeedItem = {
 };
 export type WebItems = { items: WebFeedItem[]; total: number; limit: number; offset: number };
 export type WebRefresh = { feeds: { url: string; outcome: string; new_items: number; error: string | null }[] };
+
+// Silver lake (exported from the database)
+export type LakeTable = { table: string; files: number; rows: number; bytes: number; bytes_per_row: number | null; verified: boolean; problems: number; leftovers: number };
+export type LakeStatus = { available: boolean; missing: string[]; export_enabled: boolean; cursors: Record<string, number>; data_origin: string; tables: LakeTable[] };
+export type LakeExport = { datasets: { dataset: string; rows: number; files: number; files_created: number; more: boolean }[] };

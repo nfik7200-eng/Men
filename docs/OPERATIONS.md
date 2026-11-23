@@ -14,6 +14,7 @@ Open **Setup** in the web app (admin only). Everything that needs your own accou
 - **AI research.** Provider (`none`, local `ollama`, or `openai_compatible`), its URL and model, and the API key.
 - **Background jobs.** The scheduler and each job. Jobs marked "Uses provider quota" contact providers on a schedule.
 - **Data.** The database origin marker and the ERC-20 and SPL allowlists.
+- **Parquet lake.** Switch on **Export to the Parquet lake** under Background jobs, or use **Export now** in the System page's Parquet lake panel. Stored transactions and transfers are copied into `<data_root>/silver/` (local only). `python -m bip.tools.lake verify|stats|measure` inspects it.
 - **Web feeds.** RSS or Atom feed URLs to follow, and a contact for the User-Agent. Switch on **Fetch web feeds** under Background jobs, or use **Fetch now** on the Web feeds page. robots.txt is honoured, at most one request per second per site (ADR-058).
 
 How it works:

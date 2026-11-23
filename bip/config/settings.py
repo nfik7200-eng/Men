@@ -283,6 +283,10 @@ class WorkersSettings(BaseModel):
     expansion_enabled: bool = False
     """Bounded relationship expansion (``discovery_expansion`` job; local only). Off by default."""
     expansion_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 120
+    lake_export_enabled: bool = False
+    """Copy newly stored transactions and transfers into the Silver lake (``lake_export`` job;
+    local only)."""
+    lake_export_interval_minutes: Annotated[int, Field(ge=5, le=24 * 60)] = 60
     web_feeds_enabled: bool = False
     """Fetch the configured web feeds (``web_feeds`` job). Contacts external sites."""
     web_feeds_interval_minutes: Annotated[int, Field(ge=15, le=24 * 60)] = 60

@@ -31,6 +31,7 @@ export type DiscoveryCall = { method: string; path: string; body: Record<string,
 
 export type DiscoveryState = {
   discoveryRuns?: number;
+  lakeExported?: boolean;
   origin: "stored_observations" | "offline_fixture";
   signals: Signal[];
   alerts: Alert[];
@@ -461,6 +462,15 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
       l.reviewed_at = NOW;
       l.evidence = all;
       return json(200, l);
+    }
+    if (path === "/system/lake" && method === "GET") {
+      const rows = state.lakeExported ? 2 : 0;
+      return json(200, { available: true, missing: [], export_enabled: false, cursors: { transactions: rows, transfers: rows }, data_origin: state.origin,
+        tables: [{ table: "ethereum.transactions", files: rows ? 1 : 0, rows, bytes: rows ? 4096 : 0, bytes_per_row: rows ? 2048 : null, verified: true, problems: 0, leftovers: 0 }] });
+    }
+    if (path === "/system/lake/export" && method === "POST") {
+      state.lakeExported = true;
+      return json(200, { datasets: [{ dataset: "transactions", rows: 2, files: 1, files_created: 1, more: false }, { dataset: "transfers", rows: 2, files: 1, files_created: 1, more: false }] });
     }
     if (path === "/system/health") return json(200, { ...state.system, data_origin: state.origin });
     if (path === "/system/backups" && method === "POST") {

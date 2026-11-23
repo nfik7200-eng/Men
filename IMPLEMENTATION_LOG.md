@@ -4,6 +4,29 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-23 — Lake export from the operational database into Silver Parquet
+
+**Why.** The lake (Stage 5) was complete but empty: ingestion writes SQLite. A bounded export makes the stored data available as columnar files for DuckDB analysis and gives real bytes-per-row figures once real data is stored.
+
+**Done (test-first: 6 tests, seen failing on the missing module).**
+- `LakeExporter` (`bip/storage/lake/export.py`): per-dataset id cursor in `app_metadata`, groups by chain and UTC day, writes through `LakeWriter` (disk guard, crash-safe, idempotent), and moves the cursor after the batch commits. A process-wide lock prevents overlapping runs.
+- `GET /system/lake` and `POST /system/lake/export` (`bip/api/routes/system.py`; the POST is admin by the default rule, and answers 503 `lake_unavailable` without the runtime).
+- The `lake_export` job and `workers.lake_export_enabled` / `lake_export_interval_minutes`; the Setup entry "Export to the Parquet lake".
+- Frontend: a `LakePanel` on the System page; client, types, fake route and test. The viewer-backup test now scopes its role-hint lookup to the Backups panel, because the lake panel shows the same hint.
+- Docs: ADR-055 addendum, a roadmap row, `docs/OPERATIONS.md`, the regenerated `docs/API_REFERENCE.md`.
+
+**Mutation checks.** Cursor never saved: 4 tests failed. No batch bound: 1 failed.
+
+**Real-process check of the Setup restart (ADR-056), run on loopback with a scratch data root.**
+- `python -m bip.api` on port 8765 reported `restart: {available: true}`.
+- `POST /setup/settings/workers.discovery_interval_minutes {"value": 45}` was then pending, with the running value still 60.
+- `POST /setup/restart` returned `{"restarting": true}`. The same process logged "restarting with the saved setup" and came back with pending `[]` and the value 45.
+- `<data_root>/config` was `drwx------` and `settings.json` was `-rw-------`.
+- The server was then stopped. This is the first check of the restart loop with a real uvicorn server; the earlier tests used a fake server.
+- README "Setup" now leads with the Setup page.
+
+**Evidence.** Full backend run `1405 passed in 747.66s (0:12:27)` (1399 before, 6 new). `ruff check .` clean; `ruff format --check .` 353 files formatted; `pyright` 0 errors. Frontend: `vitest run` 32 files / 309 tests passed; `tsc --noEmit` and `eslint .` clean.
+
 ## 2026-11-23 — Web feeds (ADR-058, roadmap Stage 14 part, migration v24)
 
 **Why.** The acquisition fetcher was built but unused. Stage 14 asks for polite web collection and announcement feeds, and the owner wants to configure sources from the UI.

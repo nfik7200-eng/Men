@@ -89,7 +89,9 @@ describe("system", () => {
     const button = screen.getByRole("button", { name: "Create backup" });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("title", "Needs the admin role. You are signed in as viewer.");
-    expect(screen.getByText("Needs the admin role. You are signed in as viewer.")).toBeInTheDocument();
+    const backups = button.closest("section") ?? document.body;
+    expect(within(backups as HTMLElement).getByText("Needs the admin role. You are signed in as viewer.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export now" })).toBeDisabled();
     expect(backend.state.calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
 
@@ -105,5 +107,15 @@ describe("system", () => {
     expect(await screen.findByText(/Backup created \(2\.0 MiB/)).toBeInTheDocument();
     expect(backend.posts("/system/backups")).toHaveLength(1);
     expect(await screen.findByText("1")).toBeInTheDocument();
+  });
+
+  it("shows the Parquet lake and exports on request", async () => {
+    const user = userEvent.setup();
+    renderDiscovery("/system", {}, "admin");
+    await heading();
+    expect(await screen.findByText("Parquet lake")).toBeInTheDocument();
+    expect(await screen.findByText("ethereum.transactions")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Export now" }));
+    expect(await screen.findByText(/transactions: \+2 row\(s\)/)).toBeInTheDocument();
   });
 });

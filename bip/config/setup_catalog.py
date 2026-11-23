@@ -159,6 +159,13 @@ EDITABLE: tuple[EditableSetting, ...] = (
         contacts_providers=True,
     ),
     EditableSetting(
+        "workers.lake_export_enabled",
+        _JOBS,
+        "Export to the Parquet lake",
+        "bool",
+        "Copies newly stored transactions and transfers into Silver Parquet files. Local only.",
+    ),
+    EditableSetting(
         "workers.web_feeds_enabled",
         _JOBS,
         "Fetch web feeds",

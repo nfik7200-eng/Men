@@ -119,6 +119,16 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 "Bounded relationship expansion from seeds BIP chose. Local database only.",
             )
         )
+    if w.lake_export_enabled:
+        jobs.append(
+            Job(
+                "lake_export",
+                timedelta(minutes=w.lake_export_interval_minutes),
+                lambda: _lake_export(ctx),
+                "Copy newly stored transactions and transfers into Silver Parquet partitions. "
+                "Local files only.",
+            )
+        )
     if w.web_feeds_enabled and ctx.settings.web.feeds:
         jobs.append(
             Job(
@@ -171,6 +181,22 @@ def build_jobs(ctx: AppContext, backups: BackupService) -> list[Job]:
                 )
             )
     return jobs
+
+
+def _lake_export(ctx: AppContext) -> str:
+    from bip.storage.lake.runtime import lake_runtime
+
+    if not lake_runtime().available:
+        return "skipped: pyarrow and duckdb are not installed"
+    from bip.storage.lake.export import LakeExportBusyError, LakeExporter
+    from bip.storage.paths import StorageRoot
+
+    exporter = LakeExporter(ctx.repo, StorageRoot(ctx.settings.resolved_data_root), ctx.disk_guard)
+    try:
+        out = exporter.run()
+    except LakeExportBusyError:
+        return "skipped: an export is in progress"
+    return ", ".join(f"{d['dataset']}: +{d['rows']}" for d in out["datasets"])
 
 
 def _web_feeds(ctx: AppContext) -> str:

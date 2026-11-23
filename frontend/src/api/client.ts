@@ -1,5 +1,7 @@
 import { csrfToken, sessionEnded } from "../auth/session";
 import type { DiscoveryRunResult,
+  LakeExport,
+  LakeStatus,
   WebFeeds,
   WebItems,
   WebRefresh,
@@ -280,6 +282,8 @@ export const api = {
   settings: () => request<PublicSettings>("/settings"),
   // ---- setup (admin): secrets are write-only
   continuousTraining: () => request<ContinuousStatus>("/ml/continuous"),
+  lakeStatus: () => request<LakeStatus>("/system/lake"),
+  lakeExport: () => request<LakeExport>("/system/lake/export", { method: "POST" }),
   webFeeds: () => request<WebFeeds>("/web/feeds"),
   webItems: (feed?: string, limit = 50, offset = 0) =>
     request<WebItems>(`/web/items?limit=${limit}&offset=${offset}${feed ? `&feed=${enc(feed)}` : ""}`),

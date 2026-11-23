@@ -251,6 +251,70 @@ function Report({ h, reload }: { h: SystemHealth; reload: () => void }) {
   );
 }
 
+/** The Silver Parquet lake exported from the database: tables, sizes and integrity. */
+function LakePanel() {
+  const lake = useApi(api.lakeStatus);
+  const can = useCan("POST", "/system/lake/export");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const out = await api.lakeExport();
+      setMessage(out.datasets.map((d) => `${d.dataset}: +${d.rows} row(s)${d.more ? " (more to export)" : ""}`).join(", "));
+      lake.reload();
+    } catch (err) {
+      setMessage(err instanceof ApiError ? err.message : "The export could not run.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Panel
+      title="Parquet lake"
+      aside={
+        <span className="row-inline">
+          <RoleHint can={can} />
+          <button type="button" className="btn" disabled={!can.allowed || busy || (lake.status === "ready" && !lake.data.available)} title={can.reason} onClick={run}>
+            {busy ? "Exporting…" : "Export now"}
+          </button>
+        </span>
+      }
+    >
+      {lake.status === "loading" ? <Loading /> : null}
+      {lake.status === "error" ? <ErrorState error={lake.error} onRetry={lake.reload} /> : null}
+      {lake.status === "ready" ? (
+        <>
+          {!lake.data.available ? (
+            <p className="note">The lake runtime is not installed (missing: {lake.data.missing.join(", ")}). Run `uv sync`.</p>
+          ) : null}
+          <p className="muted">
+            Stored transactions and transfers copied into Silver Parquet files, partitioned by chain and day. Scheduled export is{" "}
+            {lake.data.export_enabled ? "on" : "off (switch it on in Setup)"}. Data origin: {lake.data.data_origin.replace(/_/g, " ")}.
+          </p>
+          <DataTable
+            caption="Lake tables"
+            rows={lake.data.tables}
+            rowKey={(t) => t.table}
+            empty="No tables."
+            columns={[
+              { key: "table", header: "Table", priority: 1, render: (t) => <span className="mono">{t.table}</span> },
+              { key: "rows", header: "Rows", priority: 1, render: (t) => fmtInt(t.rows) },
+              { key: "files", header: "Files", priority: 2, render: (t) => fmtInt(t.files) },
+              { key: "size", header: "Size", priority: 2, render: (t) => fmtBytes(t.bytes) },
+              { key: "bpr", header: "Bytes per row", priority: 3, render: (t) => (t.bytes_per_row === null ? "—" : t.bytes_per_row.toFixed(1)) },
+              { key: "ok", header: "Integrity", priority: 1,
+                render: (t) => <Pill tone={t.verified ? "ok" : "bad"}>{t.verified ? "ok" : `${t.problems} problem(s)`}</Pill> },
+            ]}
+          />
+          {message ? <p role="status">{message}</p> : null}
+        </>
+      ) : null}
+    </Panel>
+  );
+}
+
 export default function System() {
   const health = useApi(api.systemHealth);
   return (
@@ -260,6 +324,7 @@ export default function System() {
       {health.status === "loading" ? <Loading /> : null}
       {health.status === "error" ? <ErrorState error={health.error} onRetry={health.reload} /> : null}
       {health.status === "ready" ? <Report h={health.data} reload={health.reload} /> : null}
+      {health.status === "ready" ? <LakePanel /> : null}
     </>
   );
 }

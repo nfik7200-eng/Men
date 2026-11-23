@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-198 routes in 19 groups.
+200 routes in 19 groups.
 
 ### auth
 
@@ -1194,6 +1194,8 @@ Parameters: `chain` (path, required): string (len>=1, len<=32); `address` (path,
 | GET | `/api/v1/system/health` | viewer | Detailed Health |
 | GET | `/api/v1/system/jobs` | viewer | Jobs |
 | POST | `/api/v1/system/jobs/{name}/run` | admin | Run Job |
+| GET | `/api/v1/system/lake` | viewer | Lake Status: Silver lake tables exported from the database: committed files, rows, bytes per row and a |
+| POST | `/api/v1/system/lake/export` | admin | Lake Export: Admin: export one bounded batch of stored rows into the Silver lake (local only). |
 | GET | `/api/v1/system/usage` | viewer | Usage |
 
 <details><summary><code>POST /api/v1/system/backups/{name}/verify</code></summary>

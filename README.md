@@ -10,6 +10,8 @@ It is **not** a block explorer, token tracker or dashboard. It is the data and i
 
 ## Status
 
+**Setup from the web app (2026-11-23).** Provider keys, Telegram alerts, AI, background jobs, web feeds and the Parquet lake are configured on the **Setup** page. The first administrator can be created from the sign-in page with a one-time server code. No key or account ships with BIP; you create them yourself. See `CURRENT_STATE.md` for what is verified and what is not.
+
 **UI integration (2026-11-06/07).** The dashboard is now a mobile-first intelligence console.
 - **Navigation and search:** grouped navigation (Monitor, Explore, Intelligence, Cases); a global Ethereum/Solana wallet search.
 - **Wallet workspace:** a tabbed page with Overview, Activity, Flows, Graph, Classification, Research, Cases and Evidence.
@@ -115,7 +117,17 @@ Run the dashboard (terminal 2), then open http://127.0.0.1:5173:
 make web
 ```
 
-To pull real data, open a wallet in the dashboard and choose **Retrieve recent activity**. The keyless PublicNode (Ethereum) and Solana public endpoints need no setup; credentialed providers are configured with `BIP_PROVIDER_*_URL` (see `.env.example`). To check providers on your network:
+**Configure it from the browser.** Open **Setup** (bottom of the navigation; admin only). There you can:
+- paste provider keys or endpoint URLs ("Get a key" links to each provider; keys work immediately and are never shown again);
+- add a Telegram bot token and chat id;
+- choose an AI provider;
+- switch background jobs on (the ones marked "Uses provider quota" contact providers);
+- follow web feeds;
+- switch on the Parquet lake export.
+
+Settings other than provider keys apply after **Restart the API now** on the same page. Values set in the server environment always win. With sign-in required (`BIP_AUTH__MODE=required`), the sign-in page asks for the one-time code the server writes to `var/data/config/first-admin-code` and creates the first administrator. Details are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+To pull real data, open a wallet in the dashboard and choose **Retrieve recent activity**. The keyless PublicNode (Ethereum) and Solana public endpoints need no setup; credentialed providers can also be set with `BIP_PROVIDER_*_URL` (see `.env.example`). To check providers on your network:
 
 ```bash
 make live-smoke
