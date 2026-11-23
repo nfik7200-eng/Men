@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ApiError } from "../api/client";
 import { usePageTitle } from "../lib/usePageTitle";
-import { login } from "./actions";
+import { bootstrapAdmin, login } from "./actions";
 import { useAuth } from "./useAuth";
 
 const BAD_CREDENTIALS =
@@ -81,12 +81,7 @@ export default function SignIn() {
             {notice}
           </div>
         ) : null}
-        {setupRequired ? (
-          <div className="auth-notice" role="status">
-            No users exist yet. On the server, create the first administrator with{" "}
-            <code>python -m bip.tools.users create &lt;name&gt; --role admin</code>.
-          </div>
-        ) : null}
+        {setupRequired ? <FirstAdmin /> : null}
         <form className="form" onSubmit={submit} noValidate aria-label="Sign in">
           <label className="field">
             <span>Username</span>
@@ -128,5 +123,67 @@ export default function SignIn() {
         </form>
       </main>
     </div>
+  );
+}
+
+/**
+ * First run with sign-in required and no users: claim the administrator account with the one-time
+ * code the server wrote to <data root>/config/first-admin-code (only readable on the server).
+ */
+function FirstAdmin() {
+  const [code, setCode] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    if (!code.trim() || !username.trim() || !password) {
+      setError("Enter the setup code, a username and a password.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await bootstrapAdmin(code, username, password);
+    } catch (err) {
+      setBusy(false);
+      setError(err instanceof ApiError ? err.message : "Could not create the administrator.");
+    }
+  };
+
+  return (
+    <section className="auth-notice" aria-label="Create the first administrator">
+      <p>
+        <strong>No users exist yet.</strong> Create the first administrator with the one-time setup code the
+        server wrote to <code>&lt;data root&gt;/config/first-admin-code</code> (its path is also in the server
+        log). You can instead run <code>python -m bip.tools.users create &lt;name&gt; --role admin</code> on the
+        server.
+      </p>
+      <form className="form" onSubmit={submit} noValidate aria-label="Create administrator">
+        <label className="field">
+          <span>Setup code</span>
+          <input name="setup-code" autoComplete="off" spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} disabled={busy} />
+        </label>
+        <label className="field">
+          <span>Administrator username</span>
+          <input name="admin-username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} disabled={busy} />
+        </label>
+        <label className="field">
+          <span>Administrator password</span>
+          <input name="admin-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={busy} />
+        </label>
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <button type="submit" className="btn" disabled={busy}>
+          {busy ? "Creating…" : "Create administrator"}
+        </button>
+      </form>
+    </section>
   );
 }

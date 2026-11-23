@@ -1,6 +1,7 @@
 """Who may call what. One table, fail-closed.
 
-* Public: health and the login/status endpoints. Nothing else answers without a session.
+* Public: health, the login/status endpoints and the one-time first-administrator bootstrap
+  (guarded by a code in an owner-only server file). Nothing else answers without a session.
 * ``viewer``: every read.
 * ``analyst``: changes to BIP's own analysis data (watchlists, cases, findings, labels, signals,
   alerts, discovery and AI research over stored data).
@@ -15,7 +16,7 @@ import re
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
-PUBLIC_PATHS = frozenset({"/health", "/auth/login", "/auth/status"})
+PUBLIC_PATHS = frozenset({"/health", "/auth/login", "/auth/status", "/auth/bootstrap"})
 """Relative to the API prefix."""
 
 SELF_SERVICE = frozenset({"/auth/logout", "/auth/password", "/auth/me"})

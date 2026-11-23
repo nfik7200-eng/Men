@@ -4,6 +4,35 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-23 — First administrator from the sign-in page (ADR-057)
+
+**Why.** With sign-in required, the only way to create the first user was `python -m bip.tools.users` on the server, which gets in the way of setting up from the web app. An open form would let anyone who reaches the page first take the instance.
+
+**Done (test-first: 8 tests seen failing).**
+- `bip/security/bootstrap.py`: `FirstAdminCode` (0600 file, constant-time check, rotation after 5 failures, single use).
+- At startup, when sign-in is required and no user exists, `create_app` writes the code and logs its path.
+- `POST /auth/bootstrap` in `bip/api/routes/auth.py`:
+  - under a lock it re-checks that no user exists, then checks the code, creates the admin, consumes the code and signs in;
+  - sign-in was factored into `_signed_in`, shared with `login`;
+  - `access.PUBLIC_PATHS`, the frontend mirror and the protection middleware's login rate limiter and audit exemption now include the route.
+- `tests/unit/test_api_reference.py`: the public-mutation allowlist gains `/auth/bootstrap`, with a pointer to ADR-057.
+- Frontend: `SignIn.tsx` has a `FirstAdmin` form, with `bootstrapAdmin` in `auth/actions.ts`, `api.bootstrap`, the fake backend route and the access test rows.
+- Docs: ADR-057, the `docs/OPERATIONS.md` first-administrator paragraph, the regenerated `docs/API_REFERENCE.md`.
+
+**Mutation checks:**
+- ignoring the code: 2 tests failed;
+- not consuming it: 1 failed;
+- no rotation: 1 failed;
+- dropping the `has_users` re-check: 0 failed at first. That path (a user created with the CLI while the API runs) was untested; the new test makes it fail 1.
+
+**Evidence.** Full backend run `1368 passed in 831.86s (0:13:51)` (1359 before, 9 new). That run predates the continuous-training route, whose tests, together with the bootstrap, API reference and ML-optional tests, passed 19/19 afterwards. `ruff check .` clean; `ruff format --check .` 339 files formatted; `pyright` 0 errors. Frontend: two consecutive `vitest run` passes, 31 files / 307 tests each; `tsc --noEmit` and `eslint .` clean.
+
+**Also in this commit.**
+- **Continuous retraining status.** `GET /ml/continuous` (read-only: switch, gate parameters and last decision per model kind and chain; an unreadable stored decision is reported, not a crash). It comes with 3 tests (`tests/api/test_continuous_api.py`, seen failing first) and a "Continuous retraining" panel on the Models page (a Vitest case in `stage4.test.tsx`). Importing `bip.ml.continuous` from the routes keeps the ML-optional install working (`test_ml_optional.py` 5/5).
+- **Two frontend flakes fixed (test code only).**
+  - `research/runpage.test.tsx` "reruns as a new linked run" raced: `findByLabelText("location")` resolved on the existing element before the rerun navigated. It now waits for the text. It had failed 2 of 3 full runs just before the fix.
+  - `App.test.tsx` "navigates between all sections" clicks all 27 navigation entries and hit the default 5 s timeout under load. It now has a 20 s budget.
+
 ## 2026-11-23 — Setup from the web app (ADR-056)
 
 **Owner goal.** "Complete the entire backend and frontend; if you need keys or APIs, leave that to me. I will set up the backend from the frontend UI."

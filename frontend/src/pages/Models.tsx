@@ -51,6 +51,48 @@ function Comparison({ run }: { run: RankingRun }) {
   );
 }
 
+function metric(m: { macro_pr_auc: number | null; brier: number | null } | null | undefined): string {
+  if (!m) return "—";
+  return `PR-AUC ${num(m.macro_pr_auc)} · Brier ${num(m.brier)}`;
+}
+
+/** Scheduled retraining behind the promotion gate: the switch and each chain's last decision. */
+function ContinuousPanel() {
+  const status = useApi(() => api.continuousTraining(), []);
+  return (
+    <Panel title="Continuous retraining">
+      {status.status === "loading" ? <Loading /> : null}
+      {status.status === "error" ? <ErrorState error={status.error} onRetry={status.reload} /> : null}
+      {status.status === "ready" ? (
+        <>
+          <p>
+            <Pill tone={status.data.enabled ? "ok" : "idle"}>{status.data.enabled ? "On" : "Off"}</Pill>{" "}
+            Every {status.data.interval_hours} h once {status.data.min_new_examples} new filtered examples exist. A challenger
+            replaces the served model only if its PR-AUC is not lower and its Brier score is within{" "}
+            {status.data.promotion_brier_tolerance} of the champion&apos;s. Switch it on in Setup.
+          </p>
+          <DataTable
+            caption="Last retraining decision per model and chain"
+            rows={status.data.items}
+            rowKey={(r) => `${r.kind}:${r.chain}`}
+            empty="No models."
+            columns={[
+              { key: "model", header: "Model", priority: 1, render: (r) => `${humanLabel(r.kind)} · ${r.chain}` },
+              { key: "decision", header: "Last decision", priority: 1,
+                render: (r) => (r.error ? r.error : r.last_decision ? humanLabel(r.last_decision.decision) : "None yet") },
+              { key: "reason", header: "Why", priority: 2, render: (r) => r.last_decision?.reason ?? "—" },
+              { key: "challenger", header: "Challenger", priority: 3, render: (r) => metric(r.last_decision?.challenger) },
+              { key: "champion", header: "Champion", priority: 3, render: (r) => metric(r.last_decision?.champion) },
+              { key: "when", header: "When", priority: 2, render: (r) => (r.last_decision?.time ? fmtTime(r.last_decision.time) : "—") },
+            ]}
+          />
+          <p className="note">Model scores are statistical signals, not verified observations.</p>
+        </>
+      ) : null}
+    </Panel>
+  );
+}
+
 export default function Models() {
   const status = useApi(() => api.rankingStatus(), []);
   const runs = useApi(() => api.rankingRuns(), []);
@@ -122,6 +164,7 @@ export default function Models() {
             <Comparison run={latest} />
           </Panel>
         ) : null}
+        <ContinuousPanel />
         <Panel title="Evaluation history">
           {runs.status === "loading" ? <Loading /> : null}
           {runs.status === "error" ? <ErrorState error={runs.error} onRetry={runs.reload} /> : null}

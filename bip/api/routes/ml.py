@@ -8,6 +8,7 @@ always marked ``experimental_synthetic``.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Path, Query, Request
@@ -17,7 +18,7 @@ from bip.api.deps import Context, WritableContext
 from bip.api.errors import error_response
 from bip.api.routes.chains import _require_chain  # pyright: ignore[reportPrivateUsage]
 from bip.api.schemas import Body
-from bip.ml import runtime, taxonomy
+from bip.ml import continuous, runtime, taxonomy
 from bip.ml.drift import drift_report
 from bip.ml.features import DESCRIPTIONS, FEATURE_NAMES, FEATURE_VERSION
 from bip.ml.labels import LabelIn, ReviewIn
@@ -97,6 +98,34 @@ def list_models(ctx: Context) -> J:
         "items": ctx.classifier.models(),
         "active": {c: ctx.classifier.active_model(c) for c in ("ethereum", "solana")},
         "runtime": {"available": rt.available, "missing": list(rt.missing)},
+    }
+
+
+@router.get("/continuous")
+def continuous_training(ctx: Context) -> J:
+    """Controlled continuous retraining: the switch, the promotion gate and the last decision per
+    model kind and chain (read from local bookkeeping; nothing is trained here)."""
+    cfg = ctx.settings.ml
+    items: list[J] = []
+    for kind in (continuous.WALLET, continuous.RANKING):
+        for chain in ctx.settings.enabled_chains:
+            item: J = {"kind": kind, "chain": chain, "last_decision": None, "error": None}
+            raw = ctx.repo.get_meta(continuous.decision_key(chain, kind))
+            if raw is not None:
+                try:
+                    item["last_decision"] = json.loads(raw)
+                except ValueError:
+                    item["error"] = "stored decision is unreadable"
+            count = ctx.repo.get_meta(continuous.examples_key(chain, kind))
+            item["examples_at_last_decision"] = int(count) if count and count.isdigit() else None
+            items.append(item)
+    return {
+        "enabled": cfg.continuous_training_enabled,
+        "interval_hours": cfg.continuous_interval_hours,
+        "min_new_examples": cfg.continuous_min_new_examples,
+        "promotion_brier_tolerance": cfg.promotion_brier_tolerance,
+        "evidence_class": "statistical_signal",
+        "items": items,
     }
 
 

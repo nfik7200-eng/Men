@@ -1,5 +1,6 @@
 import { csrfToken, sessionEnded } from "../auth/session";
 import type { DiscoveryRunResult,
+  ContinuousStatus,
   SetupOverview,
   SetupValue,
   AuthMe,
@@ -243,6 +244,8 @@ export const api = {
   authMe: () => request<AuthMe>("/auth/me"),
   login: (username: string, password: string) =>
     request<LoginResult>("/auth/login", { method: "POST", ...json({ username, password }) }),
+  bootstrap: (code: string, username: string, password: string) =>
+    request<LoginResult>("/auth/bootstrap", { method: "POST", ...json({ code, username, password }) }),
   logout: () => request<undefined>("/auth/logout", { method: "POST" }),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<undefined>("/auth/password", {
@@ -273,6 +276,7 @@ export const api = {
     request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/balance-changes?limit=50`),
   settings: () => request<PublicSettings>("/settings"),
   // ---- setup (admin): secrets are write-only
+  continuousTraining: () => request<ContinuousStatus>("/ml/continuous"),
   setup: () => request<SetupOverview>("/setup"),
   setSetupSecret: (name: string, value: string) =>
     request<{ name: string; set: boolean; applies: string }>(`/setup/secrets/${enc(name)}`, { method: "POST", ...json({ value }) }),

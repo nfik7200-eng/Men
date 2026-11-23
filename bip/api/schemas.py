@@ -308,6 +308,12 @@ class LoginBody(Body):
     password: Annotated[str, Field(min_length=1, max_length=256)]
 
 
+class BootstrapBody(Body):
+    code: Annotated[str, Field(min_length=8, max_length=128)]
+    username: Annotated[str, Field(min_length=1, max_length=64)]
+    password: Annotated[str, Field(min_length=1, max_length=256)]
+
+
 class PasswordChange(Body):
     current_password: Annotated[str, Field(min_length=1, max_length=256)]
     new_password: Annotated[str, Field(min_length=1, max_length=256)]

@@ -2,21 +2,31 @@
 
 Who may call what is decided by :mod:`bip.api.access` and enforced by the protection middleware;
 these handlers assume the middleware already ran. With ``auth.mode = disabled`` the sign-in
-endpoints say so and user creation is refused (users are created with ``python -m
-bip.tools.users``, never through an open endpoint).
+endpoints say so and user creation is refused. The first administrator is created either with
+``python -m bip.tools.users`` or once, from the sign-in page, with the one-time code the server
+writes to an owner-only file (``bip.security.bootstrap``).
 """
 
 from __future__ import annotations
 
+import threading
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query, Request, Response, status
 from starlette.responses import JSONResponse
 
-from bip.api.deps import Context
+from bip.api.deps import AppContext, Context
 from bip.api.errors import error_response
 from bip.api.protection import COOKIE_NAME
-from bip.api.schemas import LoginBody, PasswordChange, PasswordSet, UserCreate, UserUpdate
+from bip.api.schemas import (
+    BootstrapBody,
+    LoginBody,
+    PasswordChange,
+    PasswordSet,
+    UserCreate,
+    UserUpdate,
+)
+from bip.db.errors import InvalidRecordError
 from bip.security.auth import AuthError
 
 router = APIRouter(tags=["auth"])
@@ -61,6 +71,14 @@ def login(request: Request, ctx: Context, body: LoginBody) -> Any:
         user = ctx.auth.authenticate(body.username, body.password, ip)
     except AuthError:
         return error_response(401, "invalid_credentials", "Invalid username or password.")
+    return _signed_in(request, ctx, user, ip)
+
+
+def _signed_in(
+    request: Request, ctx: AppContext, user: Any, ip: str | None, status_code: int = 200
+) -> JSONResponse:
+    """Start a session for ``user`` and answer with its CSRF token and the session cookie."""
+    cfg = ctx.settings.auth
     previous = request.cookies.get(COOKIE_NAME)
     if previous:
         ctx.auth.end_session(previous)  # a new session always replaces the old one
@@ -70,7 +88,8 @@ def login(request: Request, ctx: Context, body: LoginBody) -> Any:
             "user": user.public(),
             "csrf_token": session.csrf_token,
             "expires_at": session.expires_at.isoformat(),
-        }
+        },
+        status_code=status_code,
     )
     response.set_cookie(
         COOKIE_NAME,
@@ -82,6 +101,34 @@ def login(request: Request, ctx: Context, body: LoginBody) -> Any:
         path="/",
     )
     return response
+
+
+_bootstrap_lock = threading.Lock()
+
+
+@router.post("/auth/bootstrap", response_model=None)
+def bootstrap(request: Request, ctx: Context, body: BootstrapBody) -> Any:
+    """Public, once: create the first administrator with the one-time code the server wrote to
+    ``<data_root>/config/first-admin-code``, and sign them in. Closed as soon as a user exists."""
+    if ctx.settings.auth.mode != "required":
+        return error_response(409, "auth_disabled", "Authentication is not enabled on this server.")
+    ip = _ip(request)
+    with _bootstrap_lock:
+        if ctx.auth.has_users() or ctx.first_admin is None:
+            return error_response(409, "already_set_up", "An administrator already exists.")
+        if not ctx.first_admin.check(body.code):
+            ctx.auth.audit(
+                body.username[:64] or None, "user.bootstrap", None, "denied", ip, "wrong code"
+            )
+            return error_response(401, "invalid_setup_code", "The setup code is not correct.")
+        try:
+            user = ctx.auth.create_user(body.username, body.password, "admin", actor="bootstrap")
+        except InvalidRecordError as exc:
+            return error_response(422, "invalid_user", str(exc))
+        ctx.first_admin.consume()
+        ctx.first_admin = None
+    ctx.auth.audit(user.username, "user.bootstrap", user.username, "ok", ip)
+    return _signed_in(request, ctx, user, ip, status_code=201)
 
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)

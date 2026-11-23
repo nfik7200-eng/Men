@@ -51,13 +51,14 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-193 routes in 18 groups.
+195 routes in 18 groups.
 
 ### auth
 
 | Method | Path | Role | Summary |
 |---|---|---|---|
 | GET | `/api/v1/audit` | admin | Audit |
+| POST | `/api/v1/auth/bootstrap` | public | Bootstrap: Public, once: create the first administrator with the one-time code the server wrote to |
 | POST | `/api/v1/auth/login` | public | Login |
 | POST | `/api/v1/auth/logout` | viewer | Logout |
 | GET | `/api/v1/auth/me` | viewer | Me |
@@ -71,6 +72,12 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 <details><summary><code>GET /api/v1/audit</code></summary>
 
 Parameters: `limit` (query): integer (>=1, <=200); `offset` (query): integer (>=0, <=100000); `actor` (query): null or string (len<=64); `action` (query): null or string (len<=80)
+
+</details>
+
+<details><summary><code>POST /api/v1/auth/bootstrap</code></summary>
+
+Body (`*` required): `code` *: string (len>=8, len<=128); `username` *: string (len>=1, len<=64); `password` *: string (len>=1, len<=256)
 
 </details>
 
@@ -858,6 +865,7 @@ Parameters: `investigation_id` (path, required): integer (>=1); `run_id` (path, 
 | GET | `/api/v1/ml/classifications/{chain}/{address}` | viewer | Classification History |
 | GET | `/api/v1/ml/classifications/{classification_id}` | viewer | Get Classification |
 | POST | `/api/v1/ml/classify/{chain}/{address}` | analyst | Classify |
+| GET | `/api/v1/ml/continuous` | viewer | Continuous Training: Controlled continuous retraining: the switch, the promotion gate and the last decision per |
 | GET | `/api/v1/ml/features/{chain}/{address}` | viewer | Wallet Features |
 | GET | `/api/v1/ml/labels` | viewer | List Labels |
 | POST | `/api/v1/ml/labels` | analyst | Import Labels |

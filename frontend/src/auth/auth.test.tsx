@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import App from "../App";
-import { SYNTHETIC_CSRF, SYNTHETIC_PASSWORD, installAuthBackend, type AuthBackendOptions, type Call } from "../test/authBackend";
+import { SYNTHETIC_CSRF, SYNTHETIC_PASSWORD, SYNTHETIC_SETUP_CODE, installAuthBackend, type AuthBackendOptions, type Call } from "../test/authBackend";
 import { AuthGate, AuthRoot } from "./AuthProvider";
 import { getSession } from "./session";
 
@@ -86,6 +86,22 @@ describe("protected route", () => {
     renderApp("/", { mode: "required", setupRequired: true });
     expect(await screen.findByText(/No users exist yet/)).toBeInTheDocument();
     expect(screen.getByText(/bip\.tools\.users create/)).toBeInTheDocument();
+  });
+
+  it("creates the first administrator with the server's setup code and signs them in", async () => {
+    const user = userEvent.setup();
+    renderApp("/", { mode: "required", setupRequired: true });
+    const form = await screen.findByRole("form", { name: "Create administrator" });
+    await user.type(within(form).getByLabelText("Setup code"), "wrong-code-0000");
+    await user.type(within(form).getByLabelText("Administrator username"), "owner");
+    await user.type(within(form).getByLabelText("Administrator password"), SYNTHETIC_PASSWORD);
+    await user.click(within(form).getByRole("button", { name: "Create administrator" }));
+    expect(await within(form).findByRole("alert")).toHaveTextContent("The setup code is not correct.");
+    await user.clear(within(form).getByLabelText("Setup code"));
+    await user.type(within(form).getByLabelText("Setup code"), SYNTHETIC_SETUP_CODE);
+    await user.click(within(form).getByRole("button", { name: "Create administrator" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    expect(getSession()).toMatchObject({ status: "authenticated", user: { username: "owner", role: "admin" } });
   });
 });
 

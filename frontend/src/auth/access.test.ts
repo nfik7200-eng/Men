@@ -6,6 +6,9 @@ import { allows, requiredRole } from "./access";
 const BACKEND_POLICY: [string, string, string | null][] = [
   ["GET", "/health", null],
   ["POST", "/auth/login", null],
+  ["POST", "/auth/bootstrap", null],
+  ["GET", "/setup", "admin"],
+  ["POST", "/setup/restart", "admin"],
   ["GET", "/auth/status", null],
   ["POST", "/auth/logout", "viewer"],
   ["POST", "/auth/password", "viewer"],

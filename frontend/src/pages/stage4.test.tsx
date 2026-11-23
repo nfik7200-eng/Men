@@ -87,6 +87,13 @@ describe("Models page", () => {
     expect(posts(b, "/ml/signal-ranking/evaluate")).toHaveLength(1);
   });
 
+  it("shows continuous retraining status and the last decision per chain", async () => {
+    renderDiscovery("/models", {}, "viewer");
+    expect(await screen.findByText("Continuous retraining")).toBeInTheDocument();
+    expect(await screen.findByText("challenger macro PR-AUC below champion")).toBeInTheDocument();
+    expect(screen.getAllByText("None yet").length).toBeGreaterThan(0);
+  });
+
   it("disables evaluation for a viewer", async () => {
     const b = renderDiscovery("/models", {}, "viewer");
     await waitFor(() => expect(screen.getByRole("button", { name: "Evaluate rankers" })).toBeDisabled());

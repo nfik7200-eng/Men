@@ -86,6 +86,7 @@ from bip.research.llm import LLMProvider, build_provider
 from bip.router.router import ProviderRouter
 from bip.rpc.transport import HttpsTransport, Transport
 from bip.security.auth import AuthService
+from bip.security.bootstrap import FirstAdminCode
 from bip.security.secrets import read_secret
 from bip.storage.disk_guard import DiskGuard, guard_from_settings
 
@@ -252,6 +253,13 @@ def create_app(
             setup_report=setup_report,
         )
         ctx = app.state.bip
+        if cfg.auth.mode == "required" and not ctx.auth.has_users():
+            ctx.first_admin = FirstAdminCode(store.directory)
+            log.warning(
+                "no users exist: create the first administrator on the sign-in page with the "
+                "one-time code in %s (or run python -m bip.tools.users)",
+                ctx.first_admin.ensure(),
+            )
         ctx.review = ReviewService(repo)
         ctx.ranking = SignalRanking(repo, ctx.review, cfg.ml)
         ctx.expansion = ExpansionEngine(repo, cfg, ctx.discovery, ctx.review)

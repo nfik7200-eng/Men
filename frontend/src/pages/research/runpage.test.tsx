@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -65,7 +65,8 @@ describe("research history and run page", () => {
     expect(await screen.findByText(/Added to Case A/)).toBeInTheDocument();
     expect(fake.caseLinks.get(5)?.[0]?.run_id).toBe(RUN1);
     await user.click(screen.getByRole("button", { name: "Rerun" }));
-    expect(await screen.findByLabelText("location")).toHaveTextContent(`/research/runs/${RUN2}`);
+    // The location element exists before the rerun navigates, so wait for its text, not for it.
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent(`/research/runs/${RUN2}`), { timeout: 4000 });
     expect(await screen.findByRole("link", { name: /Rerun of/ })).toHaveAttribute("href", `/research/runs/${RUN1}`);
   });
 

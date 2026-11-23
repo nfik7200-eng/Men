@@ -24,6 +24,9 @@ def test_every_documented_route_has_a_role_and_mutations_are_never_public() -> N
         }:
             method, path, role = (c.strip(" `") for c in line.split("|")[1:4])
             if role == "public":
-                assert path.removeprefix("/api/v1") in {"/auth/login"}, f"{method} {path} is public"
+                # /auth/bootstrap: once, with a one-time code from an owner-only file (ADR-057)
+                assert path.removeprefix("/api/v1") in {"/auth/login", "/auth/bootstrap"}, (
+                    f"{method} {path} is public"
+                )
             assert role in {"public", "viewer", "analyst", "admin"}
             assert role == (required_role(method, path.removeprefix("/api/v1")) or "public")

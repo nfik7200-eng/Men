@@ -3,6 +3,12 @@
 _Last updated: 2026-11-23 (setup from the web app; earlier: lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**First administrator from the sign-in page, 2026-11-23 (ADR-057, Proposed).**
+- **How.** With sign-in required and no users, the API writes a one-time code to `<data_root>/config/first-admin-code` (0600; the path is logged, the code never is). The sign-in page then shows "Create administrator", and `POST /auth/bootstrap` (public, rate-limited, audited) creates the admin and signs them in.
+- **Guards.** The code works once and is replaced after five wrong tries. The route closes once any user exists, including one created on the server while the API runs.
+- **Tests.** `tests/security/test_bootstrap.py` (9; the first 8 were seen failing first) and a Vitest case in `src/auth/auth.test.tsx`. Four mutation checks: three were caught at once. The fourth (dropping the `has_users` re-check) survived until `test_a_user_created_on_the_server_meanwhile_closes_the_route` was added.
+- Checks: backend 1368 passed (plus 19/19 targeted after the continuous-training route); ruff, ruff format and pyright clean; frontend Vitest 307/307 twice in a row, tsc and ESLint clean. The two recurring frontend flakes (`runpage` rerun race, `App` navigation timeout) are fixed.
+
 **Setup from the web app, 2026-11-23 (ADR-056, Proposed).** Owner goal: finish the backend and frontend so the owner can configure everything from the UI, supplying their own keys. Plan: `docs/superpowers/plans/2026-11-23-setup-from-ui.md`.
 - **Setup page** (`/setup`, admin), sections:
   - provider credentials, with "Get a key", terms links and "Check connection";
@@ -177,7 +183,7 @@ Earlier in this phase:
 Previous phase:
 **Stage 5: ML wallet classification and AI research**, on top of Stage 4. Built and verified offline.
 - **No real ML model is trained.** No real, provenance-backed labelled wallets exist, so training on stored labels honestly returns `insufficient_data`. Classification uses the deterministic `bip-rules` baseline, plus an `experimental_synthetic` model only where someone explicitly trained the labelled synthetic demo set (this is enabled only on the fixture backend).
-- **Controlled continuous retraining** (`bip/ml/continuous.py`, job `ml_continuous_training`, off unless `BIP_ML__CONTINUOUS_TRAINING_ENABLED`). A challenger is fitted without registering and replaces the served model only if its macro PR-AUC is not lower and its Brier is within `promotion_brier_tolerance` of the champion re-scored on the challenger's test split (no champion or a changed feature version promotes). A rejected challenger is never inserted in `ml_models`. Decisions live in `app_metadata` under `ml:continuous:<kind>:<chain>:`. Local data only. Tests: `tests/stage5/test_continuous_training.py`. Not yet exposed in the API or UI.
+- **Controlled continuous retraining** (`bip/ml/continuous.py`, job `ml_continuous_training`, off unless `BIP_ML__CONTINUOUS_TRAINING_ENABLED`). A challenger is fitted without registering and replaces the served model only if its macro PR-AUC is not lower and its Brier is within `promotion_brier_tolerance` of the champion re-scored on the challenger's test split (no champion or a changed feature version promotes). A rejected challenger is never inserted in `ml_models`. Decisions live in `app_metadata` under `ml:continuous:<kind>:<chain>:`. Local data only. Tests: `tests/stage5/test_continuous_training.py`. Exposed read-only since 2026-11-23: `GET /ml/continuous` (switch, gate, last decision per model kind and chain; `tests/api/test_continuous_api.py`) and a "Continuous retraining" panel on the Models page; switched on from Setup.
 - **No LLM is configured** (`BIP_AI__PROVIDER=none`). Investigations produce deterministic reports with that limitation stated. LLM synthesis is tested with a deterministic fake provider only.
 
 Earlier phase:

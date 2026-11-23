@@ -5,7 +5,7 @@ import type { Role } from "./session";
 export const ROLE_RANK: Record<Role, number> = { viewer: 0, analyst: 1, admin: 2 };
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-const PUBLIC_PATHS = new Set(["/health", "/auth/login", "/auth/status"]);
+const PUBLIC_PATHS = new Set(["/health", "/auth/login", "/auth/status", "/auth/bootstrap"]);
 const SELF_SERVICE = new Set(["/auth/logout", "/auth/password", "/auth/me"]);
 const ADMIN_ANY = /^\/(users|audit|setup)(\/|$)/;
 const ANALYST_WRITE: RegExp[] = [

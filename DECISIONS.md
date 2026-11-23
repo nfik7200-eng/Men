@@ -816,3 +816,19 @@ The Stage 3 verification audit found three correctness problems.
 - The owner can configure providers, alerts, AI and jobs from the browser. Keys sit in a 0600 file on the server, readable by the service user (the same exposure as an env file).
 - Restoring a database backup does not restore keys; `<data_root>/config/` must be backed up separately.
 - Approval of this ADR is pending with the owner.
+
+## ADR-057 First administrator from the sign-in page, guarded by a one-time server code (Proposed; owner goal 2026-11-23)
+**Context.** With `BIP_AUTH__MODE=required`, the first administrator could only be created with `python -m bip.tools.users` on the server. The owner wants to set BIP up from the web app. An open "create the first admin" form would let whoever reaches the page first take the instance.
+
+**Decision.**
+- **Code file.** At start, when sign-in is required and no user exists, the API writes a random code (`secrets.token_urlsafe(24)`) to `<data_root>/config/first-admin-code`. The file is 0600 in a 0700 directory, and the API logs the file's path, never the code.
+- **Route.** `POST /auth/bootstrap` (public, rate-limited like login) creates an administrator and signs them in, but only if all of these hold:
+  - sign-in is required;
+  - no user exists, checked under a lock and again at request time;
+  - the code matches (constant-time comparison).
+- **One use.** The code file is deleted on success, and the route answers 409 `already_set_up` from then on, including when a user was created on the server while the API ran.
+- **Wrong guesses.** After five wrong codes, a new code replaces the old one. A weak password returns 422 and keeps the code.
+- **Audit.** Every attempt is audited (`user.bootstrap`), and the code never appears in the log or in a response.
+- **UI.** The sign-in page shows a "Create administrator" form when the server reports `setup_required`. The CLI path is unchanged.
+
+**Consequences.** Claiming the first account requires read access to the server's data directory, the same trust as running the CLI. Approval of this ADR is pending with the owner.

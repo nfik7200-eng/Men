@@ -6,6 +6,9 @@ export const SYNTHETIC_PASSWORD = "synthetic-test-password-not-real";
 export const SYNTHETIC_CSRF = "synthetic-csrf-token-0001";
 
 type Role = "viewer" | "analyst" | "admin";
+/** The one-time first-administrator code the fake server accepts (SYNTHETIC). */
+export const SYNTHETIC_SETUP_CODE = "synthetic-setup-code-0001";
+
 export type AuthBackendOptions = {
   mode?: "disabled" | "required";
   /** Already signed in (cookie present) as this user. */
@@ -70,6 +73,12 @@ export function installAuthBackend(opts: AuthBackendOptions = {}) {
         const role: Role = b.username.startsWith("viewer") ? "viewer" : b.username.startsWith("admin") ? "admin" : "analyst";
         state.session = { username: b.username, role };
         return json(200, { user: publicUser(b.username, role), csrf_token: SYNTHETIC_CSRF, expires_at: "2026-11-04T00:00:00Z" });
+      }
+      if (path === "/auth/bootstrap" && method === "POST") {
+        const b = body as { code: string; username: string; password: string };
+        if (b.code !== SYNTHETIC_SETUP_CODE) return err(401, "invalid_setup_code", "The setup code is not correct.");
+        state.session = { username: b.username, role: "admin" };
+        return json(201, { user: publicUser(b.username, "admin"), csrf_token: SYNTHETIC_CSRF, expires_at: "2026-11-04T00:00:00Z" });
       }
       if (path === "/health") return base(input, init);
       if (!state.session) return err(401, "unauthenticated", "Sign in to use this endpoint.");

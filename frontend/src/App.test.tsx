@@ -55,7 +55,8 @@ describe("BIP dashboard", () => {
       expect(screen.getByRole("heading", { level: 1, name: item.heading })).toBeInTheDocument();
       expect(document.title).toBe(`${item.heading} · BIP`);
     }
-  });
+    // One click and render per navigation entry (27 pages): the default 5 s timed out under load.
+  }, 20_000);
 
   it("shows no research lead when the backend has none (nothing invented)", async () => {
     installFakeBackend();

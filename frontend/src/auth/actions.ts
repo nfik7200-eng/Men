@@ -79,6 +79,20 @@ export async function login(username: string, password: string): Promise<void> {
   });
 }
 
+/** Create the first administrator with the server's one-time setup code, then sign in as them. */
+export async function bootstrapAdmin(code: string, username: string, password: string): Promise<void> {
+  const result = await api.bootstrap(code.trim(), username.trim(), password);
+  loading.generation++;
+  setSession({
+    status: "authenticated",
+    mode: "required",
+    user: toUser(result.user),
+    csrf: result.csrf_token,
+    setupRequired: false,
+    notice: null,
+  });
+}
+
 /** Sign out. The local session is cleared even when the call fails (for example it had already expired). */
 export async function logout(): Promise<void> {
   try {

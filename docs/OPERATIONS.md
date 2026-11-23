@@ -6,6 +6,8 @@ VPS** (it was not accessed), so sizes and timings for that machine are unknown u
 
 ## Setup from the web app (ADR-056)
 
+**First administrator (sign-in required).** With `BIP_AUTH__MODE=required` and no users, the API writes a one-time setup code to `<data_root>/config/first-admin-code` (0600; its path is in the server log). Open the web app, enter that code on the sign-in page with a username and password, and you are signed in as the administrator (ADR-057). The code works once, and is replaced after five wrong tries. `python -m bip.tools.users create <name> --role admin` still works. With sign-in off (the default, loopback only), there is no sign-in step.
+
 Open **Setup** in the web app (admin only). Everything that needs your own account lives there:
 - **Data providers.** Paste the endpoint URL or key from each provider's dashboard ("Get a key" links to it). A provider key is used immediately, with no restart; "Check connection" runs one health check. A URL whose host is not on the provider's allow-list is refused.
 - **Alerts.** Telegram bot token and chat id, then switch Telegram on. "Send a test message" works after the restart.

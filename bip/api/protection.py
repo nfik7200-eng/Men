@@ -41,7 +41,9 @@ CLIENT_HEADER = "x-bip-client"
 """Proof header for unsafe calls in ``auth.mode = disabled``. A browser page on another site
 cannot add a custom header without a CORS preflight, which is granted only to the exact
 ``api.cors_origins``; scripts add it explicitly (``-H 'X-BIP-Client: cli'``)."""
-_AUTH_AUDITED_ELSEWHERE = frozenset({"/auth/login", "/auth/logout", "/auth/password"})
+_AUTH_AUDITED_ELSEWHERE = frozenset(
+    {"/auth/login", "/auth/logout", "/auth/password", "/auth/bootstrap"}
+)
 
 
 def client_ip(scope: Scope, *, trust_proxy: bool) -> str:
@@ -110,7 +112,7 @@ class ProtectionMiddleware:
             return
 
         allowed, retry = self.limiter.hit(ip)
-        if rel == "/auth/login" and method == "POST":
+        if rel in ("/auth/login", "/auth/bootstrap") and method == "POST":
             login_ok, login_retry = self.login_limiter.hit(ip)
             allowed, retry = allowed and login_ok, max(retry, login_retry)
         if not allowed:

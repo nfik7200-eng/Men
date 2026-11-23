@@ -238,7 +238,7 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
     const q = new URLSearchParams(qs);
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
-    const mine = /^\/(signals|alerts|alert-rules|discovery|system|entities\/labels|entities\/memory|ml\/signal-ranking)/.test(path);
+    const mine = /^\/(signals|alerts|alert-rules|discovery|system|entities\/labels|entities\/memory|ml\/signal-ranking|ml\/continuous)/.test(path);
     if (!mine) return base(input, init);
     state.calls.push({ method, path: full, body });
     const failure = state.failures[`${method} ${path}`];
@@ -318,6 +318,18 @@ export function installDiscoveryBackend(initial: Partial<DiscoveryState> = {}, e
         scorers: ["rule_score (baseline)", "anomaly (unsupervised)", "supervised (gated)"],
         last_run: state.rankingRuns[0] ?? null,
         authority: "Scores rank candidates for review; only a person confirms or rejects.",
+      });
+    }
+    if (path === "/ml/continuous") {
+      const item = (kind: string, chain: string) => ({ kind, chain, last_decision: null, examples_at_last_decision: null, error: null });
+      return json(200, {
+        enabled: false, interval_hours: 6, min_new_examples: 20, promotion_brier_tolerance: 0.005, evidence_class: "statistical_signal",
+        items: [
+          { kind: "wallet_classifier", chain: "ethereum", examples_at_last_decision: 57, error: null,
+            last_decision: { decision: "rejected", reason: "challenger macro PR-AUC below champion", time: "2026-11-23T10:00:00+00:00",
+              challenger: { macro_pr_auc: 0.61, brier: 0.2, labels: ["exchange"], n: 40 }, champion: { macro_pr_auc: 0.7, brier: 0.18, labels: ["exchange"], n: 40 } } },
+          item("wallet_classifier", "solana"), item("signal_ranking", "ethereum"), item("signal_ranking", "solana"),
+        ],
       });
     }
     if (path === "/ml/signal-ranking/runs") return json(200, { items: state.rankingRuns });

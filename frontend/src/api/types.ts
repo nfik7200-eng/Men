@@ -1583,3 +1583,21 @@ export type SetupOverview = {
   restart: { available: boolean; pending: string[] };
   startup: { overrides_error: string | null; ignored_keys: string[]; overridden_by_environment: string[] };
 };
+
+// Continuous retraining (read-only status)
+export type ContinuousMetrics = { macro_pr_auc: number | null; brier: number | null; labels: string[]; n: number };
+export type ContinuousDecision = {
+  decision: "promoted" | "rejected" | "skipped" | "evaluated" | string;
+  reason?: string | null;
+  time?: string;
+  challenger?: ContinuousMetrics | null;
+  champion?: ContinuousMetrics | null;
+};
+export type ContinuousStatus = {
+  enabled: boolean;
+  interval_hours: number;
+  min_new_examples: number;
+  promotion_brier_tolerance: number;
+  evidence_class: "statistical_signal";
+  items: { kind: string; chain: string; last_decision: ContinuousDecision | null; examples_at_last_decision: number | null; error: string | null }[];
+};
