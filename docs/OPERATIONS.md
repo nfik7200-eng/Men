@@ -4,6 +4,23 @@ How BIP runs, what bounds its resource use, how to back it up and how to see tha
 Everything below was checked against offline tests. **Nothing was measured on the production
 VPS** (it was not accessed), so sizes and timings for that machine are unknown until measured there.
 
+## Setup from the web app (ADR-056)
+
+Open **Setup** in the web app (admin only). Everything that needs your own account lives there:
+- **Data providers.** Paste the endpoint URL or key from each provider's dashboard ("Get a key" links to it). A provider key is used immediately, with no restart; "Check connection" runs one health check. A URL whose host is not on the provider's allow-list is refused.
+- **Alerts.** Telegram bot token and chat id, then switch Telegram on. "Send a test message" works after the restart.
+- **AI research.** Provider (`none`, local `ollama`, or `openai_compatible`), its URL and model, and the API key.
+- **Background jobs.** The scheduler and each job. Jobs marked "Uses provider quota" contact providers on a schedule.
+- **Data.** The database origin marker and the ERC-20 and SPL allowlists.
+
+How it works:
+- **Storage.** Values are stored on the server in `<data_root>/config/` (directory 0700): `secrets.json` (0600) and `settings.json`. Keys are write-only: the page and the API show only whether a key is set, where it comes from and when it changed.
+- **Precedence.** A value set in the server environment always wins, and is shown as "set in the server environment".
+- **Backups.** The SQLite backups do not include these files. Back up `<data_root>/config/` yourself if you want to keep the keys.
+- **Restart.** Settings, the Telegram token and the AI key apply after a restart. The page lists pending changes. **Restart the API now** restarts the server in place when it runs as `python -m bip.api` (`make api` or the systemd unit). Otherwise restart it the way it was started.
+- **Bad saved settings.** If saved settings turn out invalid at start, they are skipped and the reason is shown on the Setup page. The API still starts.
+- **Audit.** Every change is in the audit log (`setup.secret.set`, `setup.setting.set`, `setup.restart`), by name only.
+
 ## Processes
 
 One Python process (`python -m bip.api`) with a thread pool for request handlers. There is no
@@ -99,7 +116,7 @@ Run a job now: `POST /api/v1/system/jobs/<name>/run` (admin). Status: `GET /api/
 
 Alerts are always stored in-app. With Telegram enabled, each new alert also gets an outbox row, and the `alert_delivery` job sends it. A discovery pass never waits on Telegram. Delivery is at-least-once: a crash between a send and its status update can repeat one message. Each message starts with `BIP alert — statistical signal (not a verified observation)`.
 
-Setup (owner):
+Setup (owner; the Setup page in the web app does steps 3–4 without editing files):
 1. In Telegram, talk to `@BotFather`, send `/newbot` and keep the token it gives. Treat it like a password.
 2. Send any message to the new bot (or add it to a group and post there). Then open `https://api.telegram.org/bot<token>/getUpdates` in a browser and read `result[0].message.chat.id`. Group ids are negative.
 3. Set, in the environment or `.env` (or point `BIP_TELEGRAM_BOT_TOKEN_FILE` at a file holding the token):

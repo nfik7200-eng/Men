@@ -1,5 +1,7 @@
 import { csrfToken, sessionEnded } from "../auth/session";
 import type { DiscoveryRunResult,
+  SetupOverview,
+  SetupValue,
   AuthMe,
   AuthStatus,
   LoginResult,
@@ -270,6 +272,16 @@ export const api = {
   walletBalanceChanges: (chain: string, address: string) =>
     request<ObservationPage>(`/wallets/${enc(chain)}/${enc(address)}/balance-changes?limit=50`),
   settings: () => request<PublicSettings>("/settings"),
+  // ---- setup (admin): secrets are write-only
+  setup: () => request<SetupOverview>("/setup"),
+  setSetupSecret: (name: string, value: string) =>
+    request<{ name: string; set: boolean; applies: string }>(`/setup/secrets/${enc(name)}`, { method: "POST", ...json({ value }) }),
+  clearSetupSecret: (name: string) => request<{ name: string; set: boolean }>(`/setup/secrets/${enc(name)}`, { method: "DELETE" }),
+  setSetupSetting: (key: string, value: SetupValue) =>
+    request<{ key: string; stored: SetupValue }>(`/setup/settings/${enc(key)}`, { method: "POST", ...json({ value }) }),
+  clearSetupSetting: (key: string) => request<{ key: string }>(`/setup/settings/${enc(key)}`, { method: "DELETE" }),
+  restartApi: () => request<{ restarting: boolean }>("/setup/restart", { method: "POST" }),
+  testTelegram: () => request<{ status: string; error: string | null }>("/alerts/channels/telegram/test", { method: "POST" }),
   walletStatus: (chain: string, address: string) =>
     request<WalletStatus>(`/wallets/${enc(chain)}/${enc(address)}/status`),
   wallets: (limit = 50, offset = 0) => request<WalletList>(`/wallets?limit=${limit}&offset=${offset}`),

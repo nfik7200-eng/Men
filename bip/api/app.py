@@ -6,11 +6,12 @@ database under the configured data root. Tests inject a temporary engine and dis
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 from fastapi import FastAPI
@@ -20,6 +21,7 @@ from sqlalchemy import Engine
 from bip import __version__
 from bip.api.deps import AppContext
 from bip.api.errors import install_error_handlers
+from bip.api.lifecycle import RestartController
 from bip.api.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
 from bip.api.protection import ProtectionMiddleware
 from bip.api.routes import (
@@ -38,12 +40,14 @@ from bip.api.routes import (
     providers,
     research,
     settings_route,
+    setup,
     strategies,
     system,
     wallets,
     watchlists,
 )
 from bip.config.settings import Environment, Settings, load_settings
+from bip.config.store import EffectiveSettings, LayeredEnviron, store_for
 from bip.core.exceptions import ConfigurationError
 from bip.core.logging import get_logger
 from bip.db.engine import create_db_engine
@@ -123,15 +127,22 @@ def _external_channels(
     cfg: Settings,
     environ: Mapping[str, str] | None,
     injected: Mapping[str, ExternalChannel] | None,
+    setup_report: EffectiveSettings | None = None,
 ) -> dict[str, ExternalChannel]:
     """External alert channels that are enabled. Telegram needs its bot token as a secret; the
-    app refuses to start when it is enabled without one, rather than drop alerts silently."""
+    app refuses to start when the environment enables it without one, rather than drop alerts
+    silently. When the Setup page enabled it, the channel is skipped with a warning instead, so a
+    browser change can never stop the API from starting."""
     if not cfg.alerts.telegram_enabled:
         return {}
     if injected is not None:
         return dict(injected)
     token = read_secret("BIP_TELEGRAM_BOT_TOKEN", environ)
     if token is None:
+        from_setup = setup_report is not None and "alerts" in setup_report.applied
+        if from_setup:
+            log.warning("telegram enabled on the setup page but no bot token is set; skipped")
+            return {}
         raise ConfigurationError("telegram enabled but BIP_TELEGRAM_BOT_TOKEN is not set")
     chat_id = cfg.alerts.telegram_chat_id
     assert chat_id is not None  # noqa: S101 - AlertSettings requires it when enabled
@@ -151,6 +162,8 @@ def create_app(
     data_origin: str | None = None,
     llm_provider: LLMProvider | None = None,
     alert_channels: Mapping[str, ExternalChannel] | None = None,
+    restart: RestartController | None = None,
+    setup_report: EffectiveSettings | None = None,
 ) -> FastAPI:
     """Build the app. Tests inject ``engine``, ``disk_guard``, ``transport``, ``environ`` and
     ``alert_channels``; in normal use the transport is the real hardened HTTPS client."""
@@ -173,7 +186,9 @@ def create_app(
             # providers; else "unknown" (a seeded or copied database is never assumed real).
             # Fixture tools pass their own origin above; test apps mark nothing.
             repo.set_meta("data_origin", cfg.data_origin or _default_origin(repo))
-        external = _external_channels(cfg, environ, alert_channels)
+        store = store_for(cfg)
+        layered = LayeredEnviron(os.environ if environ is None else environ, store)
+        external = _external_channels(cfg, layered, alert_channels, setup_report)
         reg = registry if registry is not None else default_registry()
         state = ProviderStateStore(repo)
         router = ProviderRouter(
@@ -183,7 +198,7 @@ def create_app(
             if transport is not None
             else HttpsTransport(use_env_proxy=cfg.rpc.use_env_proxy),
             state,
-            environ=environ,
+            environ=layered,
             sleep=rpc_sleep if rpc_sleep is not None else time.sleep,
         )
         app.state.bip = AppContext(
@@ -230,12 +245,17 @@ def create_app(
             cases=CaseService(repo),
             scheduler=None,
             dispatcher=AlertDispatcher(repo, cfg.alerts, external) if external else None,
+            config_store=store,
+            environ=layered,
+            config_loaded_at=datetime.now(UTC).isoformat(),
+            restart=restart,
+            setup_report=setup_report,
         )
         ctx = app.state.bip
         ctx.review = ReviewService(repo)
         ctx.ranking = SignalRanking(repo, ctx.review, cfg.ml)
         ctx.expansion = ExpansionEngine(repo, cfg, ctx.discovery, ctx.review)
-        ctx.research = ResearchManager(ctx, llm_provider or build_provider(cfg.ai, environ))
+        ctx.research = ResearchManager(ctx, llm_provider or build_provider(cfg.ai, layered))
         if cfg.workers.enabled:
             ctx.scheduler = Scheduler(
                 repo,
@@ -286,6 +306,7 @@ def create_app(
         research,
         strategies,
         curation,
+        setup,
     ):
         app.include_router(module.router, prefix=API_PREFIX)
 

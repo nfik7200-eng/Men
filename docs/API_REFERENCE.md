@@ -51,7 +51,7 @@ The live, machine-readable contract is served at `/api/v1/openapi.json` (interac
 
 ## Routes
 
-187 routes in 17 groups.
+193 routes in 18 groups.
 
 ### auth
 
@@ -1098,6 +1098,45 @@ Parameters: `run_id` (path, required): string
 <details><summary><code>POST /api/v1/research/runs/{run_id}/rerun</code></summary>
 
 Parameters: `run_id` (path, required): string
+
+</details>
+
+### setup
+
+| Method | Path | Role | Summary |
+|---|---|---|---|
+| GET | `/api/v1/setup` | admin | Setup Overview |
+| POST | `/api/v1/setup/restart` | admin | Restart |
+| DELETE | `/api/v1/setup/secrets/{name}` | admin | Clear Secret |
+| POST | `/api/v1/setup/secrets/{name}` | admin | Set Secret |
+| DELETE | `/api/v1/setup/settings/{key}` | admin | Clear Setting |
+| POST | `/api/v1/setup/settings/{key}` | admin | Set Setting |
+
+<details><summary><code>DELETE /api/v1/setup/secrets/{name}</code></summary>
+
+Parameters: `name` (path, required): string (len>=4, len<=128)
+
+</details>
+
+<details><summary><code>POST /api/v1/setup/secrets/{name}</code></summary>
+
+Parameters: `name` (path, required): string (len>=4, len<=128)
+
+Body (`*` required): `value` *: string (len>=1, len<=4096)
+
+</details>
+
+<details><summary><code>DELETE /api/v1/setup/settings/{key}</code></summary>
+
+Parameters: `key` (path, required): string (len>=2, len<=128)
+
+</details>
+
+<details><summary><code>POST /api/v1/setup/settings/{key}</code></summary>
+
+Parameters: `key` (path, required): string (len>=2, len<=128)
+
+Body (`*` required): `value` *: boolean or integer or list of string or null or string
 
 </details>
 

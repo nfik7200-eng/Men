@@ -1,8 +1,26 @@
 # Current State
 
-_Last updated: 2026-11-22 (lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
+_Last updated: 2026-11-23 (setup from the web app; earlier: lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Setup from the web app, 2026-11-23 (ADR-056, Proposed).** Owner goal: finish the backend and frontend so the owner can configure everything from the UI, supplying their own keys. Plan: `docs/superpowers/plans/2026-11-23-setup-from-ui.md`.
+- **Setup page** (`/setup`, admin), sections:
+  - provider credentials, with "Get a key", terms links and "Check connection";
+  - Telegram token and chat id, with a test message;
+  - AI provider, URL, model and key;
+  - background-job switches, with quota-spending jobs marked;
+  - data origin and the ERC-20 and SPL allowlists.
+  - A restart banner lists pending changes and can restart the API in place.
+- **Backend.**
+  - `bip/config/store.py`: a write-only `0600` store under `<data_root>/config/`, `LayeredEnviron` (the environment always wins) and `load_effective_settings`.
+  - `bip/config/setup_catalog.py`: the allowlisted settings.
+  - `bip/api/routes/setup.py`: the `/setup*` routes, admin-only including reads.
+  - `bip/api/lifecycle.py` plus the `python -m bip.api` server loop: restart in place.
+- **When changes apply.** Provider keys apply immediately. Settings, the Telegram token and the AI key apply after a restart. Invalid saved settings found at start are skipped and reported, never fatal.
+- **Fixed on the way:** the Settings page said authentication was "Not implemented"; it now shows the real sign-in mode.
+- **Not done:** no live provider, Telegram or AI call was made. Keys and accounts are the owner's to create. Database backups do not include the key files.
+- Checks: backend 1359 passed; ruff, ruff format and pyright clean; frontend Vitest 302/302, tsc and ESLint clean.
+
 **Solana discovery and memory context (M6, narrowed), 2026-11-22.** Everything uses data the Solana collector already stores; no new collection.
 - **`solana_new_entities` v2.**
   - Programs carry their deploy payer and the number of programs that payer paid for in the 30-day baseline window, as Ethereum counts deployers; a repeat payer scores higher.

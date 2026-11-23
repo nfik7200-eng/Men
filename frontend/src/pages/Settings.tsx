@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { ErrorState, Loading, PageHeader, Panel, Pill } from "../components/ui";
 import { fmtBytes, fmtInt } from "../lib/format";
@@ -9,7 +10,7 @@ export default function Settings() {
     <>
       <PageHeader
         title="Settings"
-        lede="Read-only, non-sensitive configuration. Change settings with BIP_* environment variables on the server."
+        lede="Read-only, non-sensitive configuration. Provider keys, alerts, AI and background jobs are set on the Setup page (admin); everything else with BIP_* environment variables on the server."
       />
       {settings.status === "loading" ? <Loading /> : null}
       {settings.status === "error" ? <ErrorState error={settings.error} onRetry={settings.reload} /> : null}
@@ -27,12 +28,19 @@ export default function Settings() {
               <dd>{settings.data.enabled_chains.join(", ")}</dd>
               <dt>Authentication</dt>
               <dd>
-                <Pill tone="warn">Not implemented</Pill>
+                <Pill tone={settings.data.authentication === "required" ? "ok" : "warn"}>
+                  {settings.data.authentication === "required" ? "Sign-in required" : "Sign-in off (loopback only)"}
+                </Pill>
               </dd>
             </dl>
-            <p className="note">
-              There is no login yet. Keep the backend bound to 127.0.0.1 (the default) and do not
-              expose it to a network.
+            {settings.data.authentication === "required" ? null : (
+              <p className="note">
+                Sign-in is off, so the API only accepts connections from this machine. Set
+                BIP_AUTH__MODE=required and create an administrator before exposing it to a network.
+              </p>
+            )}
+            <p>
+              <Link to="/setup">Open Setup</Link> to add provider keys, Telegram alerts and AI.
             </p>
           </Panel>
           <Panel title="Data and storage">

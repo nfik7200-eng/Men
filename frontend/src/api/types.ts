@@ -1541,3 +1541,45 @@ export type CurationFeedbackBody = {
   reviewer: string;
   note?: string;
 };
+
+// Setup (ADR-056): secrets are write-only; the server never returns their values.
+export type SetupSecret = {
+  name: string;
+  group: string;
+  label: string;
+  help: string;
+  applies: "immediately" | "after_restart";
+  provider_id: string | null;
+  chains: string[];
+  access: string | null;
+  docs_url: string | null;
+  terms_url: string | null;
+  checkable: boolean;
+  set: boolean;
+  source: "environment" | "setup" | null;
+  updated_at: string | null;
+  updated_by: string | null;
+};
+export type SetupValue = boolean | number | string | string[] | null;
+export type SetupSetting = {
+  key: string;
+  group: string;
+  label: string;
+  help: string;
+  kind: "bool" | "int" | "text" | "choice" | "list";
+  choices: string[];
+  contacts_providers: boolean;
+  /** The value the running API uses now. */
+  value: SetupValue;
+  /** The value saved on the setup page (applies after a restart), or null. */
+  stored: SetupValue;
+  source: "environment" | "setup" | "default";
+  updated_at: string | null;
+  updated_by: string | null;
+};
+export type SetupOverview = {
+  secrets: SetupSecret[];
+  settings: SetupSetting[];
+  restart: { available: boolean; pending: string[] };
+  startup: { overrides_error: string | null; ignored_keys: string[]; overridden_by_environment: string[] };
+};

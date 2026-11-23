@@ -4,6 +4,34 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-23 — Setup from the web app (ADR-056)
+
+**Owner goal.** "Complete the entire backend and frontend; if you need keys or APIs, leave that to me. I will set up the backend from the frontend UI."
+
+**Done.**
+- **Store** (`bip/config/store.py`): `ConfigStore` (atomic 0600 writes in a 0700 directory, symlinks refused, a corrupt file is an error), `LayeredEnviron` (the environment first, never both a store value and an environment `<NAME>_FILE`), `load_effective_settings` (allowlisted overrides minus environment-set fields; invalid overrides are reported, not fatal) and `validate_override`.
+- **Catalogue** (`bip/config/setup_catalog.py`): 24 editable settings. Binding, authentication, paths and limits are excluded.
+- **API** (`bip/api/routes/setup.py`): `GET /setup`, `POST`/`DELETE /setup/secrets/{name}`, `POST`/`DELETE /setup/settings/{key}` and `POST /setup/restart`. `access.ADMIN_ANY` now covers `/setup` (server and frontend mirror).
+  - Provider URLs are checked against the registry host allow-list.
+  - Telegram needs its chat id and token before it can be switched on, and its token cannot be removed while it is switched on.
+  - Every change is audited by name.
+- **Wiring.**
+  - The router, the Telegram secret lookup and the AI provider factory now read `LayeredEnviron`, so provider keys apply live.
+  - Telegram switched on from the page without a token is skipped with a warning instead of stopping startup.
+  - `bip/api/lifecycle.py` and the `python -m bip.api` loop restart the server in place.
+- **Frontend.** `Setup.tsx`, client calls, types, a route, a nav entry under the system group, styles and fake-backend routes. `Settings.tsx` shows the real sign-in mode (it said "Not implemented").
+- **Docs.** ADR-056, a "Setup from the web app" section in `docs/OPERATIONS.md`, and the regenerated `docs/API_REFERENCE.md`.
+
+**Tests.** `tests/unit/test_config_store.py` (13), `tests/api/test_setup_api.py` (15), `frontend/src/pages/setup.test.tsx` (4).
+- The store and API tests were written before their implementations, but their first run came after the implementation. Only the `checkable` flag test was seen failing before its change.
+- Five mutation checks were each caught by a test: the store shadowing an environment `_FILE`, no provider host check, Telegram without a token, the store beating the environment, and a non-editable key being applied.
+
+**Rulings** (decisions taken without a separate owner answer, with their cost if wrong)
+- Keys are kept in a server-side 0600 file, not in SQLite: a database backup or copy never carries keys. Cost if wrong: keys need their own backup.
+- Reads of `/setup` are admin-only, because they reveal which accounts are configured. Cost if wrong: analysts cannot see provider set-up status there (`/providers` still shows it).
+
+**Evidence.** Full backend run `1359 passed in 654.60s (0:10:54)` (1331 before, 28 new). `ruff check .` clean; `ruff format --check .` 337 files formatted; `pyright` 0 errors. Frontend: `vitest run` 31 files / 302 tests passed (including `research/runpage.test.tsx`, which was flaky earlier); `tsc --noEmit` and `eslint .` clean. `docs/API_REFERENCE.md` regenerated; its test passes.
+
 ## 2026-11-22 — Solana discovery and memory context (M6, narrowed)
 
 **Why.** M6 (from the 2026-11-13 audit) is that Solana has fewer detectors and memory sources. The Solana collector already stores program payers and pool mint pairs in `solana_discoveries.detail_json`, but discovery and memory used them only as display detail.

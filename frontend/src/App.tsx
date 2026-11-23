@@ -19,6 +19,7 @@ import ProviderDetail from "./pages/ProviderDetail";
 import Research from "./pages/Research";
 import RunPage from "./pages/research/RunPage";
 import Settings from "./pages/Settings";
+import Setup from "./pages/Setup";
 import Curation from "./pages/Curation";
 import SignalDetailPage from "./pages/signals/SignalDetail";
 import Signals from "./pages/Signals";
@@ -103,6 +104,7 @@ function Shell() {
           <Route path="/attribution" element={<Attribution />} />
           <Route path="/system" element={<System />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/setup" element={<Setup />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

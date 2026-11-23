@@ -55,6 +55,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: "/coverage", label: "Coverage", heading: "Coverage" },
       { to: "/models", label: "Models", heading: "Models" },
       { to: "/system", label: "System", heading: "System" },
+      { to: "/setup", label: "Setup", heading: "Setup" },
       { to: "/settings", label: "Settings", heading: "Settings" },
     ],
   },

@@ -320,6 +320,7 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
   const caseLinks = new Map<number, Json[]>();
   const attached: Json[] = [];
   const labels: Json[] = [];
+  const setupState = newSetupState();
   const json = (status: number, body?: unknown) =>
     Promise.resolve(new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
   const err = (status: number, code: string, message: string) => json(status, { error: { code, message } });
@@ -408,6 +409,10 @@ export function installFakeBackend(intel: IntelOptions = {}, research: ResearchO
     if (path.startsWith("/cases") || path === "/investigations/run") {
       const r = caseResponse(path, method, body, caseState);
       return r ? json(r.status, r.body) : err(404, "not_found", "Not Found");
+    }
+    if (path === "/setup" || path.startsWith("/setup/")) {
+      const r = setupResponse(path, method, body, setupState);
+      return json(r.status, r.body);
     }
     if (path.startsWith("/strategies/")) {
       if (path.includes("/classification/")) {
@@ -640,4 +645,67 @@ function caseResponse(path: string, method: string, body: Json, st: CaseState): 
     return { status: 200, body: row };
   }
   return null;
+}
+
+// ---------------------------------------------------------------- setup (ADR-056)
+
+type SetupState = { secrets: Record<string, { set: boolean; source: string | null }>; stored: Map<string, unknown>; pending: string[]; restarts: number };
+
+export function newSetupState(): SetupState {
+  return { secrets: { BIP_PROVIDER_ALCHEMY_ETH_URL: { set: false, source: null }, BIP_TELEGRAM_BOT_TOKEN: { set: false, source: null } }, stored: new Map<string, unknown>(), pending: [], restarts: 0 };
+}
+
+const SETUP_SECRETS = [
+  { name: "BIP_PROVIDER_ALCHEMY_ETH_URL", group: "Providers", label: "Alchemy (Ethereum)", help: "The full endpoint URL.", applies: "immediately",
+    provider_id: "alchemy-eth", chains: ["ethereum"], access: "free_tier", docs_url: "https://www.alchemy.com/docs", terms_url: "https://www.alchemy.com/terms", checkable: true },
+  { name: "BIP_TELEGRAM_BOT_TOKEN", group: "Alerts", label: "Telegram bot token", help: "From @BotFather.", applies: "after_restart",
+    provider_id: null, chains: [], access: null, docs_url: "https://core.telegram.org/bots", terms_url: null, checkable: false },
+];
+const SETUP_SETTINGS = [
+  { key: "workers.enabled", group: "Background jobs", label: "Run the background scheduler", help: "Master switch.", kind: "bool", choices: [], contacts_providers: false, value: false },
+  { key: "workers.collector_enabled", group: "Background jobs", label: "Ethereum block collector", help: "Reads finalized blocks.", kind: "bool", choices: [], contacts_providers: true, value: false },
+  { key: "alerts.telegram_chat_id", group: "Alerts", label: "Telegram chat id", help: "A numeric chat id.", kind: "text", choices: [], contacts_providers: false, value: null },
+];
+
+function setupResponse(path: string, method: string, body: Json | undefined, st: SetupState): { status: number; body: unknown } {
+  if (path === "/setup" && method === "GET") {
+    return {
+      status: 200,
+      body: {
+        secrets: SETUP_SECRETS.map((s) => ({ ...s, ...st.secrets[s.name], updated_at: null, updated_by: null })),
+        settings: SETUP_SETTINGS.map((s) => ({ ...s, stored: st.stored.has(s.key) ? st.stored.get(s.key) : null,
+          source: st.stored.has(s.key) ? "setup" : "default", updated_at: null, updated_by: null })),
+        restart: { available: true, pending: [...st.pending] },
+        startup: { overrides_error: null, ignored_keys: [], overridden_by_environment: [] },
+      },
+    };
+  }
+  const secret = /^\/setup\/secrets\/(.+)$/.exec(path);
+  if (secret) {
+    const name = decodeURIComponent(secret[1] ?? "");
+    if (!(name in st.secrets)) return { status: 404, body: { error: { code: "not_found", message: "unknown" } } };
+    if (method === "POST") {
+      const value = String((body as { value?: unknown } | undefined)?.value ?? "");
+      if (value.includes("evil")) return { status: 422, body: { error: { code: "invalid_setup_value", message: "Alchemy (Ethereum): host evil.example is not allowed" } } };
+      st.secrets[name] = { set: true, source: "setup" };
+      if (name === "BIP_TELEGRAM_BOT_TOKEN") st.pending.push(name);
+      return { status: 200, body: { name, set: true } };
+    }
+    st.secrets[name] = { set: false, source: null };
+    return { status: 200, body: { name, set: false } };
+  }
+  const setting = /^\/setup\/settings\/(.+)$/.exec(path);
+  if (setting) {
+    const key = decodeURIComponent(setting[1] ?? "");
+    if (method === "POST") st.stored.set(key, (body as { value?: unknown } | undefined)?.value ?? null);
+    else st.stored.delete(key);
+    if (!st.pending.includes(key)) st.pending.push(key);
+    return { status: 200, body: { key } };
+  }
+  if (path === "/setup/restart" && method === "POST") {
+    st.restarts += 1;
+    st.pending = [];
+    return { status: 202, body: { restarting: true } };
+  }
+  return { status: 404, body: { error: { code: "not_found", message: "Not Found" } } };
 }

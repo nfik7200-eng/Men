@@ -21,7 +21,8 @@ PUBLIC_PATHS = frozenset({"/health", "/auth/login", "/auth/status"})
 SELF_SERVICE = frozenset({"/auth/logout", "/auth/password", "/auth/me"})
 """Any signed-in user, whatever the method."""
 
-ADMIN_ANY = re.compile(r"^/(users|audit)(/|$)")
+ADMIN_ANY = re.compile(r"^/(users|audit|setup)(/|$)")
+"""Admin for every method. ``/setup`` reads too: they reveal which credentials are configured."""
 
 ADMIN_WRITE = re.compile(r"^/alerts/channels/")
 """Mutating routes under an analyst prefix that contact an external service (Telegram test)."""

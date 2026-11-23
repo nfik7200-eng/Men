@@ -1,7 +1,8 @@
 """Run the API: ``uv run python -m bip.api``.
 
 Listens on ``BIP_API__HOST``:``BIP_API__PORT``, or on the Unix socket ``BIP_API__UNIX_SOCKET`` when
-that is set (the recommended way to sit behind a reverse proxy on a shared host).
+that is set (the recommended way to sit behind a reverse proxy on a shared host). Settings saved on
+the Setup page are merged in at start, and ``POST /setup/restart`` restarts the server in place.
 """
 
 from __future__ import annotations
@@ -15,8 +16,12 @@ import uvicorn
 from starlette.types import ASGIApp
 
 from bip.api.app import create_app
-from bip.config.settings import Settings, load_settings
-from bip.core.logging import configure_logging
+from bip.api.lifecycle import RestartController
+from bip.config.settings import Settings
+from bip.config.store import load_effective_settings
+from bip.core.logging import configure_logging, get_logger
+
+log = get_logger("bip.api")
 
 SOCKET_UMASK = 0o117
 """The socket file is created 0660: owner and group (the proxy's group), nobody else."""
@@ -66,15 +71,27 @@ def bind_unix_socket(path: Path) -> socket.socket:
     return sock
 
 
-def main() -> None:
-    settings = load_settings()
+def serve_once(controller: RestartController) -> bool:
+    """Load the settings (environment plus Setup-page overrides), run until stopped, and say
+    whether a restart was requested from the Setup page."""
+    settings, report = load_effective_settings()
     configure_logging(settings.log_level, settings.log_format)
-    config = uvicorn_config(settings, create_app(settings))
-    server = uvicorn.Server(config)
+    if report.error:
+        log.warning("setup-page settings were not applied: %s", report.error)
+    app = create_app(settings, restart=controller, setup_report=report)
+    server = uvicorn.Server(uvicorn_config(settings, app))
+    controller.attach(server)
     if settings.api.unix_socket is None:
         server.run()
-        return
-    server.run(sockets=[bind_unix_socket(settings.api.unix_socket)])
+    else:
+        server.run(sockets=[bind_unix_socket(settings.api.unix_socket)])
+    return controller.consume()
+
+
+def main() -> None:
+    controller = RestartController()
+    while serve_once(controller):
+        log.info("restarting with the saved setup")
 
 
 if __name__ == "__main__":

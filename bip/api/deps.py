@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated
 
 from fastapi import Depends, Request
 
+from bip.api.lifecycle import RestartController
 from bip.config.settings import Settings
+from bip.config.store import ConfigStore, EffectiveSettings, LayeredEnviron
 from bip.db.repository import Repository
 from bip.discovery.delivery import AlertDispatcher
 from bip.discovery.expansion import ExpansionEngine
@@ -88,8 +90,17 @@ class AppContext:
     entity_labels: EntityLabelService
     cases: CaseService
     scheduler: Scheduler | None
+    config_store: ConfigStore
+    environ: LayeredEnviron
+    """The process environment layered over setup-page secrets (ADR-056), read live."""
+    config_loaded_at: str
+    """When the running settings were loaded (ISO 8601); later setup changes are pending."""
     dispatcher: AlertDispatcher | None = None
     """External alert delivery; set only when a channel such as Telegram is enabled."""
+    restart: RestartController | None = None
+    setup_report: EffectiveSettings | None = None
+    setup_cleared: set[str] = field(default_factory=set[str])
+    """Setup entries cleared since the settings were loaded (pending until a restart)."""
 
 
 def get_context(request: Request) -> AppContext:

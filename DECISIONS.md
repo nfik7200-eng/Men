@@ -792,3 +792,27 @@ The Stage 3 verification audit found three correctness problems.
 - Superseded files keep using disk until a retention decision is made.
 - Not yet wired into ingestion (roadmap Stage 6). The Parquet codec, the DuckDB reader and the bytes-per-row measurement on real data wait for the pyarrow and duckdb install.
 - Approval of this ADR is pending with the owner.
+
+## ADR-056 Setup from the web app: a write-only server-side store for keys and allowlisted settings (Proposed; owner goal 2026-11-23)
+**Context.**
+- On 2026-11-23 the owner asked for the platform to be completed so that they can set it up from the frontend, supplying their own keys and accounts.
+- Until now every credential and operator switch was a `BIP_*` environment variable. CLAUDE.md §4 requires secrets to come from the environment or secret files, never committed and never logged.
+
+**Decision.**
+- **Store.** `bip/config/store.py` writes two files under `<data_root>/config/` (directory 0700, files 0600, atomic replace, symlinks refused, corrupt file is an error): `secrets.json` and `settings.json`. They are secret files in the §4 sense: server-side, gitignored (under `var/`), not in SQLite backups.
+- **Allowlists.** Secrets: every registry `endpoint_env`, `BIP_TELEGRAM_BOT_TOKEN` and the configured AI key variable. Settings: the keys in `bip/config/setup_catalog.py` (alerts, AI, worker switches, continuous training, data origin, collector allowlists). Binding, authentication, storage paths and limits stay environment-only, so a browser cannot expose or lock out the API.
+- **Precedence.** The process environment wins over the store for every secret and setting. `LayeredEnviron` never supplies a store value for a name the environment sets directly or as `<NAME>_FILE`.
+- **When changes apply.** Provider credentials apply immediately, because the router resolves endpoints per call through `LayeredEnviron`. Settings and the other secrets apply after a restart.
+- **Restart.** `python -m bip.api` runs the server in a loop, and `POST /setup/restart` asks it to exit and start again with re-read settings (409 `restart_unavailable` otherwise).
+- **Validation.**
+  - Provider URLs must pass the registry host allow-list.
+  - The Telegram token must match its pattern.
+  - A setting is saved only if the configuration the next start would load stays valid.
+  - Telegram cannot be switched on without a chat id and token, and its token cannot be removed while it is switched on from the page.
+  - Invalid stored settings found at start are skipped and reported, never fatal. Telegram switched on from the page without a token is skipped with a warning.
+- **API.** `/setup*` is admin-only for every method, including reads. Secret values are never returned. Every change is audited by name; denied changes record a value-free reason.
+
+**Consequences.**
+- The owner can configure providers, alerts, AI and jobs from the browser. Keys sit in a 0600 file on the server, readable by the service user (the same exposure as an env file).
+- Restoring a database backup does not restore keys; `<data_root>/config/` must be backed up separately.
+- Approval of this ADR is pending with the owner.
