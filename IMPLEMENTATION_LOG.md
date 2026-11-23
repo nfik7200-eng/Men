@@ -4,6 +4,31 @@ Entries are newest first. Each entry records what was done, how it was verified,
 
 _Rebuilt on 2026-11-21 (see the first entry). This file is the union of the two histories that a faulty rebase had collapsed to 18 lines: the upstream log at `9765710` (1186 lines) and the local Detective, strategies, curation and graph-explorer entries from `8e9112c`. Entries inside the upstream block keep their original text; only their order was normalised to newest first._
 
+## 2026-11-23 — Lake storage layer Part B: Parquet codec, DuckDB reader, measurement
+
+**Install.** The owner ran `uv add --group lake pyarrow duckdb` on 2026-11-22; it failed on DNS (`files.pythonhosted.org`). Once the host resolved, the same command was run in the session and installed duckdb 2.0.1 and pyarrow 26.0.1. `pyproject.toml` bounds them (`<3`, `<27`) and makes `lake` a default group (so CI's `uv sync --locked` installs it). `uv.lock` was regenerated with `uv lock`, not edited.
+
+**Design check before coding.** DuckDB 2.0 with `allowed_directories` still let `COPY ... TO` write inside the allowed directory. With external access disabled entirely and the files registered as a pyarrow dataset, reads, writes and `ATTACH` were all refused while the registered table stayed queryable. The reader uses the second form.
+
+**Done.**
+- `parquet.py`: `ParquetCodec`, `arrow_schema`.
+- `reader.py`: `LakeReader`, `TableRef`.
+- `runtime.py`.
+- `datasets.py`: `TRANSACTIONS`, `TRANSFERS`, `measure_bytes_per_row`.
+- `bip/tools/lake.py`: a `measure` subcommand.
+- `LakeQueryError` in `bip/core/exceptions.py`.
+- The pyarrow files carry a file-level pyright directive (pyarrow ships without types); strict mode is unchanged elsewhere.
+
+**Tests.** `tests/storage/test_lake_parquet.py` (11) and `tests/storage/test_lake_measure.py` (4). They were written first; the measure tests were seen failing (import error), while the codec and reader tests passed on their first run. Four mutations were each caught:
+- external access left on: 1 failed;
+- no size check: 1;
+- no schema-fingerprint check: 1;
+- reading every manifest entry instead of the committed ones: 2.
+
+**Measurement.** `uv run python -m bip.tools.lake measure` on this machine's database: `data_origin: unknown`, 0 transactions, 0 transfers, so no figure. No real-data bytes per row exists yet.
+
+**Evidence.** Full backend run `1386 passed in 788.79s (0:13:08)` (1368 before, 3 continuous-training tests and 15 lake tests new). `ruff check .` clean; `ruff format --check .` 345 files formatted; `pyright` 0 errors. No frontend change in this step.
+
 ## 2026-11-23 — First administrator from the sign-in page (ADR-057)
 
 **Why.** With sign-in required, the only way to create the first user was `python -m bip.tools.users` on the server, which gets in the way of setting up from the web app. An open form would let anyone who reaches the page first take the instance.

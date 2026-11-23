@@ -36,3 +36,7 @@ class StorageIntegrityError(BIPError):
 
 class RowValidationError(BIPError):
     """Rows do not match a lake table schema. Messages name rows and columns, never values."""
+
+
+class LakeQueryError(BIPError):
+    """A lake query was refused or failed (it may only read the registered tables)."""

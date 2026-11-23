@@ -1,9 +1,11 @@
-"""Read-only lake inspection: ``python -m bip.tools.lake verify|stats``.
+"""Lake inspection: ``python -m bip.tools.lake measure|verify|stats``.
 
 ``verify`` checks every file a table's manifest references (re-hashing by default) and reports
 crash leftovers; it exits 1 when the table has integrity errors. ``stats`` prints committed
-files, rows, bytes and bytes per row for every table with a manifest (or one table). Output is
-JSON. Nothing is written, repaired or deleted, and no network is used.
+files, rows, bytes and bytes per row for every table with a manifest (or one table). ``measure``
+encodes the newest stored database rows as Parquet and reports bytes per row, with the database's
+data origin. Output is JSON. Nothing in the lake is written, repaired or deleted (``measure`` only
+writes a temporary file it removes), and no network is used.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ from pathlib import Path
 
 from bip.config import load_settings
 from bip.core.exceptions import BIPError
+from bip.db.engine import create_db_engine
+from bip.db.repository import Repository
 from bip.storage.lake.integrity import table_stats, verify_table
 from bip.storage.lake.partition import DATA_LAYERS
 from bip.storage.paths import Layer, StorageRoot
@@ -42,6 +46,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     v.add_argument("--chain", required=True)
     v.add_argument("--dataset", required=True)
     v.add_argument("--shallow", action="store_true", help="compare sizes only, do not re-hash")
+    m = sub.add_parser("measure", help="Parquet bytes per row of stored database rows")
+    m.add_argument("--limit", type=int, default=10_000, help="newest rows per table (max 1e6)")
     s = sub.add_parser("stats", help="committed files, rows and bytes per row")
     s.add_argument("--layer", choices=sorted(x.value for x in DATA_LAYERS))
     s.add_argument("--table", help="<chain>.<dataset>; default: every table with a manifest")
@@ -51,6 +57,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         data_root = args.data_root or load_settings().resolved_data_root
         root = StorageRoot(data_root)
         root.require_exists()
+        if args.command == "measure":
+            from bip.storage.lake.datasets import measure_bytes_per_row
+            from bip.storage.lake.runtime import require_lake
+
+            require_lake()
+            settings = load_settings()
+            engine = create_db_engine(settings)
+            try:
+                limit = max(1, min(int(args.limit), 1_000_000))
+                _emit(measure_bytes_per_row(Repository(engine), root.root, limit=limit))
+            finally:
+                engine.dispose()
+            return 0
         if args.command == "verify":
             report = verify_table(
                 root, Layer(args.layer), args.chain, args.dataset, deep=not args.shallow

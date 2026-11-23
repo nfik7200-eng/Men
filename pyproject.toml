@@ -28,6 +28,12 @@ dev = [
     "pyright>=1.1.390",
     "httpx2>=2.16,<3",
 ]
+# The lake runtime (roadmap Stage 5, ADR-055) is a default group too, so BIP can still start where
+# pyarrow or duckdb cannot be installed: `uv sync --no-group lake`. Nothing imports it at startup.
+lake = [
+    "duckdb>=2.0.1,<3",
+    "pyarrow>=26.0.1,<27",
+]
 
 [build-system]
 requires = ["hatchling>=1.25"]
@@ -69,4 +75,4 @@ filterwarnings = ["error"]
 known-first-party = ["bip", "tests"]
 
 [tool.uv]
-default-groups = ["dev", "ml"]
+default-groups = ["dev", "ml", "lake"]

@@ -3,6 +3,16 @@
 _Last updated: 2026-11-23 (setup from the web app; earlier: lake storage layer Part A; earlier: Telegram alert delivery, off by default; earlier the same day: hardening fixes; before that: free provider expansion and the rebase repair below)_
 
 ## Phase
+**Lake storage layer Part B, 2026-11-23 (ADR-055).** pyarrow 26.0.1 and duckdb 2.0.1 are installed as the default `lake` dependency group (owner-approved 2026-11-22; `uv sync --no-group lake` omits them, and nothing imports them at startup).
+- **Code.**
+  - `bip/storage/lake/parquet.py` (zstd, deterministic, schema fingerprint in the file).
+  - `bip/storage/lake/reader.py`: DuckDB over committed files only. SQL cannot touch the filesystem; memory and threads are capped.
+  - `bip/storage/lake/runtime.py`: availability check.
+  - `bip/storage/lake/datasets.py`: Silver `transactions` and `transfers` schemas, and the bytes-per-row probe.
+  - `python -m bip.tools.lake measure`.
+- **Tests.** 15 in `tests/storage/test_lake_parquet.py` and `test_lake_measure.py`. Four mutation checks on the reader and codec (SQL file access, size check, schema check, reading uncommitted or superseded files) were each caught.
+- **Not done.** No real-data bytes-per-row figure: `measure` on this machine's database reports 0 rows. Ingestion does not write the lake yet (Stage 6).
+
 **First administrator from the sign-in page, 2026-11-23 (ADR-057, Proposed).**
 - **How.** With sign-in required and no users, the API writes a one-time code to `<data_root>/config/first-admin-code` (0600; the path is logged, the code never is). The sign-in page then shows "Create administrator", and `POST /auth/bootstrap` (public, rate-limited, audited) creates the admin and signs them in.
 - **Guards.** The code works once and is replaced after five wrong tries. The route closes once any user exists, including one created on the server while the API runs.
@@ -61,7 +71,7 @@ _Last updated: 2026-11-23 (setup from the web app; earlier: lake storage layer P
   - `compaction.py`: supersedes; inputs are kept.
   - `python -m bip.tools.lake verify|stats`: read-only.
 - **Crash safety** is tested with real process death (`os._exit` at `encoded`, `placed` and `committed`). Nothing is committed before the manifest line, and a re-run adopts the leftover. Three mutation checks were each caught by a test.
-- **Not done (Part B):** no Parquet codec, no DuckDB reader, and no bytes-per-row figure on real data. The owner approved pyarrow and duckdb (2026-11-22), but the session's permission classifier refused `uv add --group lake pyarrow duckdb`, so they are not installed and `pyproject.toml`/`uv.lock` are unchanged. Nothing writes to the lake yet (ingestion wiring is roadmap Stage 6).
+- **Part B** was completed on 2026-11-23 (see above).
 - Checks: backend `1306 passed in 719.13s` (1243 before plus 63 new); `ruff check .`, `ruff format --check .` (324 files) and `pyright` (0 errors) clean. No frontend change.
 
 **Telegram alert delivery, 2026-11-22 (ADR-054, Proposed).** Owner decision: the Stage 12 alert channel is a Telegram bot.

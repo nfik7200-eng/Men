@@ -790,7 +790,12 @@ The Stage 3 verification audit found three correctness problems.
 - A crash at any point loses at most the batch in flight, and re-running it recovers. Crash leftovers stay on disk until an operator removes them.
 - A single writer host is assumed (advisory `flock`). A shared or network filesystem would need another lock.
 - Superseded files keep using disk until a retention decision is made.
-- Not yet wired into ingestion (roadmap Stage 6). The Parquet codec, the DuckDB reader and the bytes-per-row measurement on real data wait for the pyarrow and duckdb install.
+- Not yet wired into ingestion (roadmap Stage 6).
+- **Part B (2026-11-23, after the owner-approved install of pyarrow 26.0.1 and duckdb 2.0.1 as the default `lake` group).**
+  - `ParquetCodec` writes zstd level 3, with dictionary encoding and statistics. Its output is byte-identical for equal rows, and it stores the schema fingerprint in the file metadata; decoding refuses a mismatch.
+  - `LakeReader` reads only committed, non-superseded files, after a size check (or a re-hash with `deep=True`), and hands them to DuckDB as registered pyarrow datasets.
+  - The DuckDB connection has `enable_external_access = false` and a locked configuration, so SQL cannot read, write or attach files. Memory (512 MB) and threads (2) are capped.
+  - `python -m bip.tools.lake measure` encodes the newest stored rows to report bytes per row, labelled with the database's `data_origin`.
 - Approval of this ADR is pending with the owner.
 
 ## ADR-056 Setup from the web app: a write-only server-side store for keys and allowlisted settings (Proposed; owner goal 2026-11-23)
